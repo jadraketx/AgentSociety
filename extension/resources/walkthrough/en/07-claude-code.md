@@ -27,15 +27,17 @@ These are project-level files and are safe to maintain with the project. Put per
 
 ### Configure the model service used by Claude Code
 
-Claude Code uses Anthropic by default. If you route requests through a proxy or compatible gateway, configure environment variables in **`~/.claude/settings.json`**, or use the extension config page under **Advanced → Claude Code**:
+Claude Code uses Anthropic by default. The recommended way to configure model routing is through the extension config page under **Advanced → Claude Code / Codex 路由**:
 
 [Open Claude Code settings (config page)](command:aiSocialScientist.openClaudeCodeConfig)
 
-![Claude Code settings file example](../images/claude-settings-json.png)
+The config page supports:
 
-Edit `~/.claude/settings.json` (Mac/Linux) or `UserDir/.claude/settings.json` (Windows):
+- **Claude Code**: Add Anthropic or third-party Claude providers, enable/disable local proxy routing, and manage failover between providers.
+- **Codex CLI**: Add OpenAI or third-party providers (e.g. Zhipu, DeepSeek). When routed through the local gateway, `/v1/responses` is automatically translated to Chat Completions for providers that only support the Chat protocol.
+- **Gateway status bar**: When local routing is enabled, the status bar shows `CLI Route: Claude + Codex` (or whichever tools are routed). Click to open the config page.
 
-If the file does not exist yet, create the `.claude` folder and `settings.json` first:
+You can also manually edit `~/.claude/settings.json` (Mac/Linux) or `UserDir/.claude/settings.json` (Windows):
 
 ![Create Claude settings file example](../images/gif/create-claude-settings-json.gif)
 
@@ -51,17 +53,18 @@ If the file does not exist yet, create the `.claude` folder and `settings.json` 
 
 > 💡 The config page writes `ANTHROPIC_AUTH_TOKEN` (Bearer) and `ANTHROPIC_BASE_URL`. If your provider requires `X-Api-Key`, set `ANTHROPIC_API_KEY` manually in `settings.json`.
 
-If your gateway supports the Anthropic Messages format and you want models to appear in `/model`, add:
+### Using the local AI CLI Gateway
 
-```json
-{
-  "env": {
-    "CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY": "1"
-  }
-}
-```
+The config page includes a built-in **AI CLI Gateway** that can proxy Claude Code and Codex CLI requests through third-party providers:
 
-After starting Claude Code, use `/status` to check the connection and `/model` to switch models.
+1. In **Advanced → Claude/Codex routing**, add a provider with Base URL and API Key.
+2. Toggle **Enable local proxy** for Claude and/or Codex.
+3. The gateway starts automatically and writes the upstream configuration to `~/.claude/settings.json` and `~/.codex/config.toml`.
+4. After changing providers or models, click **Restart Codex** in the Codex tab to apply.
+
+Official subscriptions (Anthropic Pro/Max, ChatGPT) use direct OAuth login and do **not** need the local gateway — keep proxy toggled off for those.
+
+> 💡 The gateway also provides usage tracking and estimated costs. Click **View Log** in the config page to inspect routing details.
 
 ---
 

@@ -43,11 +43,13 @@ The sidebar displays your research project as a tree:
 ├── 📂 papers/            → Literature
 │   ├── 📂 pdf/           → PDF papers
 │   └── 📂 md/            → Markdown notes
+├── 📂 paper/             → Paper workspace (sections, reviews, etc.; right-click to view review details)
 ├── 📂 hypothesis_xxx/    → Research hypothesis
 │   └── 📂 experiment_xxx/ → Experiment (click to replay)
-└── 📂 custom/skills/     → Installed skills
+├── 📂 custom/skills/     → Installed skills
+└── 📂 .agentsociety/     → Analysis harness state (auto-maintained)
 ```
 
-> 💡 Right-click files for more actions: copy path, open in file explorer, format JSON, etc.
+> 💡 Right-click files for more actions: copy path, open in file explorer, format JSON, view evidence graphs, etc.
 
 [Open Sidebar](command:projectStructureView.focus)

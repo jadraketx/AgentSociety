@@ -12,6 +12,10 @@ Setup complete! You're ready to start using AI Social Scientist.
 | --------------------------------------------------------- | --------------------------------------- | ---------------------------------------------------------- |
 | [AI Chat](command:aiSocialScientist.openChat)             | Command Palette → `Open AI Chat`        | Want to chat with the AI assistant, ask research questions |
 | [Simulation Replay](command:aiSocialScientist.openReplay) | Sidebar → right-click experiment folder | Want to review and analyze agent simulation processes      |
+| Paper Review Viewer                                       | Sidebar → right-click `paper/reviews/`  | View structured review verdicts, dimensions, and blocking issues |
+| Evidence Graph Viewer                                     | Sidebar → right-click evidence graph node | Visualize evidence relationships in analysis results |
+| CLI Route Status                                          | Status bar → `CLI Route`                | Check whether Claude Code / Codex is routed through the local gateway |
+| Gateway Log                                               | Config page → View Log                  | Debug routing or provider connection issues                |
 | [User Guide](command:aiSocialScientist.openHelpPage)      | Sidebar 📖 button                        | Want to see the full feature documentation                 |
 | Glossary                                                  | Last step in this walkthrough           | When a term or concept feels unclear                       |
 

@@ -164,9 +164,6 @@ export class ConfigPageViewProvider {
               Boolean(message.enabled)
             );
             break;
-          case 'setAiCliGateway':
-            await this._handleSetAiCliGateway(Boolean(message.enabled));
-            break;
           case 'gatewayListProviders':
             await this._handleGatewayListProviders();
             break;
@@ -398,53 +395,6 @@ export class ConfigPageViewProvider {
     });
   }
 
-  private async _handleSetAiCliGateway(enabled: boolean): Promise<void> {
-    const manager = ConfigPageViewProvider.gatewayManager;
-    if (!manager) {
-      this._panel.webview.postMessage({
-        command: 'aiCliGatewayStatus',
-        status: { enabled: false, running: false, error: 'gateway_unavailable' },
-      });
-      return;
-    }
-    if (enabled && !manager.canEnableGateway()) {
-      vscode.window.showWarningMessage(localize('aiCliGateway.noApiProvider'));
-      this._panel.webview.postMessage({
-        command: 'aiCliGatewayStatus',
-        status: { ...manager.getPublicStatus(), error: 'gateway_no_api_provider' },
-      });
-      return;
-    }
-    const anthropic = manager.getAnthropicProviderForGateway();
-    const config = anthropic
-      ? manager.providerToClaudeConfig(anthropic)
-      : readClaudeConfig();
-    try {
-      if (enabled) {
-        await manager.enableWithClaudeConfig(config);
-      } else {
-        await manager.disableAndRestoreDirect(config);
-      }
-      await this._postGatewayStatus();
-      vscode.window.showInformationMessage(
-        enabled
-          ? localize('aiCliGateway.enabledToast')
-          : localize('aiCliGateway.disabledToast')
-      );
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      const localized =
-        message === 'gateway_no_api_provider'
-          ? localize('aiCliGateway.noApiProvider')
-          : localize('aiCliGateway.toggleFailed', message);
-      this._panel.webview.postMessage({
-        command: 'aiCliGatewayStatus',
-        status: { ...manager.getPublicStatus(), error: message },
-      });
-      vscode.window.showErrorMessage(localized);
-    }
-  }
-
   private async _handleGatewayListProviders(): Promise<void> {
     const manager = ConfigPageViewProvider.gatewayManager;
     const providers = manager
@@ -471,6 +421,7 @@ export class ConfigPageViewProvider {
   private async _handleGatewaySaveProvider(provider: Partial<AiCliProviderConfig>): Promise<void> {
     const manager = ConfigPageViewProvider.gatewayManager;
     if (!manager) {
+      this._panel.webview.postMessage({ command: 'gatewayProvidersList', providers: [] });
       return;
     }
     await manager.addProvider({
@@ -542,6 +493,7 @@ export class ConfigPageViewProvider {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(localize('aiCliGateway.toggleFailed', message));
+      await this._postGatewayStatus();
     }
   }
 

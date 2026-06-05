@@ -13,6 +13,7 @@ Quick index: [A](#a) · [B-C](#b-c) · [D-E](#d-e) · [F-I](#f-i) · [L-M](#l-m)
 | **AgentSociety²** | An LLM-native agentic research framework for turning social science questions into runnable and inspectable computational experiments. |
 | **AGENTS.md** | Project instructions for general coding assistants, including structure, commands, and collaboration conventions. |
 | **AI Chat** | The extension's chat entry point for asking research questions, generating configs, checking results, or operating on the project. |
+| **AI CLI Gateway** | A built-in local proxy gateway that routes Claude Code and Codex CLI requests through third-party providers. |
 | **AI Social Scientist** | The VS Code extension and research workbench for project management, configuration, skills, replay, and help pages. |
 | **API Base** | The service endpoint for model calls, such as `https://api.openai.com/v1`. |
 | **API Key** | The secret key used to call a model provider. Keep it local and do not commit it to a public repository. |
@@ -24,8 +25,10 @@ Quick index: [A](#a) · [B-C](#b-c) · [D-E](#d-e) · [F-I](#f-i) · [L-M](#l-m)
 | **Backend** | The local Python service behind the extension. Start it for the full extension experience; local file viewing, config editing, and CLI/Claude Code experiment runs can continue if it is not running yet. |
 | **Claude Code skill** | A skill installed under `.claude/skills/`, mainly used by Claude Code or similar coding assistants in the IDE. |
 | **CLAUDE.md** | Project instructions for Claude Code, used to explain how the coding assistant should understand and work with this project. |
+| **Codex CLI** | OpenAI's command-line coding assistant. Can be routed through the local gateway to third-party providers. |
 | **Command Palette** | VS Code's quick command launcher, opened with `Ctrl+Shift+P` or `Cmd+Shift+P`. |
 | **Computational paradigm** | Instantiating mechanisms with agents, environments, and rules, then testing them through simulation. |
+| **Context Preset** | Agent context window preset, either `standard-200k` or `long-1m`, controlling the available context length. |
 | **Custom Module** | User-provided extension code for adding environment mechanisms, tools, or experiment logic. |
 
 ### D-E
@@ -36,8 +39,10 @@ Quick index: [A](#a) · [B-C](#b-c) · [D-E](#d-e) · [F-I](#f-i) · [L-M](#l-m)
 | **Embedding Model** | A model that converts text into vectors, often used for semantic search and literature retrieval. |
 | **Empirical paradigm** | Obtaining evidence through observations, surveys, experiments, or behavioral data. |
 | **Environment** | The simulated setting in which agents act, such as space, resources, economic rules, social relations, or custom mechanisms. |
+| **Evidence Graph** | A visualization of evidence relationships in analysis results, viewable by right-clicking in the project tree. |
 | **`.env`** | A local workspace configuration file commonly used for API endpoints, keys, model names, and runtime settings. |
 | **Experiment Config** | The configuration files that define how an experiment is initialized, executed, and saved. |
+| **External Question** | An external survey or interview handled by `answer_external_question`. PersonAgent truncates context before responding. |
 
 ### F-I
 
@@ -59,6 +64,7 @@ Quick index: [A](#a) · [B-C](#b-c) · [D-E](#d-e) · [F-I](#f-i) · [L-M](#l-m)
 
 | Term | Meaning |
 |------|---------|
+| **Paper Workspace** | The paper working directory (`paper/`) containing sections, reviews, compile outputs, etc., managed by paper-toolkit. |
 | **PersonAgent** | The default human-like agent in AgentSociety², used to simulate individuals with profiles, memory, intentions, and actions. |
 | **Profile** | An agent's descriptive information, such as identity, background, goals, preferences, or role. |
 | **Replay** | Recorded experiment traces used to inspect agent behavior, environment changes, and results. |

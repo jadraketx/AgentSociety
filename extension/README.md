@@ -94,21 +94,38 @@ workspace/
 │   ├── literature_index.json   # 文献索引
 │   ├── pdf/                    # PDF 文献
 │   └── md/                     # Markdown 笔记
+├── paper/                      # 论文工作区（paper-toolkit）
+│   ├── sections/               # 论文章节
+│   ├── reviews/                # 审稿意见（右键查看结构化 review）
+│   └── compile_runs/           # 编译产物
 ├── hypothesis_xxx/             # 假设目录
 │   ├── HYPOTHESIS.md          # 假设描述
 │   └── experiment_xxx/        # 实验目录
 │       ├── init/              # 初始化配置
 │       └── run/               # 运行结果
+└── .agentsociety/              # 分析 harness 机器状态
 ```
 
 ### 可视化文件查看器
 
-| 文件类型              | 功能                           |
-| --------------------- | ------------------------------ |
-| JSON                  | 语法高亮、折叠展开、搜索、复制 |
-| YAML                  | 语法高亮、时间线视图           |
-| pid.json              | 实验状态监控、自动刷新         |
-| literature_index.json | 文献列表、搜索、批量操作       |
+| 文件类型              | 功能                                     |
+| --------------------- | ---------------------------------------- |
+| JSON                  | 语法高亮、折叠展开、搜索、复制           |
+| YAML                  | 语法高亮、时间线视图                     |
+| pid.json              | 实验状态监控、自动刷新                   |
+| literature_index.json | 文献列表、搜索、批量操作                 |
+| Paper Review          | 结构化审稿意见查看（维度、阻塞项、评分） |
+| Evidence Graph        | 分析证据关系可视化                       |
+
+### AI CLI Gateway
+
+- 本地代理网关，将 Claude Code / Codex CLI 请求经第三方供应商路由转发
+- 支持 Claude/Codex 独立路由开关与故障转移
+- Codex 网关自动将 `/v1/responses` 转换为 Chat Completions（兼容智谱、DeepSeek 等供应商）
+- 状态栏 `CLI Route` 显示当前路由状态（Claude / Codex / Claude + Codex）
+- 用量追踪面板：按天展示请求趋势，区分 Claude 与 Codex 来源
+- 模型定价与费用估算（支持覆盖中转服务价格）
+- 「重启 Codex」按钮：修改配置后一键重启 Codex 终端
 
 ### 技能管理
 
@@ -161,22 +178,35 @@ extension/
 ├── src/
 │   ├── extension.ts              # 主入口
 │   ├── projectStructureProvider.ts # 树视图
+│   ├── evidenceGraphViewer.ts     # 证据图查看器
+│   ├── paperArtifactViewer.ts     # 论文产物查看器
+│   ├── configPageViewProvider.ts  # 配置页 Webview
 │   ├── apiClient.ts              # API 客户端
 │   ├── services/                 # 服务层
+│   │   ├── aiCliGateway.ts       # AI CLI Gateway 核心
+│   │   ├── aiCliGatewayManager.ts # Gateway 生命周期管理
+│   │   └── codexResponsesBridge.ts # Codex 响应协议桥接
 │   └── webview/                  # React 组件
+│       └── configPage/           # 配置页 UI
+├── scripts/                      # 构建/清理脚本
 ├── skills/                       # Claude Code Skills
 └── package.json
 ```
 
 ### 开发命令
 
-```bash
-npm run compile      # 编译 TypeScript
-npm run watch        # 监听模式
-npm run build        # 生产构建
-npm run lint         # ESLint 检查
-npm run package      # 打包 vsix
-```
+按场景选用：
+
+| 场景              | 命令                        | 说明                             |
+| ----------------- | --------------------------- | -------------------------------- |
+| 新 clone          | `npm ci && npm run build`   | 安装依赖并生产构建               |
+| 日常开发          | `npm run dev` + F5          | TS watch + Webview watch，调试用 |
+| 生产构建          | `npm run build`             | 编译 TS + 打包 Webview           |
+| 构建异常          | `npm run rebuild`           | 清理后重新构建                   |
+| 深度清理          | `npm run clean:deep`        | 删 out、node_modules 等          |
+| 打包              | `npm run package`           | 生成 `.vsix`                     |
+| 代码检查          | `npm run lint`              | ESLint                           |
+| Codex Bridge 测试 | `npm run test:codex-bridge` | Codex 响应桥接单测               |
 
 ### “Preview/预览”插件（最短路径）
 

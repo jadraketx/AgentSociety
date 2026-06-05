@@ -17,8 +17,13 @@ your-project/
 ├── papers/                 # Literature
 │   ├── pdf/               # PDF papers
 │   └── md/                # Markdown notes
+├── paper/                  # Paper workspace (auto-created when using paper-toolkit)
+│   ├── sections/          # Paper sections
+│   ├── reviews/           # Reviews (right-click for structured review viewer)
+│   └── compile_runs/      # Compile outputs
 ├── experiment/             # Experiment configs & results
 ├── output/                 # Output files
+├── .agentsociety/          # Analysis harness state (auto-created when using analysis skills)
 ├── TOPIC.md               # Research topic description
 └── init/
     └── init_config.json   # Project initialization config

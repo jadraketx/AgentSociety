@@ -45,7 +45,6 @@ import { JsonViewer } from './jsonViewer';
 import { YamlViewer } from './yamlViewer';
 import { AnalysisHarnessStatusViewer } from './analysisHarnessStatusViewer';
 import { CsvViewer } from './csvViewer';
-import { PaperArtifactViewer } from './paperArtifactViewer';
 import { hasConfiguredLlmApiKey, migrateLegacySettingsToEnv } from './runtimeConfig';
 import { SkillMarketplacePanel } from './skillMarketplaceProvider';
 
@@ -1166,32 +1165,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  const viewPaperArtifactCommand = vscode.commands.registerCommand(
-    'aiSocialScientist.viewPaperArtifact',
-    async (filePathOrItem: string | { filePath?: string }) => {
-      const filePath =
-        typeof filePathOrItem === 'string' ? filePathOrItem : filePathOrItem?.filePath;
-      if (!filePath || !fs.existsSync(filePath)) {
-        vscode.window.showErrorMessage(localize('extension.noFilePath'));
-        return;
-      }
-      await PaperArtifactViewer.show(filePath);
-    }
-  );
-
-  const viewEvidenceGraphCommand = vscode.commands.registerCommand(
-    'aiSocialScientist.viewEvidenceGraph',
-    async (filePathOrItem: string | { filePath?: string }) => {
-      const filePath =
-        typeof filePathOrItem === 'string' ? filePathOrItem : filePathOrItem?.filePath;
-      if (!filePath || !fs.existsSync(filePath)) {
-        vscode.window.showErrorMessage(localize('extension.noFilePath'));
-        return;
-      }
-      await PaperArtifactViewer.show(filePath);
-    }
-  );
-
   const viewCsvFileCommand = vscode.commands.registerCommand(
     'aiSocialScientist.viewCsvFile',
     async (filePathOrItem: string | any) => {
@@ -1287,8 +1260,6 @@ export function activate(context: vscode.ExtensionContext) {
     viewStepsYamlCommand,
     viewPidStatusCommand,
     viewJsonFileCommand,
-    viewPaperArtifactCommand,
-    viewEvidenceGraphCommand,
     viewYamlFileCommand,
     viewAnalysisHarnessStatusCommand,
     viewCsvFileCommand,

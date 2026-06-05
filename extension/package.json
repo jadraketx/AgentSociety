@@ -50,8 +50,6 @@
     "onCommand:aiSocialScientist.copyFilePath",
     "onCommand:aiSocialScientist.copyAtReference",
     "onCommand:aiSocialScientist.viewJsonFile",
-    "onCommand:aiSocialScientist.viewEvidenceGraph",
-    "onCommand:aiSocialScientist.viewPaperArtifact",
     "onCommand:aiSocialScientist.viewYamlFile",
     "onCommand:aiSocialScientist.viewAnalysisHarnessStatus",
     "onCommand:aiSocialScientist.viewCsvFile",
@@ -356,16 +354,6 @@
         "icon": "$(json)"
       },
       {
-        "command": "aiSocialScientist.viewEvidenceGraph",
-        "title": "AI Social Scientist: 查看证据图谱",
-        "icon": "$(type-hierarchy-sub)"
-      },
-      {
-        "command": "aiSocialScientist.viewPaperArtifact",
-        "title": "AI Social Scientist: 论文产物预览",
-        "icon": "$(preview)"
-      },
-      {
         "command": "aiSocialScientist.viewCsvFile",
         "title": "AI Social Scientist: 表格预览 (CSV/TSV)",
         "icon": "$(table)"
@@ -469,16 +457,6 @@
           "command": "aiSocialScientist.viewJsonFile",
           "when": "view == projectStructureView && (viewItem =~ / json$/ || viewItem =~ /^json / || viewItem == pidJson)",
           "group": "1_view"
-        },
-        {
-          "command": "aiSocialScientist.viewEvidenceGraph",
-          "when": "view == projectStructureView && viewItem =~ /evidenceGraph/",
-          "group": "1_view"
-        },
-        {
-          "command": "aiSocialScientist.viewPaperArtifact",
-          "when": "view == projectStructureView && viewItem =~ /^paperArtifact [a-z_]+/",
-          "group": "1_view@1"
         },
         {
           "command": "aiSocialScientist.viewCsvFile",
@@ -703,6 +681,7 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "build": "npm run compile && npm run build-webview",
+    "rebuild": "npm run clean && npm run build",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "dev": "concurrently -k -n tsc,webview \"npm:watch\" \"npm:watch-webview\"",
@@ -713,9 +692,7 @@
     "build-webview": "npm run clean-webview && NODE_ENV=production NODE_OPTIONS=--max-old-space-size=8192 node ./node_modules/webpack/bin/webpack.js --mode production",
     "watch-webview": "NODE_ENV=development NODE_OPTIONS=--max-old-space-size=4096 webpack --mode development --watch",
     "package": "vsce package -o ai-social-scientist.vsix",
-    "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "node ./out/test/runTest.js",
     "test:codex-bridge": "npm run compile && node --test test-codex-responses-bridge.js"
   },
   "devDependencies": {
