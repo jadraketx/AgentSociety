@@ -1,9 +1,9 @@
+import '../i18n';
 import * as React from 'react';
 import * as ReactDOM from 'react-dom/client';
 import { ConfigPageApp } from './ConfigPageApp';
 import { ConfigPageErrorBoundary } from './ConfigPageErrorBoundary';
 import type { VSCodeAPI } from './types';
-import '../i18n';
 import 'antd/dist/reset.css';
 
 declare function acquireVsCodeApi(): VSCodeAPI;

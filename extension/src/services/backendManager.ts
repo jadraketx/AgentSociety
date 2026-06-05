@@ -20,6 +20,7 @@ import * as fs from 'fs';
 import { spawn, ChildProcess, execSync } from 'child_process';
 import { localize } from '../i18n';
 import { EnvManager } from '../envManager';
+import { applyPersonAgentEnv } from '../personAgentEnv';
 import { findAvailablePort, isPortAvailable } from '../portUtils';
 import { getBackendAccessUrl, getBackendBindHost, getBackendPort } from '../runtimeConfig';
 import { fetchCompat } from '../shared/fetchCompat';
@@ -253,6 +254,8 @@ export class BackendManager {
     // Literature Search 配置
     if (envConfig.literatureSearchMcpUrl) { env.LITERATURE_SEARCH_MCP_URL = envConfig.literatureSearchMcpUrl; }
     if (envConfig.literatureSearchApiKey) { env.LITERATURE_SEARCH_API_KEY = envConfig.literatureSearchApiKey; }
+
+    applyPersonAgentEnv(env, envConfig);
 
     return {
       pythonPath,

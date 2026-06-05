@@ -15,6 +15,23 @@ export interface ConfigValues {
   backendHost: string;
   backendPort: number;
   pythonPath: string;
+  agentContextPreset: string;
+  agentContextWindow?: number;
+  agentMaxToolRounds?: number;
+  agentStepTimeout?: number;
+  agentLlmRequestTimeout?: number;
+  agentCheckpointInterval?: number;
+  agentAllowBashTool?: string;
+  agentAllowDynamicSkillCommands?: string;
+  agentDisabledTools?: string[];
+  agentProfileMaxChars?: number;
+  agentExternalQuestionFieldMaxChars?: number;
+  agentExternalQuestionContextMaxChars?: number;
+  agentExternalQuestionMemoryJsonlLimit?: number;
+  agentExternalQuestionToolLogsLimit?: number;
+  agentExternalQuestionThreadMessagesLimit?: number;
+  agentEnableLlmHistory?: string;
+  agentLlmHistoryMaxEntries?: number;
   // LLM 默认配置
   llmApiBase: string;
   llmModel: string;

@@ -3,8 +3,6 @@ import {
   ConfigProvider,
   Layout,
   Form,
-  AutoComplete,
-  Modal,
   Input,
   InputNumber,
   Button,
@@ -17,12 +15,21 @@ import {
   Tooltip,
   Tag,
 } from 'antd';
-import { SaveOutlined, KeyOutlined, CheckCircleOutlined, RocketOutlined, ReloadOutlined, SettingOutlined, LinkOutlined, StopOutlined, CodeOutlined, CloudDownloadOutlined, CopyOutlined } from '@ant-design/icons';
+import { SaveOutlined, KeyOutlined, CheckCircleOutlined, RocketOutlined, ReloadOutlined, SettingOutlined, LinkOutlined, StopOutlined, CodeOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import type { ClaudeCodeCliStatus, ClaudeCodeConfigValues } from './claudeCodeTypes';
-import { DEFAULT_CLAUDE_BASE_URL } from './claudeBaseUrlPresets';
-import type { VSCodeAPI, ConfigValues, WorkspaceInfo, BackendStatus, ValidationState, EasyPaperConfigValues, ImportedModelOptions } from './types';
+import type {
+  AiCliGatewayStatus,
+  ClaudeCodeCliStatus,
+  ClaudeCodeConfigValues,
+  ClaudeModelOption,
+  ProviderAvailabilityResult,
+} from './claudeCodeTypes';
+import type { TokenUsageRecord, UsageAggregation } from './gatewayUsageTypes';
+import type { ModelPricingMap } from './modelPricing';
+import type { VSCodeAPI, ConfigValues, WorkspaceInfo, BackendStatus, ValidationState, EasyPaperConfigValues } from './types';
 import { AdvancedConfigSection, type AdvancedTopTab } from './AdvancedConfigSection';
+import { personAgentValuesForFormReset } from './personAgentForm';
+import { supportsProviderUsageQuery } from './providerUsageSupport';
 import { advancedPanelInnerStyle, glassCardStyle } from './configPageStyles';
 import { ValidationAction } from './ValidationAction';
 import {
@@ -44,12 +51,19 @@ const DEFAULT_VALUES: ConfigValues = {
   backendHost: '127.0.0.1',
   backendPort: 8001,
   pythonPath: '/usr/local/bin/python3',
+  agentContextPreset: 'standard-200k',
   llmApiBase: 'https://api.openai.com/v1',
   llmModel: 'gpt-5.5',
   backendLogLevel: 'info',
   coderLlmApiKey: '',
   coderLlmApiBase: 'https://api.openai.com/v1',
   coderLlmModel: '',
+  nanoLlmApiKey: '',
+  nanoLlmApiBase: 'https://api.openai.com/v1',
+  nanoLlmModel: '',
+  analysisLlmApiKey: '',
+  analysisLlmApiBase: 'https://api.openai.com/v1',
+  analysisLlmModel: '',
   embeddingApiKey: '',
   embeddingApiBase: 'https://api.openai.com/v1',
   embeddingModel: 'text-embedding-3-large',
@@ -60,7 +74,7 @@ const DEFAULT_VALUES: ConfigValues = {
 
 const DEFAULT_CLAUDE_VALUES: ClaudeCodeConfigValues = {
   apiKey: '',
-  baseUrl: DEFAULT_CLAUDE_BASE_URL,
+  baseUrl: '',
   model: '',
   sonnetModel: '',
   opusModel: '',
@@ -76,29 +90,6 @@ const DEFAULT_EASYPAPER_VALUES: EasyPaperConfigValues = {
   vlmModel: '',
   vlmApiKey: '',
   vlmBaseUrl: '',
-};
-
-const EMPTY_MODEL_OPTIONS: ImportedModelOptions = {
-  openaiCompatible: [],
-  claudeCode: [],
-  embedding: [],
-};
-
-type DeviceAuthState = {
-  status: 'idle' | 'starting' | 'waiting' | 'polling';
-  userCode?: string;
-  verificationUri?: string;
-  verificationUriComplete?: string;
-  expiresIn?: number;
-  authPath?: string;
-};
-
-type PendingImport = {
-  config?: Partial<ConfigValues>;
-  claudeConfig?: Partial<ClaudeCodeConfigValues>;
-  easyPaperConfig?: Partial<EasyPaperConfigValues>;
-  modelOptions?: ImportedModelOptions;
-  authPath?: string;
 };
 
 interface ConfigPageAppProps {
@@ -155,6 +146,10 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     switch (llmType) {
       case 'coder':
         return (values.coderLlmApiKey || values.llmApiKey || '').trim();
+      case 'nano':
+        return (values.nanoLlmApiKey || values.llmApiKey || '').trim();
+      case 'analysis':
+        return (values.analysisLlmApiKey || values.llmApiKey || '').trim();
       case 'embedding':
         return (values.embeddingApiKey || values.llmApiKey || '').trim();
       default:
@@ -166,6 +161,10 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     switch (llmType) {
       case 'coder':
         return (values.coderLlmApiBase || values.llmApiBase || '').trim();
+      case 'nano':
+        return (values.nanoLlmApiBase || values.llmApiBase || '').trim();
+      case 'analysis':
+        return (values.analysisLlmApiBase || values.llmApiBase || '').trim();
       case 'embedding':
         return (values.embeddingApiBase || values.llmApiBase || '').trim();
       default:
@@ -203,14 +202,11 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
 
   const defaultValidateDisabledReason = getValidationDisabledReason('default', effectiveConfigValues);
   const coderValidateDisabledReason = getValidationDisabledReason('coder', effectiveConfigValues);
+  const nanoValidateDisabledReason = getValidationDisabledReason('nano', effectiveConfigValues);
+  const analysisValidateDisabledReason = getValidationDisabledReason('analysis', effectiveConfigValues);
   const embeddingValidateDisabledReason = getValidationDisabledReason('embedding', effectiveConfigValues);
   const pythonValidateDisabledReason = null;
   const literatureValidateDisabledReason = getValidationDisabledReason('literature', effectiveConfigValues);
-  const claudeValidateDisabledReason = !hasText(effectiveClaudeValues.apiKey)
-    ? t('claudeCodeConfig.apiKeyRequired')
-    : !hasText(effectiveClaudeValues.baseUrl)
-      ? t('claudeCodeConfig.baseUrlRequired')
-      : null;
   const [loading, setLoading] = React.useState(false);
   const [startingBackend, setStartingBackend] = React.useState(false);
   const [workspaceInfo, setWorkspaceInfo] = React.useState<WorkspaceInfo>({ hasWorkspace: false });
@@ -219,6 +215,8 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
   const [validationState, setValidationState] = React.useState<Record<string, ValidationState>>({
     default: { validating: false, valid: null, error: null },
     coder: { validating: false, valid: null, error: null },
+    nano: { validating: false, valid: null, error: null },
+    analysis: { validating: false, valid: null, error: null },
     embedding: { validating: false, valid: null, error: null },
     python: { validating: false, valid: null, error: null },
     literature: { validating: false, valid: null, error: null },
@@ -228,11 +226,46 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
   const [claudeCliStatus, setClaudeCliStatus] = React.useState<ClaudeCodeCliStatus>({ installed: false });
   const [claudeSettingsPath, setClaudeSettingsPath] = React.useState('~/.claude/settings.json');
   const [claudeCodeCustomized, setClaudeCodeCustomized] = React.useState(false);
+  const [claudeAvailableModels, setClaudeAvailableModels] = React.useState<ClaudeModelOption[]>([]);
+  const [claudeModelsLoading, setClaudeModelsLoading] = React.useState(false);
+  const [claudeModelsError, setClaudeModelsError] = React.useState<string | null>(null);
+  const claudeModelsFetchFingerprintRef = React.useRef<string | null>(null);
+  const [aiCliGatewayStatus, setAiCliGatewayStatus] = React.useState<AiCliGatewayStatus>({
+    enabled: false,
+    running: false,
+    routeClaude: false,
+    routeCodex: false,
+  });
+  const [gatewayToggling, setGatewayToggling] = React.useState(false);
+  const [claudeProviders, setClaudeProviders] = React.useState<import('./aiCliProviderTypes').AiCliProviderRecord[]>([]);
+  const [modelsByProvider, setModelsByProvider] = React.useState<Record<string, ClaudeModelOption[]>>({});
+  const [modelsLoadingByProvider, setModelsLoadingByProvider] = React.useState<Record<string, boolean>>({});
+  const [modelsErrorByProvider, setModelsErrorByProvider] = React.useState<Record<string, string | null>>({});
+  const [providerAvailabilityResults, setProviderAvailabilityResults] = React.useState<
+    Record<string, ProviderAvailabilityResult>
+  >({});
+  const [claudeProvidersLoading, setClaudeProvidersLoading] = React.useState(false);
+  const activeClaudeProvider = claudeProviders.find((p) => p.activeClaude);
+  const claudeValidateDisabledReason = !activeClaudeProvider
+    ? t('claudeCodeConfig.providerNeedOne')
+    : !hasText(activeClaudeProvider.apiKey)
+      ? t('claudeCodeConfig.apiKeyRequired')
+      : !hasText(activeClaudeProvider.baseUrl)
+        ? t('claudeCodeConfig.baseUrlRequired')
+        : null;
+  const [gatewayUsageRecords, setGatewayUsageRecords] = React.useState<TokenUsageRecord[]>([]);
+  const [gatewayUsageAggregation, setGatewayUsageAggregation] = React.useState<UsageAggregation | null>(null);
+  const [gatewayUsageLoading, setGatewayUsageLoading] = React.useState(false);
+  const [codexRouting, setCodexRouting] = React.useState<{ configPath: string; routed: boolean; directUrl?: string } | null>(null);
+  const [failoverEnabled, setFailoverEnabled] = React.useState(false);
+  const [providerUsage, setProviderUsage] = React.useState<
+    Record<string, import('./claudeCodeTypes').ProviderUsageQueryResult & { loading?: boolean }>
+  >({});
+  const [customPricing, setCustomPricing] = React.useState<ModelPricingMap>({});
   const [advancedTopTab, setAdvancedTopTab] = React.useState<AdvancedTopTab>('models');
-  const [modelOptions, setModelOptions] = React.useState<ImportedModelOptions>(EMPTY_MODEL_OPTIONS);
-  const [deviceAuth, setDeviceAuth] = React.useState<DeviceAuthState>({ status: 'idle' });
-  const [pendingImport, setPendingImport] = React.useState<PendingImport | null>(null);
   const advancedSectionRef = React.useRef<HTMLDivElement>(null);
+  const [personAgentCollapseKeys, setPersonAgentCollapseKeys] = React.useState<string[]>([]);
+  const agentSectionRef = React.useRef<HTMLDivElement | null>(null);
   const pythonSectionRef = React.useRef<HTMLDivElement>(null);
   const literatureSectionRef = React.useRef<HTMLDivElement>(null);
   const claudeSectionRef = React.useRef<HTMLDivElement>(null);
@@ -312,27 +345,33 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
 
   const jumpToAdvanced = (tab: AdvancedTopTab = 'models') => {
     const scrollTarget =
-      tab === 'python'
-        ? pythonSectionRef
-        : tab === 'literature'
-          ? literatureSectionRef
-          : tab === 'claude'
-            ? claudeSectionRef
-            : advancedSectionRef;
+      tab === 'agent'
+        ? agentSectionRef
+        : tab === 'python'
+          ? pythonSectionRef
+          : tab === 'literature'
+            ? literatureSectionRef
+            : tab === 'claude'
+              ? claudeSectionRef
+              : advancedSectionRef;
     expandAdvancedConfig(tab, scrollTarget);
   };
 
   const advancedBlockedByKind = React.useMemo(
     (): Record<AdvancedValidationKey, string | null> => ({
       coder: coderValidateDisabledReason,
+      nano: nanoValidateDisabledReason,
+      analysis: analysisValidateDisabledReason,
       embedding: embeddingValidateDisabledReason,
       python: pythonValidateDisabledReason,
       literature: literatureValidateDisabledReason,
     }),
     [
+      analysisValidateDisabledReason,
       coderValidateDisabledReason,
       embeddingValidateDisabledReason,
       literatureValidateDisabledReason,
+      nanoValidateDisabledReason,
       pythonValidateDisabledReason,
     ]
   );
@@ -470,6 +509,8 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     setValidationState({
       default: { validating: false, valid: null, error: null },
       coder: { validating: false, valid: null, error: null },
+      nano: { validating: false, valid: null, error: null },
+      analysis: { validating: false, valid: null, error: null },
       embedding: { validating: false, valid: null, error: null },
       python: { validating: false, valid: null, error: null },
       literature: { validating: false, valid: null, error: null },
@@ -489,58 +530,197 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
   const handleResetClaudeDefaults = () => {
     setSavedClaudeConfig({});
     claudeForm.setFieldsValue(DEFAULT_CLAUDE_VALUES);
+    setClaudeAvailableModels([]);
+    setClaudeModelsError(null);
+    claudeModelsFetchFingerprintRef.current = null;
     notification.info({
       message: t('configPage.resetClaudeDefaults'),
       placement: 'top',
     });
   };
 
-  const handleStartWebConfigImport = () => {
-    setDeviceAuth({ status: 'starting' });
-    vscode.postMessage({ command: 'startCasdoorDeviceAuth' });
-  };
+  const resolveClaudeModelsFetchError = React.useCallback(
+    (code: string) => {
+      const key = `claudeCodeConfig.modelsFetchErrors.${code}`;
+      const translated = t(key);
+      return translated === key ? t('claudeCodeConfig.modelsFetchErrors.unknown') : translated;
+    },
+    [t]
+  );
 
-  const handleCancelWebConfigImport = () => {
-    vscode.postMessage({ command: 'cancelCasdoorDeviceAuth' });
-    setDeviceAuth({ status: 'idle' });
-  };
+  const fetchClaudeModels = React.useCallback(
+    (options?: { force?: boolean }) => {
+      const claude = getClaudeValuesForValidation();
+      const baseUrl = (claude.baseUrl ?? '').trim();
+      const apiKey = (claude.apiKey ?? '').trim();
+      if (!baseUrl || !apiKey) {
+        setClaudeModelsError(t('claudeCodeConfig.modelsFetchErrors.missing_credentials'));
+        return;
+      }
+      const fingerprint = `${baseUrl}::${apiKey.length}::${apiKey.slice(-4)}`;
+      if (!options?.force && claudeModelsFetchFingerprintRef.current === fingerprint) {
+        return;
+      }
+      if (options?.force) {
+        claudeModelsFetchFingerprintRef.current = null;
+      }
+      claudeModelsFetchFingerprintRef.current = fingerprint;
+      setClaudeModelsLoading(true);
+      setClaudeModelsError(null);
+      vscode.postMessage({ command: 'fetchClaudeModels', baseUrl, apiKey });
+    },
+    [getClaudeValuesForValidation, t, vscode]
+  );
 
-  const copyToClipboard = (value: string, message: string) => {
-    void navigator.clipboard.writeText(value).then(() => {
-      notification.success({
-        message,
-        placement: 'top',
-        duration: 2,
-      });
-    });
-  };
+  const handleGatewayRouteToggle = React.useCallback(
+    (target: 'claude' | 'codex', enabled: boolean) => {
+      setGatewayToggling(true);
+      vscode.postMessage({ command: 'gatewaySetRoute', routeTarget: target, enabled });
+    },
+    [vscode]
+  );
 
-  const applyImportedConfig = (imported: PendingImport) => {
-    if (imported.modelOptions) {
-      setModelOptions(imported.modelOptions);
+  const handleSaveClaudeProvider = React.useCallback(
+    (provider: import('./aiCliProviderTypes').AiCliProviderRecord) => {
+      setClaudeProvidersLoading(true);
+      vscode.postMessage({ command: 'gatewayUpdateProvider', provider });
+    },
+    [vscode]
+  );
+
+  const handleAddClaudeProvider = React.useCallback(
+    (draft: Omit<import('./aiCliProviderTypes').AiCliProviderRecord, 'id' | 'activeClaude' | 'activeCodex'>) => {
+      setClaudeProvidersLoading(true);
+      vscode.postMessage({ command: 'gatewaySaveProvider', provider: draft });
+    },
+    [vscode]
+  );
+
+  const handleRemoveClaudeProvider = React.useCallback(
+    (id: string) => {
+      vscode.postMessage({ command: 'gatewayRemoveProvider', providerId: id });
+    },
+    [vscode]
+  );
+
+  const handleActivateClaudeProvider = React.useCallback(
+    (id: string, role: 'claude' | 'codex') => {
+      setClaudeProvidersLoading(true);
+      setGatewayToggling(true);
+      vscode.postMessage({ command: 'gatewayActivateProvider', providerId: id, role });
+    },
+    [vscode]
+  );
+
+  const handleFetchProviderModels = React.useCallback(
+    (providerId: string, baseUrl: string, apiKey: string, apiKind?: 'anthropic' | 'openai') => {
+      if (!apiKey.trim()) {
+        return;
+      }
+      setModelsLoadingByProvider((prev) => ({ ...prev, [providerId]: true }));
+      setModelsErrorByProvider((prev) => ({ ...prev, [providerId]: null }));
+      vscode.postMessage({ command: 'fetchClaudeModels', baseUrl, apiKey, providerId, apiKind });
+    },
+    [vscode]
+  );
+
+  const handleCheckClaudeProvider = React.useCallback(
+    (baseUrl: string, apiKey: string, apiKind?: 'anthropic' | 'openai') => {
+      vscode.postMessage({ command: 'gatewayCheckProvider', baseUrl, apiKey, apiKind });
+    },
+    [vscode]
+  );
+
+  const handleShowClaudeGatewayLog = React.useCallback(() => {
+    vscode.postMessage({ command: 'gatewayShowLog' });
+  }, [vscode]);
+
+  const handleRefreshUsage = React.useCallback(() => {
+    setGatewayUsageLoading(true);
+    vscode.postMessage({ command: 'gatewayGetUsage' });
+  }, [vscode]);
+
+  const handleClearUsage = React.useCallback(() => {
+    vscode.postMessage({ command: 'gatewayClearUsage' });
+  }, [vscode]);
+
+  const handleFailoverToggle = React.useCallback((enabled: boolean) => {
+    vscode.postMessage({ command: 'gatewaySetFailover', enabled });
+    setFailoverEnabled(enabled);
+  }, [vscode]);
+
+  const handleQueryProviderUsage = React.useCallback(
+    (providerId: string) => {
+      setProviderUsage((prev) => ({ ...prev, [providerId]: { ok: false, loading: true } }));
+      vscode.postMessage({ command: 'gatewayQueryProviderUsage', providerId });
+    },
+    [vscode]
+  );
+
+  const handleQueryAllProviderUsage = React.useCallback(() => {
+    for (const p of claudeProviders) {
+      if (supportsProviderUsageQuery(p.baseUrl)) {
+        handleQueryProviderUsage(p.id);
+      }
     }
-    form.setFieldsValue({
-      ...form.getFieldsValue(),
-      ...imported.config,
-    });
+  }, [claudeProviders, handleQueryProviderUsage]);
+
+  const handleGetPricing = React.useCallback(() => {
+    vscode.postMessage({ command: 'gatewayGetPricing' });
+  }, [vscode]);
+
+  const handleSavePricing = React.useCallback((pricing: ModelPricingMap) => {
+    vscode.postMessage({ command: 'gatewaySavePricing', pricing });
+  }, [vscode]);
+
+  const handleClearPricing = React.useCallback(() => {
+    vscode.postMessage({ command: 'gatewayClearPricing' });
+  }, [vscode]);
+
+  const handleRestartCodex = React.useCallback(() => {
+    vscode.postMessage({ command: 'restartCodexCli' });
+  }, [vscode]);
+
+  const handleAutoMapClaudeModels = React.useCallback(() => {
+    if (claudeAvailableModels.length === 0) {
+      return;
+    }
+    const byRole = (role: 'sonnet' | 'opus' | 'haiku') => {
+      const pattern =
+        role === 'sonnet' ? /sonnet/i : role === 'opus' ? /opus/i : /haiku/i;
+      return claudeAvailableModels.find(
+        (m) => pattern.test(m.id) || (m.label ? pattern.test(m.label) : false)
+      )?.id;
+    };
+    const sonnet = byRole('sonnet');
+    const opus = byRole('opus');
+    const haiku = byRole('haiku');
+    const fallback = sonnet ?? opus ?? claudeAvailableModels[0]?.id ?? '';
+    const current = claudeForm.getFieldsValue();
     claudeForm.setFieldsValue({
-      ...claudeForm.getFieldsValue(),
-      ...imported.claudeConfig,
+      model: current.model?.trim() ? current.model : fallback,
+      sonnetModel: current.sonnetModel?.trim() ? current.sonnetModel : sonnet ?? '',
+      opusModel: current.opusModel?.trim() ? current.opusModel : opus ?? '',
+      haikuModel: current.haikuModel?.trim() ? current.haikuModel : haiku ?? '',
     });
-    easyPaperForm.setFieldsValue({
-      ...easyPaperForm.getFieldsValue(),
-      ...imported.easyPaperConfig,
-    });
-    resetWorkspaceValidationState();
-    setDeviceAuth({ status: 'idle', authPath: imported.authPath });
     notification.success({
-      message: t('configPage.webImport.success'),
-      description: imported.authPath
-        ? t('configPage.webImport.successWithAuthPath', { path: imported.authPath })
-        : t('configPage.webImport.successDesc'),
+      message: t('claudeCodeConfig.autoMapDone'),
       placement: 'top',
-      duration: 6,
     });
+  }, [claudeAvailableModels, claudeForm, t]);
+
+  const handleResetPersonAgentDefaults = () => {
+    form.setFieldsValue(personAgentValuesForFormReset());
+    notification.info({
+      message: t('configPage.resetPersonAgentDefaults'),
+      description: t('configPage.resetPersonAgentDefaultsHint'),
+      placement: 'top',
+    });
+  };
+
+  const openPersonAgentAdvanced = () => {
+    setPersonAgentCollapseKeys(['runtime', 'tools', 'survey']);
+    jumpToAdvanced('agent');
   };
 
   const submitValidation = React.useCallback(
@@ -569,7 +749,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
         return;
       }
 
-      if (['coder', 'embedding'].includes(llmType)) {
+      if (['coder', 'nano', 'analysis', 'embedding'].includes(llmType)) {
         const effectiveApiKey = getEffectiveApiKey(values, llmType);
         if (!effectiveApiKey) {
           failLocal(t('configPage.validation.needsApiKey'));
@@ -795,11 +975,16 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
           ...DEFAULT_VALUES,
           ...config,
         });
+      } else if (message.command === 'openPersonAgentSettings') {
+        openPersonAgentAdvanced();
       } else if (message.command === 'initialClaudeConfig') {
         const msg = message as {
           config?: Partial<ClaudeCodeConfigValues>;
           settingsPath?: string;
           cliStatus?: ClaudeCodeCliStatus;
+          gatewayStatus?: AiCliGatewayStatus;
+          codexRouting?: { configPath: string; routed: boolean; directUrl?: string };
+          failoverEnabled?: boolean;
         };
         setSavedClaudeConfig(msg.config || {});
         claudeForm.setFieldsValue({
@@ -812,46 +997,78 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
         if (msg.cliStatus) {
           setClaudeCliStatus(msg.cliStatus);
         }
+        const gatewayMsg = message as { gatewayStatus?: AiCliGatewayStatus };
+        if (gatewayMsg.gatewayStatus) {
+          setAiCliGatewayStatus(gatewayMsg.gatewayStatus);
+        }
+        if (msg.codexRouting) {
+          setCodexRouting(msg.codexRouting);
+        }
+        if (typeof msg.failoverEnabled === 'boolean') {
+          setFailoverEnabled(msg.failoverEnabled);
+        }
+        vscode.postMessage({ command: 'gatewayListProviders' });
+        vscode.postMessage({ command: 'gatewayGetUsage' });
+      } else if (message.command === 'activeProviderConfig') {
+        const apMsg = message as { config?: Partial<ClaudeCodeConfigValues> };
+        if (apMsg.config) {
+          setSavedClaudeConfig(apMsg.config);
+          claudeForm.setFieldsValue({ ...DEFAULT_CLAUDE_VALUES, ...apMsg.config });
+        }
+      } else if (message.command === 'aiCliGatewayStatus') {
+        setGatewayToggling(false);
+        const statusMsg = message as { status?: AiCliGatewayStatus };
+        if (statusMsg.status) {
+          setAiCliGatewayStatus(statusMsg.status);
+        }
+        vscode.postMessage({ command: 'gatewayListProviders' });
+        vscode.postMessage({ command: 'gatewayGetUsage' });
+      } else if (message.command === 'codexRoutingStatus') {
+        const routeMsg = message as { codexRouting?: { configPath: string; routed: boolean; directUrl?: string } };
+        if (routeMsg.codexRouting) {
+          setCodexRouting(routeMsg.codexRouting);
+        }
+      } else if (message.command === 'gatewayProvidersList') {
+        const provMsg = message as { providers?: import('./aiCliProviderTypes').AiCliProviderRecord[] };
+        setClaudeProviders(provMsg.providers ?? []);
+        setClaudeProvidersLoading(false);
+      } else if (
+        message.command === 'gatewayCheckProviderResult' ||
+        message.command === 'gatewaySpeedtestResult'
+      ) {
+        const stMsg = message as { baseUrl: string; result: ProviderAvailabilityResult };
+        setProviderAvailabilityResults((prev) => ({ ...prev, [stMsg.baseUrl]: stMsg.result }));
+      } else if (message.command === 'gatewayUsageData') {
+        setGatewayUsageLoading(false);
+        const usageMsg = message as { records?: TokenUsageRecord[]; aggregation?: UsageAggregation | null };
+        setGatewayUsageRecords(usageMsg.records ?? []);
+        setGatewayUsageAggregation(usageMsg.aggregation ?? null);
+      } else if (message.command === 'gatewayPricingData') {
+        const priceMsg = message as { custom?: ModelPricingMap };
+        setCustomPricing(priceMsg.custom ?? {});
+      } else if (message.command === 'gatewayFailoverStatus') {
+        const foMsg = message as { enabled?: boolean };
+        setFailoverEnabled(foMsg.enabled ?? false);
+      } else if (message.command === 'gatewayProviderUsageResult') {
+        const uMsg = message as {
+          providerId?: string;
+          result?: import('./claudeCodeTypes').ProviderUsageQueryResult;
+        };
+        if (uMsg.providerId && uMsg.result) {
+          setProviderUsage((prev) => ({
+            ...prev,
+            [uMsg.providerId!]: { ...uMsg.result!, loading: false },
+          }));
+        }
       } else if (message.command === 'navigateAdvanced') {
         const tab = (message as { tab?: AdvancedTopTab }).tab ?? 'models';
-        jumpToAdvanced(tab);
+        if (tab === 'agent') {
+          openPersonAgentAdvanced();
+        } else {
+          jumpToAdvanced(tab);
+        }
       } else if (message.command === 'workspaceInfo') {
         setWorkspaceInfo(message.workspaceInfo || { hasWorkspace: false });
-      } else if (message.command === 'casdoorDeviceAuthStarted') {
-        setDeviceAuth({
-          status: 'waiting',
-          userCode: message.userCode,
-          verificationUri: message.verificationUri,
-          verificationUriComplete: message.verificationUriComplete,
-          expiresIn: message.expiresIn,
-        });
-      } else if (message.command === 'casdoorDeviceAuthPolling') {
-        setDeviceAuth((prev) => ({ ...prev, status: 'polling' }));
-      } else if (message.command === 'casdoorDeviceAuthFailed') {
-        const msg = message as { error?: string };
-        setDeviceAuth({ status: 'idle' });
-        notification.error({
-          message: t('configPage.webImport.failed'),
-          description: msg.error,
-          placement: 'top',
-          duration: 8,
-        });
-      } else if (message.command === 'webConfigImported') {
-        const msg = message as {
-          config?: Partial<ConfigValues>;
-          claudeConfig?: Partial<ClaudeCodeConfigValues>;
-          easyPaperConfig?: Partial<EasyPaperConfigValues>;
-          modelOptions?: ImportedModelOptions;
-          authPath?: string;
-        };
-        setPendingImport({
-          config: msg.config,
-          claudeConfig: msg.claudeConfig,
-          easyPaperConfig: msg.easyPaperConfig,
-          modelOptions: msg.modelOptions,
-          authPath: msg.authPath,
-        });
-        setDeviceAuth({ status: 'idle', authPath: msg.authPath });
       } else if (message.command === 'backendStatus') {
         setBackendStatus(message.backendStatus || { isRunning: false });
         if (typeof message.claudeCodeCustomized === 'boolean') {
@@ -867,6 +1084,28 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
             description: msg.error,
             placement: 'top',
           });
+        }
+      } else if (message.command === 'claudeModelsResult') {
+        const msg = message as {
+          success?: boolean;
+          models?: ClaudeModelOption[];
+          error?: string;
+          providerId?: string;
+        };
+        const pid = msg.providerId ?? claudeProviders.find((p) => p.activeClaude)?.id;
+        if (!pid) {
+          return;
+        }
+        setModelsLoadingByProvider((prev) => ({ ...prev, [pid]: false }));
+        if (msg.success && msg.models) {
+          setModelsByProvider((prev) => ({ ...prev, [pid]: msg.models! }));
+          setModelsErrorByProvider((prev) => ({ ...prev, [pid]: null }));
+        } else {
+          setModelsByProvider((prev) => ({ ...prev, [pid]: [] }));
+          setModelsErrorByProvider((prev) => ({
+            ...prev,
+            [pid]: resolveClaudeModelsFetchError(String(msg.error ?? 'unknown')),
+          }));
         }
       } else if (message.command === 'initialEasyPaperConfig') {
         const msg = message as { config?: EasyPaperConfigValues };
@@ -1128,57 +1367,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
   return (
     <ConfigProvider theme={themeConfig}>
       <Layout style={{ minHeight: '100vh', background: palette.editorBackground }}>
-        <Modal
-          open={Boolean(pendingImport)}
-          title={t('configPage.webImport.confirmTitle')}
-          okText={t('configPage.webImport.confirmApply')}
-          cancelText={t('configPage.webImport.confirmCancel')}
-          onOk={() => {
-            if (pendingImport) {
-              applyImportedConfig(pendingImport);
-            }
-            setPendingImport(null);
-          }}
-          onCancel={() => {
-            const authPath = pendingImport?.authPath;
-            setPendingImport(null);
-            setDeviceAuth({ status: 'idle', authPath });
-          }}
-        >
-          <Space direction="vertical" size={8} style={{ width: '100%' }}>
-            <Text type="secondary">{t('configPage.webImport.confirmDesc')}</Text>
-            <Text>
-              {t('configPage.llm.modelName')}: <code>{pendingImport?.config?.llmModel || '-'}</code>
-            </Text>
-            <Text>
-              Claude Code: <code>{pendingImport?.claudeConfig?.model || '-'}</code>
-            </Text>
-            <Text>
-              Sonnet: <code>{pendingImport?.claudeConfig?.sonnetModel || '-'}</code>
-            </Text>
-            <Text>
-              Opus: <code>{pendingImport?.claudeConfig?.opusModel || '-'}</code>
-            </Text>
-            <Text>
-              Haiku: <code>{pendingImport?.claudeConfig?.haikuModel || '-'}</code>
-            </Text>
-            <Text>
-              EasyPaper VLM: <code>{pendingImport?.easyPaperConfig?.vlmModel || '-'}</code>
-            </Text>
-            <Text>
-              EasyPaper Base URL: <code>{pendingImport?.easyPaperConfig?.llmBaseUrl || '-'}</code>
-            </Text>
-            <Text>
-              EasyPaper API Key: <code>{pendingImport?.easyPaperConfig?.llmApiKey ? '********' : '-'}</code>
-            </Text>
-            <Text>
-              EasyPaper VLM Base URL: <code>{pendingImport?.easyPaperConfig?.vlmBaseUrl || '-'}</code>
-            </Text>
-            <Text>
-              EasyPaper VLM API Key: <code>{pendingImport?.easyPaperConfig?.vlmApiKey ? '********' : '-'}</code>
-            </Text>
-          </Space>
-        </Modal>
         <Content
           style={{
             padding: '20px 24px',
@@ -1230,94 +1418,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                   </Text>
                 </div>
               </div>
-              <Space wrap>
-                <Button
-                  type="primary"
-                  icon={<CloudDownloadOutlined />}
-                  loading={deviceAuth.status === 'starting' || deviceAuth.status === 'polling'}
-                  onClick={handleStartWebConfigImport}
-                >
-                  {t('configPage.webImport.button')}
-                </Button>
-                {deviceAuth.authPath && (
-                  <Text type="secondary" style={{ fontSize: 12 }}>
-                    {t('configPage.webImport.cachedAt', { path: deviceAuth.authPath })}
-                  </Text>
-                )}
-              </Space>
             </div>
-
-            {deviceAuth.status !== 'idle' && (
-              <Alert
-                type="info"
-                showIcon
-                style={{ marginBottom: 16, borderRadius: 10 }}
-                message={t('configPage.webImport.deviceTitle')}
-                description={
-                  <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                    {deviceAuth.userCode && (
-                      <Text>
-                        {t('configPage.webImport.userCode')}: <code>{deviceAuth.userCode}</code>
-                      </Text>
-                    )}
-                    {deviceAuth.verificationUri && (
-                      <>
-                        <Text type="secondary" style={{ fontSize: 12 }}>
-                          {t('configPage.webImport.openedLogin')}
-                        </Text>
-                        <Text style={{ fontSize: 12, wordBreak: 'break-all' }}>
-                          {t('configPage.webImport.loginUrl')}: <code>{deviceAuth.verificationUriComplete || deviceAuth.verificationUri}</code>
-                        </Text>
-                      </>
-                    )}
-                    <Space wrap>
-                      {deviceAuth.userCode && (
-                        <Button
-                          size="small"
-                          icon={<CopyOutlined />}
-                          onClick={() =>
-                            copyToClipboard(deviceAuth.userCode || '', t('configPage.webImport.codeCopied'))
-                          }
-                        >
-                          {t('configPage.webImport.copyCode')}
-                        </Button>
-                      )}
-                      {deviceAuth.verificationUri && (
-                        <Button
-                          size="small"
-                          icon={<CopyOutlined />}
-                          onClick={() =>
-                            copyToClipboard(
-                              deviceAuth.verificationUriComplete || deviceAuth.verificationUri || '',
-                              t('configPage.webImport.linkCopied')
-                            )
-                          }
-                        >
-                          {t('configPage.webImport.copyLoginUrl')}
-                        </Button>
-                      )}
-                      {deviceAuth.verificationUri && (
-                        <Button
-                          size="small"
-                          icon={<LinkOutlined />}
-                          onClick={() =>
-                            vscode.postMessage({
-                              command: 'openUrl',
-                              url: deviceAuth.verificationUriComplete || deviceAuth.verificationUri,
-                            })
-                          }
-                        >
-                          {t('configPage.webImport.openLogin')}
-                        </Button>
-                      )}
-                      <Button size="small" onClick={handleCancelWebConfigImport}>
-                        {t('configPage.webImport.cancel')}
-                      </Button>
-                    </Space>
-                  </Space>
-                }
-              />
-            )}
 
             {/* 统计卡片 - 显示后端状态和配置概览 */}
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
@@ -1457,13 +1558,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                 <Input.Password placeholder={t('configPage.llm.apiKeyPlaceholder')} autoComplete="off" />
               </Form.Item>
               <Form.Item name="llmModel" label={t('configPage.llm.modelName')}>
-                <AutoComplete
-                  placeholder={t('configPage.llm.modelPlaceholder')}
-                  options={(modelOptions?.openaiCompatible ?? []).map((model) => ({ value: model }))}
-                  filterOption={(input, option) =>
-                    String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())
-                  }
-                />
+                <Input placeholder={t('configPage.llm.modelPlaceholder')} />
               </Form.Item>
               <ValidationAction
                 t={t}
@@ -1511,6 +1606,8 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                           validationState={validationState}
                           validateDisabledByKind={{
                             coder: coderValidateDisabledReason,
+                            nano: nanoValidateDisabledReason,
+                            analysis: analysisValidateDisabledReason,
                             embedding: embeddingValidateDisabledReason,
                           }}
                           pythonValidateDisabledReason={pythonValidateDisabledReason}
@@ -1520,14 +1617,50 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                           pythonSectionRef={pythonSectionRef}
                           literatureSectionRef={literatureSectionRef}
                           claudeSectionRef={claudeSectionRef}
-                          claudeForm={claudeForm}
                           claudeCliStatus={claudeCliStatus}
                           claudeSettingsPath={claudeSettingsPath}
                           onResetClaude={handleResetClaudeDefaults}
+                          aiCliGatewayStatus={aiCliGatewayStatus}
+                          gatewayToggling={gatewayToggling}
+                          onRouteClaudeToggle={(enabled) => handleGatewayRouteToggle('claude', enabled)}
+                          onRouteCodexToggle={(enabled) => handleGatewayRouteToggle('codex', enabled)}
+                          claudeProviders={claudeProviders}
+                          claudeProvidersLoading={claudeProvidersLoading}
+                          providerAvailabilityResults={providerAvailabilityResults}
+                          onSaveClaudeProvider={handleSaveClaudeProvider}
+                          onAddClaudeProvider={handleAddClaudeProvider}
+                          onRemoveClaudeProvider={handleRemoveClaudeProvider}
+                          onActivateClaudeProvider={handleActivateClaudeProvider}
+                          onCheckClaudeProvider={handleCheckClaudeProvider}
+                          onShowClaudeGatewayLog={handleShowClaudeGatewayLog}
+                          modelsByProvider={modelsByProvider}
+                          modelsLoadingByProvider={modelsLoadingByProvider}
+                          modelsErrorByProvider={modelsErrorByProvider}
+                          onFetchProviderModels={handleFetchProviderModels}
+                          usageRecords={gatewayUsageRecords}
+                          usageAggregation={gatewayUsageAggregation}
+                          usageLoading={gatewayUsageLoading}
+                          onRefreshUsage={handleRefreshUsage}
+                          onClearUsage={handleClearUsage}
+                          codexRouting={codexRouting}
+                          failoverEnabled={failoverEnabled}
+                          onFailoverToggle={handleFailoverToggle}
+                          customPricing={customPricing}
+                          onGetPricing={handleGetPricing}
+                          onSavePricing={handleSavePricing}
+                          onClearPricing={handleClearPricing}
+                          providerUsage={providerUsage}
+                          onQueryProviderUsage={handleQueryProviderUsage}
+                          onRestartCodex={handleRestartCodex}
+                          form={form}
                           easyPaperForm={easyPaperForm}
                           defaultLlmApiKey={effectiveConfigValues.llmApiKey}
                           onSaveEasyPaper={saveEasyPaperConfig}
-                          modelOptions={modelOptions}
+                          envFilePath={workspaceInfo.envFilePath}
+                          agentSectionRef={agentSectionRef}
+                          personAgentCollapseKeys={personAgentCollapseKeys}
+                          onPersonAgentCollapseKeysChange={setPersonAgentCollapseKeys}
+                          onResetPersonAgent={handleResetPersonAgentDefaults}
                         />
                       </div>
                     ),

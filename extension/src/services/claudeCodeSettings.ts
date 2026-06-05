@@ -45,27 +45,6 @@ export function readClaudeConfig(): ClaudeCodeConfigValues {
   return extractClaudeConfig(readClaudeSettingsFile());
 }
 
-export function isClaudeCodeEnvCustomized(): boolean {
-  try {
-    const env = (readClaudeSettingsFile().env as Record<string, string> | undefined) ?? {};
-    if ((env[ENV_KEY_MAP.apiKey] ?? '').trim()) {
-      return true;
-    }
-    const base = (env.ANTHROPIC_BASE_URL ?? '').trim();
-    if (base) {
-      return true;
-    }
-    return [
-      'ANTHROPIC_MODEL',
-      'ANTHROPIC_DEFAULT_SONNET_MODEL',
-      'ANTHROPIC_DEFAULT_OPUS_MODEL',
-      'ANTHROPIC_DEFAULT_HAIKU_MODEL',
-    ].some((key) => Boolean((env[key] ?? '').trim()));
-  } catch {
-    return false;
-  }
-}
-
 export function writeClaudeConfig(config: ClaudeCodeConfigValues): void {
   const existing = readClaudeSettingsFile();
   const env = { ...((existing.env as Record<string, string> | undefined) ?? {}) };
@@ -77,7 +56,12 @@ export function writeClaudeConfig(config: ClaudeCodeConfigValues): void {
     delete env[ENV_KEY_MAP.apiKey];
   }
   delete env.ANTHROPIC_API_KEY;
-  env[ENV_KEY_MAP.baseUrl] = config.baseUrl.trim();
+  const baseUrl = config.baseUrl.trim();
+  if (baseUrl) {
+    env[ENV_KEY_MAP.baseUrl] = baseUrl;
+  } else {
+    delete env[ENV_KEY_MAP.baseUrl];
+  }
 
   (['model', 'sonnetModel', 'opusModel', 'haikuModel'] as const).forEach((key) => {
     const val = (config[key] || '').trim();
@@ -111,6 +95,66 @@ export function writeClaudeConfig(config: ClaudeCodeConfigValues): void {
     }
     fs.renameSync(tmpPath, CLAUDE_SETTINGS_PATH);
   }
+}
+
+export function isClaudeCodeEnvCustomized(): boolean {
+  try {
+    const env = (readClaudeSettingsFile().env as Record<string, string> | undefined) ?? {};
+    if ((env[ENV_KEY_MAP.apiKey] ?? '').trim()) {
+      return true;
+    }
+    const base = (env.ANTHROPIC_BASE_URL ?? '').trim();
+    if (base) {
+      return true;
+    }
+    return [
+      'ANTHROPIC_MODEL',
+      'ANTHROPIC_DEFAULT_SONNET_MODEL',
+      'ANTHROPIC_DEFAULT_OPUS_MODEL',
+      'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+    ].some((key) => Boolean((env[key] ?? '').trim()));
+  } catch {
+    return false;
+  }
+}
+
+export function applyClaudeOfficialSubscription(permissionMode?: string): void {
+  const existing = readClaudeSettingsFile();
+  const env = { ...((existing.env as Record<string, string> | undefined) ?? {}) };
+  for (const key of [
+    'ANTHROPIC_AUTH_TOKEN',
+    'ANTHROPIC_API_KEY',
+    'ANTHROPIC_BASE_URL',
+    'ANTHROPIC_MODEL',
+    'ANTHROPIC_DEFAULT_SONNET_MODEL',
+    'ANTHROPIC_DEFAULT_OPUS_MODEL',
+    'ANTHROPIC_DEFAULT_HAIKU_MODEL',
+  ]) {
+    delete env[key];
+  }
+  if (!env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC) {
+    env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
+  }
+  const updated: Record<string, unknown> = { ...existing, env };
+  if (permissionMode?.trim()) {
+    updated.permissionMode = permissionMode.trim();
+  }
+  if (!fs.existsSync(CLAUDE_SETTINGS_DIR)) {
+    fs.mkdirSync(CLAUDE_SETTINGS_DIR, { recursive: true });
+  }
+  const json = JSON.stringify(updated, null, 2);
+  if (process.platform === 'win32') {
+    fs.writeFileSync(CLAUDE_SETTINGS_PATH, json, 'utf-8');
+    return;
+  }
+  const tmpPath = `${CLAUDE_SETTINGS_PATH}.tmp`;
+  fs.writeFileSync(tmpPath, json, 'utf-8');
+  try {
+    fs.chmodSync(tmpPath, 0o600);
+  } catch {
+    /* ignore */
+  }
+  fs.renameSync(tmpPath, CLAUDE_SETTINGS_PATH);
 }
 
 export function detectClaudeCli(): Promise<ClaudeCodeCliStatus> {
