@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: AgentSociety 2 2.6.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-18 09:36+0800\n"
+"POT-Creation-Date: 2026-06-18 22:50+0800\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language: en\n"
@@ -99,23 +99,22 @@ msgstr ""
 #: ../../architecture.rst:29
 msgid "所有批次完成后，调用环境的 ``step``，再推进仿真时钟。"
 msgstr ""
-"After all batches complete, call the environment ``step`` and then advance the "
-"simulation clock."
+"After all batches complete, call the environment ``step`` and then "
+"advance the simulation clock."
 
 #: ../../architecture.rst:31
 msgid ""
-"默认批大小为 ``batch_size=256``。批大小影响单个 Ray Task 内的并发 fan-out；每个进程内的 LLM 并发由本地 "
-"``LLMClient`` 自适应控制。"
-msgstr ""
-"The default batch size is ``batch_size=256``. Batch size controls the "
-"concurrency fan-out within a single Ray Task; global LLM concurrency is "
-"still controlled by the shared LLM dispatch layer.\n"
-
-#: ../../architecture.rst:55
-msgid "ServiceProxy"
+"默认批大小为 ``AGENTSOCIETY_BATCH_SIZE=256``（CLI ``--batch-size`` 可覆盖）。每 tick 的"
+" Ray Task 数 = ⌈N / 批大小⌉，受 ``AGENTSOCIETY_LLM_RAY_MAX_WORKERS``（默认机器 CPU "
+"核数）封顶； 单个 task 内的并发 fan-out 由批大小决定，每进程的 LLM 并发则由本地 ``LLMClient`` 的 AIMD "
+"自适应控制（无人工上下限）。"
 msgstr ""
 
 #: ../../architecture.rst:57
+msgid "ServiceProxy"
+msgstr ""
+
+#: ../../architecture.rst:59
 msgid ""
 "智能体不直接创建或持有 LLM dispatcher、环境 router、trace actor 或 replay "
 "actor。``from_workspace`` 接收一个 ``ServiceProxy``，并在 "
@@ -126,84 +125,84 @@ msgstr ""
 "``ServiceProxy`` and binds the relevant handles to the agent instance in "
 "``_bind_services(service_proxy)``.\n"
 
-#: ../../architecture.rst:64
+#: ../../architecture.rst:66
 msgid "slot"
 msgstr ""
 
-#: ../../architecture.rst:65
+#: ../../architecture.rst:67
 msgid "来源"
 msgstr "Source"
 
-#: ../../architecture.rst:66
+#: ../../architecture.rst:68
 msgid "用途"
 msgstr "Purpose"
 
-#: ../../architecture.rst:67
+#: ../../architecture.rst:69
 msgid "``_service_proxy``"
 msgstr ""
 
-#: ../../architecture.rst:68
+#: ../../architecture.rst:70
 msgid "入参"
 msgstr "Input parameter"
 
-#: ../../architecture.rst:69
+#: ../../architecture.rst:71
 msgid "原始服务容器，包含 env / llm / trace / replay 句柄。"
 msgstr "Raw service container with env / llm / trace / replay handles."
 
-#: ../../architecture.rst:70
+#: ../../architecture.rst:72
 msgid "``_env``"
 msgstr ""
 
-#: ../../architecture.rst:71
+#: ../../architecture.rst:73
 msgid "``service_proxy.env``"
 msgstr ""
 
-#: ../../architecture.rst:72
+#: ../../architecture.rst:74
 msgid "环境 router（``RouterBase`` / ``EnvRouterProxy``）。"
 msgstr "Environment router (``RouterBase`` / ``EnvRouterProxy``)."
 
-#: ../../architecture.rst:73
+#: ../../architecture.rst:75
 msgid "``_dispatcher``"
 msgstr ""
 
-#: ../../architecture.rst:74
+#: ../../architecture.rst:76
 msgid "``service_proxy.llm.default``"
 msgstr ""
 
-#: ../../architecture.rst:75
+#: ../../architecture.rst:77
 msgid "默认 LLM dispatcher（``call(...)``）。"
 msgstr "Default LLM dispatcher (``call(...)``)."
 
-#: ../../architecture.rst:76
+#: ../../architecture.rst:78
 msgid "``_trace``"
 msgstr ""
 
-#: ../../architecture.rst:77
+#: ../../architecture.rst:79
 msgid "``service_proxy.trace``"
 msgstr ""
 
-#: ../../architecture.rst:78
+#: ../../architecture.rst:80
 msgid "trace writer 句柄（通常是 ``TraceProxy``）。"
 msgstr "Trace writer handle, usually ``TraceProxy``."
 
-#: ../../architecture.rst:80
+#: ../../architecture.rst:82
 msgid ""
 "``ServiceProxy`` 只保存可序列化的句柄和配置，不保存锁、连接池或后台线程。Ray Task 因此只需要接收 一个服务容器；环境 "
 "router、trace 与 replay 由 driver 或 CLI 统一创建，LLM client 只携带连接参数， worker "
 "在自己的事件循环中按需创建 litellm Router 和并发控制器。"
 msgstr ""
-"``ServiceProxy`` stores only serializable handles and configuration. It does not store "
-"locks, connection pools, or background threads. A Ray Task therefore only needs to "
-"receive one service container. The environment router, trace, and replay are created "
-"once by the driver or CLI; the LLM client only carries connection parameters, and "
-"workers create the litellm Router and concurrency controller on demand in their own "
-"event loop."
+"``ServiceProxy`` stores only serializable handles and configuration. It "
+"does not store locks, connection pools, or background threads. A Ray Task"
+" therefore only needs to receive one service container. The environment "
+"router, trace, and replay are created once by the driver or CLI; the LLM "
+"client only carries connection parameters, and workers create the litellm"
+" Router and concurrency controller on demand in their own event loop."
 
-#: ../../architecture.rst:85
+#: ../../architecture.rst:87
 msgid "环境路由"
 msgstr "Environment Routing"
 
-#: ../../architecture.rst:87
+#: ../../architecture.rst:89
 msgid ""
 "环境状态由环境路由统一管理。生产运行时，CLI 会通过 ``get_env_router_actor_class`` 创建专用的 Ray "
 "actor，并把 ``EnvRouterProxy`` 放入 ``ServiceProxy``。智能体通过该 proxy 调用 ``ask``、 "
@@ -216,74 +215,74 @@ msgstr ""
 "``get_world_description``, and related interfaces through that proxy; all"
 " agents see the same environment state.\n"
 
-#: ../../architecture.rst:91
+#: ../../architecture.rst:93
 msgid "路由器（``RouterBase`` 子类）负责把智能体的自然语言请求映射到环境模块暴露的 ``@tool`` 方法："
 msgstr ""
 "Routers (``RouterBase`` subclasses) map an agent's natural-language "
 "request to ``@tool`` methods exposed by environment modules:\n"
 
-#: ../../architecture.rst:97
+#: ../../architecture.rst:99
 msgid "路由器"
 msgstr "Router"
 
-#: ../../architecture.rst:98
+#: ../../architecture.rst:100
 msgid "特点"
 msgstr "Characteristics"
 
-#: ../../architecture.rst:99
+#: ../../architecture.rst:101
 msgid "``CodeGenRouter`` (默认)"
 msgstr "``CodeGenRouter`` (default)"
 
-#: ../../architecture.rst:100
+#: ../../architecture.rst:102
 msgid "从环境模块提取工具签名，生成调用代码并在受限环境中执行；带 AST 守卫与缓存统计。"
 msgstr ""
 "Extracts tool signatures from environment modules, generates call code, "
 "and executes it in a restricted environment; includes AST guards and "
 "cache statistics.\n"
 
-#: ../../architecture.rst:101
+#: ../../architecture.rst:103
 msgid "``ReActRouter``"
 msgstr ""
 
-#: ../../architecture.rst:102
+#: ../../architecture.rst:104
 msgid "ReAct 式工具选择。"
 msgstr "ReAct-style tool selection."
 
-#: ../../architecture.rst:103
+#: ../../architecture.rst:105
 msgid "``PlanExecuteRouter``"
 msgstr ""
 
-#: ../../architecture.rst:104
+#: ../../architecture.rst:106
 msgid "先规划再执行。"
 msgstr "Plan first, then execute."
 
-#: ../../architecture.rst:105
+#: ../../architecture.rst:107
 msgid "``TwoTierReActRouter`` / ``TwoTierPlanExecuteRouter``"
 msgstr ""
 
-#: ../../architecture.rst:106
+#: ../../architecture.rst:108
 msgid "两级路由，适合大工具集。"
 msgstr "Two-tier routing for large tool sets."
 
-#: ../../architecture.rst:107
+#: ../../architecture.rst:109
 msgid "``SearchToolRouter``"
 msgstr ""
 
-#: ../../architecture.rst:108
+#: ../../architecture.rst:110
 msgid "以搜索/检索方式选择工具。"
 msgstr "Selects tools through search/retrieval."
 
-#: ../../architecture.rst:110
+#: ../../architecture.rst:112
 msgid "环境模块与 ``@tool`` 装饰器见 :doc:`env_modules` 与 :doc:`concepts`。"
 msgstr ""
 "For environment modules and the ``@tool`` decorator, see "
 ":doc:`env_modules` and :doc:`concepts`.\n"
 
-#: ../../architecture.rst:113
+#: ../../architecture.rst:115
 msgid "LLM 调度"
 msgstr "LLM Dispatch"
 
-#: ../../architecture.rst:115
+#: ../../architecture.rst:117
 msgid ""
 "LLM 调用由 :mod:`agentsociety2.config.llm_dispatcher` 统一封装。当前实现使用 per-"
 "process dispatcher：``LLMClient`` 是可序列化的连接配置，只携带 "
@@ -292,122 +291,142 @@ msgid ""
 "``Router`` 与 ``AdaptiveSemaphore``。这样可以避免跨 Ray task 复用 asyncio 对象导致的 "
 "event-loop 绑定问题。"
 msgstr ""
-"LLM calls are centrally wrapped by :mod:`agentsociety2.config.llm_dispatcher`. The "
-"current implementation uses a per-process dispatcher: ``LLMClient`` is a serializable "
-"connection config carrying only ``model_name``, ``base_url``, and ``api_key``; it can "
-"enter Ray Tasks or the env router actor through ``ServiceProxy``. When each consumer "
-"calls ``call()`` for the first time in its own event loop, it creates a local litellm "
-"``Router`` and ``AdaptiveSemaphore``. This avoids event-loop binding problems caused by "
-"reusing asyncio objects across Ray tasks."
+"LLM calls are centrally wrapped by "
+":mod:`agentsociety2.config.llm_dispatcher`. The current implementation "
+"uses a per-process dispatcher: ``LLMClient`` is a serializable connection"
+" config carrying only ``model_name``, ``base_url``, and ``api_key``; it "
+"can enter Ray Tasks or the env router actor through ``ServiceProxy``. "
+"When each consumer calls ``call()`` for the first time in its own event "
+"loop, it creates a local litellm ``Router`` and ``AdaptiveSemaphore``. "
+"This avoids event-loop binding problems caused by reusing asyncio objects"
+" across Ray tasks."
 
-#: ../../architecture.rst:121
+#: ../../architecture.rst:123
 msgid ""
 "并发控制发生在每个进程 / 事件循环内部：``AdaptiveSemaphore`` 根据近期延迟和 rate-limit 错误做 "
 "AIMD（加性增、乘性减）调整，用于控制该进程内 LLM 请求 fan-out。token usage 也按 ``LLMClient`` "
 "实例本地累计，再通过 Ray Task 返回值合并。"
 msgstr ""
-"Concurrency control happens inside each process / event loop. ``AdaptiveSemaphore`` "
-"adjusts with AIMD (additive increase, multiplicative decrease) based on recent latency "
-"and rate-limit errors, controlling LLM request fan-out within that process. Token usage "
-"is also accumulated locally per ``LLMClient`` instance and merged through Ray Task "
-"return values."
+"Concurrency control happens inside each process / event loop. "
+"``AdaptiveSemaphore`` adjusts with AIMD (additive increase, "
+"multiplicative decrease) based on recent latency and rate-limit errors, "
+"controlling LLM request fan-out within that process. Token usage is also "
+"accumulated locally per ``LLMClient`` instance and merged through Ray "
+"Task return values."
 
-#: ../../architecture.rst:125
+#: ../../architecture.rst:127
 msgid "默认配置可直接使用；需要调参时主要关注以下环境变量（详见 :doc:`installation`）："
 msgstr ""
-"Defaults work out of the box; when tuning is needed, focus on these environment "
-"variables (see :doc:`installation`):"
+"Defaults work out of the box; when tuning is needed, focus on these "
+"environment variables (see :doc:`installation`):"
 
-#: ../../architecture.rst:131
+#: ../../architecture.rst:133
 msgid "环境变量"
 msgstr "Environment variable"
 
-#: ../../architecture.rst:132
+#: ../../architecture.rst:134
 msgid "默认"
 msgstr "Default"
 
-#: ../../architecture.rst:133
+#: ../../architecture.rst:135
 msgid "含义"
 msgstr "Meaning"
 
-#: ../../architecture.rst:134
+#: ../../architecture.rst:136
 msgid "``AGENTSOCIETY_LLM_RAY_MAX_WORKERS``"
 msgstr ""
 
-#: ../../architecture.rst:135
-msgid "4"
-msgstr ""
-
-#: ../../architecture.rst:136
-msgid "``ray.init(num_cpus=...)`` 的 CPU 预算提示，用于给 Ray task / actor 留出调度空间。"
-msgstr ""
-"CPU budget hint for ``ray.init(num_cpus=...)``, used to reserve scheduling room for Ray "
-"tasks / actors."
-
 #: ../../architecture.rst:137
-msgid "``AGENTSOCIETY_LLM_RAY_CONCURRENCY``"
+msgid "机器 CPU 核数"
 msgstr ""
 
 #: ../../architecture.rst:138
+#, fuzzy
+msgid ""
+"``ray.init(num_cpus=...)`` 的 CPU 预算，封顶每 tick 同时运行的 ``step_agent_batch`` "
+"Ray Task 数。"
+msgstr ""
+"CPU budget hint for ``ray.init(num_cpus=...)``, used to reserve "
+"scheduling room for Ray tasks / actors."
+
+#: ../../architecture.rst:139
+msgid "``AGENTSOCIETY_LLM_RAY_CONCURRENCY``"
+msgstr ""
+
+#: ../../architecture.rst:140
 msgid "16"
 msgstr ""
 
-#: ../../architecture.rst:139
-msgid "每个本地 ``LLMClient`` 的初始并发；AIMD 会围绕该值自适应调整。"
+#: ../../architecture.rst:141
+#, fuzzy
+msgid "每个本地 ``LLMClient`` 的 AIMD 初始并发；无人工上下限，自动逼近 API 真实容量。"
 msgstr "Initial concurrency per worker; AIMD adapts around this value."
 
-#: ../../architecture.rst:140
+#: ../../architecture.rst:142
+msgid "``AGENTSOCIETY_BATCH_SIZE``"
+msgstr ""
+
+#: ../../architecture.rst:143
+msgid "256"
+msgstr ""
+
+#: ../../architecture.rst:144
+#, fuzzy
+msgid "每个 ``step_agent_batch`` Ray Task 处理的 agent 数；CLI ``--batch-size`` 可覆盖。"
+msgstr "Submit one ``step_agent_batch`` Ray Task for each batch."
+
+#: ../../architecture.rst:145
 msgid "``AGENTSOCIETY_LLM_LATENCY_DEGRADE_FACTOR``"
 msgstr ""
 
-#: ../../architecture.rst:141
+#: ../../architecture.rst:146
 msgid "4.0"
 msgstr ""
 
-#: ../../architecture.rst:142
+#: ../../architecture.rst:147
 msgid "AIMD 的相对退避因子。调用延迟明显高于近期健康基线时触发降并发。"
 msgstr ""
 "Relative AIMD backoff factor. Concurrency is reduced when call latency is"
 " significantly higher than the recent healthy baseline.\n"
 
-#: ../../architecture.rst:143
+#: ../../architecture.rst:148
 msgid "``AGENTSOCIETY_LLM_SLOW_LATENCY_MS``"
 msgstr ""
 
-#: ../../architecture.rst:144
+#: ../../architecture.rst:149
 msgid "未设置"
 msgstr "Not set"
 
-#: ../../architecture.rst:145
+#: ../../architecture.rst:150
 msgid "可选的绝对延迟阈值（毫秒）。未设置时只使用相对因子。"
 msgstr ""
 "Optional absolute latency threshold in milliseconds. When unset, only the"
 " relative factor is used.\n"
 
-#: ../../architecture.rst:147
+#: ../../architecture.rst:152
 msgid ""
 "``init_dispatchers()`` 只负责初始化 Ray（用于 env router actor 和 agent Ray Tasks）。"
 " ``shutdown_dispatchers()`` 对 LLM 侧是 no-op；本地 Router 随所在进程退出释放。"
 msgstr ""
-"``init_dispatchers()`` only initializes Ray for the env router actor and agent Ray "
-"Tasks. ``shutdown_dispatchers()`` is a no-op on the LLM side; local Routers are released "
-"when their process exits."
+"``init_dispatchers()`` only initializes Ray for the env router actor and "
+"agent Ray Tasks. ``shutdown_dispatchers()`` is a no-op on the LLM side; "
+"local Routers are released when their process exits."
 
-#: ../../architecture.rst:151
+#: ../../architecture.rst:156
 msgid "Trace"
 msgstr ""
 
-#: ../../architecture.rst:153
+#: ../../architecture.rst:158
 msgid ":mod:`agentsociety2.trace` 提供分布式追踪："
 msgstr ":mod:`agentsociety2.trace` provides distributed tracing:"
 
-#: ../../architecture.rst:155
+#: ../../architecture.rst:160
 msgid "``ShardedTraceWriter`` 按 ``trace_id`` 分片写入，并通过后台线程批量落盘。"
 msgstr ""
 "``ShardedTraceWriter`` shards writes by ``trace_id`` and flushes them in "
 "batches through a background thread.\n"
 
-#: ../../architecture.rst:156
+#: ../../architecture.rst:161
 msgid ""
 "``JsonlTraceWriter`` 提供 "
 "``start_span``、``trace_span``、``record_event``、``end_span`` 和 "
@@ -416,13 +435,13 @@ msgstr ""
 "``JsonlTraceWriter`` provides ``start_span``, ``trace_span``, "
 "``record_event``, ``end_span``, and ``TraceSpan``.\n"
 
-#: ../../architecture.rst:158
+#: ../../architecture.rst:163
 msgid "``TraceActor`` 是常驻 Ray actor；``TraceProxy`` 是放入 ``ServiceProxy`` 的轻量句柄。"
 msgstr ""
 "``TraceActor`` is a long-lived Ray actor; ``TraceProxy`` is the "
 "lightweight handle placed in ``ServiceProxy``.\n"
 
-#: ../../architecture.rst:160
+#: ../../architecture.rst:165
 msgid ""
 "智能体执行、memory、环境调用和 LLM 调用都可以记录为 span。运行完成后，trace 数据可用于分析慢调用、 "
 "长尾任务和环境工具调用瓶颈。"
@@ -432,11 +451,11 @@ msgstr ""
 "analyze slow calls, tail-latency tasks, and environment tool-call "
 "bottlenecks.\n"
 
-#: ../../architecture.rst:164
+#: ../../architecture.rst:169
 msgid "Replay 与存储"
 msgstr "Replay and Storage"
 
-#: ../../architecture.rst:166
+#: ../../architecture.rst:171
 msgid ""
 "Replay 数据由 ``ReplaySink`` / ``ReplayWriter`` 以 append-only JSONL 写入 "
 "``run/replay/``，dataset catalog 和列元数据保存在 ``_schema.json``。``ReplayProxy``"
@@ -453,64 +472,80 @@ msgstr ""
 "``ReplayReader`` uses DuckDB to register JSONL shards as views. For table"
 " structure and dataset registration, see :doc:`storage`.\n"
 
-#: ../../architecture.rst:175
+#: ../../architecture.rst:180
 msgid "扩展点"
 msgstr "Extension Points"
 
-#: ../../architecture.rst:177
+#: ../../architecture.rst:182
 msgid "AgentSociety 2 的主要扩展点包括："
 msgstr "The main AgentSociety 2 extension points are:"
 
-#: ../../architecture.rst:179
+#: ../../architecture.rst:184
 msgid "新增智能体能力：编写 Agent Skill，放入 ``custom/skills/``，见 :doc:`agent_skills`。"
 msgstr ""
 "Add agent capabilities: write Agent Skills and place them under "
 "``custom/skills/``; see :doc:`agent_skills`.\n"
 
-#: ../../architecture.rst:180
+#: ../../architecture.rst:185
 msgid "新增环境模块：继承 ``EnvBase`` 并用 ``@tool`` 暴露可调用方法，见 :doc:`env_modules`。"
 msgstr ""
 "Add environment modules: inherit from ``EnvBase`` and expose callable "
 "methods with ``@tool``; see :doc:`env_modules`.\n"
 
-#: ../../architecture.rst:181
+#: ../../architecture.rst:186
 msgid "自定义智能体类型：继承 ``AgentBase`` 并通过注册表发现，见 :doc:`agents`。"
 msgstr ""
 "Customize agent types: inherit from ``AgentBase`` and discover them "
 "through the registry; see :doc:`agents`.\n"
 
-#: ../../architecture.rst:182
+#: ../../architecture.rst:187
 msgid "分析运行结果：读取 trace span 或 replay dataset，见 :doc:`storage`。"
 msgstr ""
 "Analyze run results: read trace spans or replay datasets; see "
 ":doc:`storage`."
 
-#: ../../architecture.rst:186
+#: ../../architecture.rst:191
 msgid "参考"
 msgstr "References"
 
-#: ../../architecture.rst:188
+#: ../../architecture.rst:193
 msgid ":doc:`agents`：智能体构造模型、workspace 布局与 ReAct 工具循环。"
 msgstr ""
 ":doc:`agents`: agent construction model, workspace layout, and ReAct tool"
 " loop."
 
-#: ../../architecture.rst:189
+#: ../../architecture.rst:194
 msgid ":doc:`agent_skills`：Agent Skill 的目录结构、加载与执行方式。"
 msgstr ""
 ":doc:`agent_skills`: Agent Skill directory structure, loading, and "
 "execution."
 
-#: ../../architecture.rst:190
+#: ../../architecture.rst:195
 msgid ":doc:`env_modules`：环境模块与 ``@tool`` 装饰器。"
 msgstr ":doc:`env_modules`: environment modules and the ``@tool`` decorator."
 
-#: ../../architecture.rst:191
+#: ../../architecture.rst:196
 msgid ":doc:`storage`：replay 数据集、``_schema.json`` catalog、JSONL 写入与 DuckDB 读取。"
 msgstr ""
 ":doc:`storage`: replay datasets, the ``_schema.json`` catalog, JSONL "
 "writes, and DuckDB reads.\n"
 
-#: ../../architecture.rst:192
+#: ../../architecture.rst:197
 msgid ":doc:`api/env` / :doc:`api/storage`：router、proxy、writer API。"
 msgstr ""
+
+#~ msgid ""
+#~ "默认批大小为 ``batch_size=256``。批大小影响单个 Ray Task "
+#~ "内的并发 fan-out；每个进程内的 LLM 并发由本地 "
+#~ "``LLMClient`` 自适应控制。"
+#~ msgstr ""
+#~ "The default batch size is "
+#~ "``batch_size=256``. Batch size controls the"
+#~ " concurrency fan-out within a single"
+#~ " Ray Task; global LLM concurrency is"
+#~ " still controlled by the shared LLM"
+#~ " dispatch layer.\n"
+
+#~ msgid "4"
+#~ msgstr ""
+

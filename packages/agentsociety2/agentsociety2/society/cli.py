@@ -311,9 +311,8 @@ class ExperimentRunner:
         config_path: Path,
         steps_path: Path,
         experiment_id: Optional[str] = None,
-        num_llm_workers: Optional[int] = None,
         replay_disable: bool = False,
-        batch_size: int = 256,
+        batch_size: Optional[int] = None,
     ):
         """
         运行实验
@@ -321,9 +320,9 @@ class ExperimentRunner:
         :param config_path: 配置文件路径（init_config.json）
         :param steps_path: steps.yaml 文件路径
         :param experiment_id: 实验ID（可选）
-        :param num_llm_workers: 可选。兼容保留的 Ray CPU 预算提示
-            （覆盖 ``AGENTSOCIETY_LLM_RAY_WORKERS``）。
         :param replay_disable: 为 True 时构造一个禁用的 ``ReplayProxy``（无 replay JSONL 写）。
+        :param batch_size: 每个 ``step_agent_batch`` Ray Task 处理的 agent 数；
+            ``None`` 时回落 ``Config.BATCH_SIZE``（环境变量 ``AGENTSOCIETY_BATCH_SIZE``，缺省 256）。
         """
         try:
             # 验证环境变量（必须在任何操作之前）
@@ -374,14 +373,11 @@ class ExperimentRunner:
                 logger.info("No custom/ directory found, skipping custom module scan")
 
             # Initialize Ray / per-process LLM dispatch support. ``init_dispatchers``
-            # is idempotent; the compatibility worker override affects only the
-            # Ray CPU budget hint.
+            # is idempotent.
             from agentsociety2.config.llm_dispatcher import (
                 init_dispatchers,
             )
 
-            if num_llm_workers is not None:
-                Config.LLM_RAY_WORKERS = int(num_llm_workers)
             await init_dispatchers()
 
             # ── Replay: distributed ReplayProxy (JSONL sink) ──────────────────────
@@ -472,7 +468,11 @@ class ExperimentRunner:
                 start_t=start_t,
                 run_dir=self.run_dir,
                 service_proxy=service_proxy,
-                batch_size=int(batch_size),
+                batch_size=(
+                    int(batch_size)
+                    if batch_size is not None
+                    else int(Config.BATCH_SIZE)
+                ),
                 enable_replay=not replay_disable,
             )
 
@@ -680,15 +680,6 @@ def main():
         help="Path to log file (optional). If not specified, logs go to stdout/stderr only.",
     )
     parser.add_argument(
-        "--num-llm-workers",
-        type=int,
-        default=None,
-        help=(
-            "Compatibility Ray CPU budget hint for LLM-heavy runs "
-            "(overrides AGENTSOCIETY_LLM_RAY_WORKERS)."
-        ),
-    )
-    parser.add_argument(
         "--replay-disable",
         action="store_true",
         help="Disable replay writing (no-op ReplayProxy; useful at 1M-agent scale).",
@@ -696,11 +687,12 @@ def main():
     parser.add_argument(
         "--batch-size",
         type=int,
-        default=256,
+        default=None,
         help=(
-            "Number of agents per step_agent_batch Ray Task (streaming mode). "
-            "Smaller → more parallel tasks / scheduling overhead; larger → fewer "
-            "tasks but a slow agent can stall its batch. Default 256."
+            "Number of agents per step_agent_batch Ray Task. Tasks per tick = "
+            "ceil(N / batch_size); at most AGENTSOCIETY_LLM_RAY_MAX_WORKERS run "
+            "concurrently, so aim for ceil(N/batch_size) >= workers to saturate "
+            "them. Default: AGENTSOCIETY_BATCH_SIZE env var, or 256."
         ),
     )
 
@@ -734,7 +726,6 @@ def main():
                 config_path=config_path,
                 steps_path=steps_path,
                 experiment_id=args.experiment_id,
-                num_llm_workers=args.num_llm_workers,
                 replay_disable=args.replay_disable,
                 batch_size=args.batch_size,
             )

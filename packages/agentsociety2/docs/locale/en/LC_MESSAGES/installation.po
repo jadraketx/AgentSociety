@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: AgentSociety 2 2.6.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-18 09:36+0800\n"
+"POT-Creation-Date: 2026-06-18 22:50+0800\n"
 "PO-Revision-Date: 2026-03-05 23:50+0800\n"
 "Last-Translator: AgentSociety Team\n"
 "Language: en\n"
@@ -133,25 +133,24 @@ msgid ""
 "进程在自己的 事件循环中首次调用 LLM 时，本地创建 litellm Router 与 ``AdaptiveSemaphore``。 "
 "``AdaptiveSemaphore`` 基于近期延迟和 rate-limit 错误做 AIMD 自适应并发。"
 msgstr ""
-"LLM dispatch is handled by serializable ``LLMClient`` instances. When each Ray task, env "
-"router actor, or driver process calls an LLM for the first time in its own event loop, "
-"it creates a local litellm Router and ``AdaptiveSemaphore``. ``AdaptiveSemaphore`` "
-"adapts concurrency with AIMD based on recent latency and rate-limit errors."
+"LLM dispatch is handled by serializable ``LLMClient`` instances. When "
+"each Ray task, env router actor, or driver process calls an LLM for the "
+"first time in its own event loop, it creates a local litellm Router and "
+"``AdaptiveSemaphore``. ``AdaptiveSemaphore`` adapts concurrency with AIMD"
+" based on recent latency and rate-limit errors."
 
-#: ../../installation.rst:164
+#: ../../installation.rst:169
 msgid ""
-"若你的 LLM 网关有明确的 QPS / 并发上限，优先调低 ``AGENTSOCIETY_LLM_RAY_CONCURRENCY``； "
-"实际总并发还取决于同时运行的 Ray task / actor 数量。"
+"``AGENTSOCIETY_LLM_RAY_CONCURRENCY`` 只是 AIMD 的起点，没有人工上下限——每进程并发会 自动逼近 API"
+" 真实容量并在延迟/限流恶化时回退。若网关有严格 QPS 上限可调低起点； 实际总并发还取决于同时运行的 Ray task "
+"数（``AGENTSOCIETY_LLM_RAY_MAX_WORKERS``）。"
 msgstr ""
-"If your LLM gateway has explicit QPS / concurrency limits, lower "
-"``AGENTSOCIETY_LLM_RAY_CONCURRENCY`` first. Actual total concurrency also depends on the "
-"number of Ray tasks / actors running at the same time."
 
-#: ../../installation.rst:168
+#: ../../installation.rst:174
 msgid "支持的 LLM 提供商"
 msgstr "Supported LLM Providers"
 
-#: ../../installation.rst:170
+#: ../../installation.rst:176
 msgid ""
 "AgentSociety 2 通过 LiteLLM 路由模型调用；文档中的默认示例使用 OpenAI 兼容的 Chat Completions "
 "接口："
@@ -159,15 +158,15 @@ msgstr ""
 "AgentSociety 2 routes model calls through LiteLLM. Default examples in "
 "the docs use an OpenAI-compatible Chat Completions API:"
 
-#: ../../installation.rst:172
+#: ../../installation.rst:178
 msgid "``AGENTSOCIETY_LLM_API_BASE=https://api.openai.com/v1``"
 msgstr "``AGENTSOCIETY_LLM_API_BASE=https://api.openai.com/v1``"
 
-#: ../../installation.rst:173
+#: ../../installation.rst:179
 msgid "``AGENTSOCIETY_LLM_MODEL=gpt-5.5``"
 msgstr "``AGENTSOCIETY_LLM_MODEL=gpt-5.5``"
 
-#: ../../installation.rst:175
+#: ../../installation.rst:181
 msgid ""
 "如果你使用其它 LiteLLM 支持的 OpenAI 兼容网关，请保持同样的环境变量结构，并把 "
 "``AGENTSOCIETY_LLM_API_BASE`` 与模型名替换为该网关提供的值。"
@@ -175,3 +174,16 @@ msgstr ""
 "If you use another LiteLLM-supported OpenAI-compatible gateway, keep the "
 "same variable names and set ``AGENTSOCIETY_LLM_API_BASE`` and the model "
 "name to values provided by that gateway."
+
+#~ msgid ""
+#~ "若你的 LLM 网关有明确的 QPS / 并发上限，优先调低 "
+#~ "``AGENTSOCIETY_LLM_RAY_CONCURRENCY``； 实际总并发还取决于同时运行的 Ray"
+#~ " task / actor 数量。"
+#~ msgstr ""
+#~ "If your LLM gateway has explicit "
+#~ "QPS / concurrency limits, lower "
+#~ "``AGENTSOCIETY_LLM_RAY_CONCURRENCY`` first. Actual "
+#~ "total concurrency also depends on the"
+#~ " number of Ray tasks / actors "
+#~ "running at the same time."
+

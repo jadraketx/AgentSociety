@@ -55,6 +55,12 @@ CLI 是运行 AgentSociety 2 实验的主要方式。它提供：
    * - ``--log-file`` <PATH>
      - 无
      - 日志文件路径（**后台运行必需**）
+   * - ``--batch-size`` <INT>
+     - ``AGENTSOCIETY_BATCH_SIZE`` 或 256
+     - 每个 ``step_agent_batch`` Ray Task 处理的 agent 数
+   * - ``--replay-disable``
+     - false
+     - 禁用回放写入（百万级 agent 场景适用）
 
 运行实验
 ------------

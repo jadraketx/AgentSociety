@@ -28,8 +28,10 @@ AgentSociety 2 将智能体状态放在独立 workspace 中，执行时再由 Ra
 3. 每个 task 在批内用 ``asyncio.gather`` 并发推进智能体；批之间由 Ray 调度到不同 worker。
 4. 所有批次完成后，调用环境的 ``step``，再推进仿真时钟。
 
-默认批大小为 ``batch_size=256``。批大小影响单个 Ray Task 内的并发 fan-out；每个进程内的 LLM
-并发由本地 ``LLMClient`` 自适应控制。
+默认批大小为 ``AGENTSOCIETY_BATCH_SIZE=256``（CLI ``--batch-size`` 可覆盖）。每 tick 的
+Ray Task 数 = ⌈N / 批大小⌉，受 ``AGENTSOCIETY_LLM_RAY_MAX_WORKERS``（默认机器 CPU 核数）封顶；
+单个 task 内的并发 fan-out 由批大小决定，每进程的 LLM 并发则由本地 ``LLMClient`` 的 AIMD
+自适应控制（无人工上下限）。
 
 .. graphviz::
 
@@ -132,11 +134,14 @@ AIMD（加性增、乘性减）调整，用于控制该进程内 LLM 请求 fan-
      - 默认
      - 含义
    * - ``AGENTSOCIETY_LLM_RAY_MAX_WORKERS``
-     - 4
-     - ``ray.init(num_cpus=...)`` 的 CPU 预算提示，用于给 Ray task / actor 留出调度空间。
+     - 机器 CPU 核数
+     - ``ray.init(num_cpus=...)`` 的 CPU 预算，封顶每 tick 同时运行的 ``step_agent_batch`` Ray Task 数。
    * - ``AGENTSOCIETY_LLM_RAY_CONCURRENCY``
      - 16
-     - 每个本地 ``LLMClient`` 的初始并发；AIMD 会围绕该值自适应调整。
+     - 每个本地 ``LLMClient`` 的 AIMD 初始并发；无人工上下限，自动逼近 API 真实容量。
+   * - ``AGENTSOCIETY_BATCH_SIZE``
+     - 256
+     - 每个 ``step_agent_batch`` Ray Task 处理的 agent 数；CLI ``--batch-size`` 可覆盖。
    * - ``AGENTSOCIETY_LLM_LATENCY_DEGRADE_FACTOR``
      - 4.0
      - AIMD 的相对退避因子。调用延迟明显高于近期健康基线时触发降并发。

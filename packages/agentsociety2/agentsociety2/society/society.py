@@ -111,7 +111,6 @@ class AgentSociety:
             service_proxy=proxy,
             start_t=datetime.now(),
             run_dir=Path("./run"),
-            batch_size=256,
         )
 
         async with society:
@@ -127,7 +126,7 @@ class AgentSociety:
         run_dir: Optional[Path] = None,
         *,
         service_proxy: Optional["ServiceProxy"] = None,
-        batch_size: int = 256,
+        batch_size: Optional[int] = None,
         enable_replay: bool = True,
     ):
         """创建 record-based 仿真编排器。
@@ -141,7 +140,9 @@ class AgentSociety:
         :param service_proxy: 共享服务句柄（env / llm / trace / replay）。流式任务
             处理必需——runner 任务通过它访问 LLM clients / env actor。提供时 :meth:`init`
             直接复用；``close`` 关闭其中 trace/replay actor。
-        :param batch_size: 每 ``step_agent_batch`` Ray Task 处理的 agent 数（默认 256）。
+        :param batch_size: 每 ``step_agent_batch`` Ray Task 处理的 agent 数；
+            ``None`` 时回落到 ``Config.BATCH_SIZE``（环境变量
+            ``AGENTSOCIETY_BATCH_SIZE``，缺省 256）。
         :param enable_replay: 是否启用回放记录。
         """
         self._agent_specs: list[dict] = list(agent_specs)
@@ -164,7 +165,12 @@ class AgentSociety:
             if self._run_dir is not None
             else Path("./agents").resolve()
         )
-        self._batch_size = max(1, int(batch_size))
+        from agentsociety2.config import Config
+
+        resolved_batch_size = (
+            batch_size if batch_size is not None else Config.BATCH_SIZE
+        )
+        self._batch_size = max(1, int(resolved_batch_size))
         self._enable_replay = enable_replay
 
         self._service_proxy: Optional["ServiceProxy"] = service_proxy

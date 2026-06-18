@@ -96,6 +96,13 @@ $PYTHON_PATH -m agentsociety2.society.cli \
     --log-file hypothesis_1/experiment_1/run/stdout.log &
 ```
 
+### Batch Size & Concurrency (large runs)
+
+- `--batch-size` (env `AGENTSOCIETY_BATCH_SIZE`, default 256): agents per `step_agent_batch` Ray Task.
+- Tasks per tick = ⌈N / batch_size⌉, capped by `AGENTSOCIETY_LLM_RAY_MAX_WORKERS` (default = machine CPU count).
+- Pick `--batch-size` so ⌈N / batch_size⌉ ≈ worker count to saturate CPUs; otherwise workers sit idle.
+- Per-process LLM concurrency self-tunes via AIMD (`AGENTSOCIETY_LLM_RAY_CONCURRENCY`, default 16, no hard cap).
+
 ## Common Mistakes
 
 | Mistake | Fix |

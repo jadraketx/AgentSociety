@@ -253,7 +253,6 @@ Environment variables (see `.env.example`):
 
 **Optional LLM Configuration** (falls back to default if not set):
 - `AGENTSOCIETY_CODER_LLM_*` - Code generation LLM
-- `AGENTSOCIETY_NANO_LLM_*` - High-frequency operations LLM
 - `AGENTSOCIETY_EMBEDDING_*` - Embedding model settings
 
 **Other Settings:**
@@ -261,7 +260,7 @@ Environment variables (see `.env.example`):
 - `BACKEND_HOST`, `BACKEND_PORT` - Backend service configuration
 
 LLM routing via `agentsociety2.config`:
-- `get_llm_router(role)` - Get litellm Router for role (default/coder/nano/embedding)
+- `get_llm_router(role)` - Get litellm Router for role (default/coder)
 - `get_llm_router_and_model(role)` - Get both Router and model name
 - `extract_json()` - Utility for JSON extraction from LLM responses
 
@@ -273,7 +272,6 @@ LLM routing via `agentsociety2.config`:
 
    - `AGENTSOCIETY_LLM_API_BASE`: `https://api.openai.com/v1`
    - `AGENTSOCIETY_LLM_MODEL`: `gpt-5.5`
-   - `AGENTSOCIETY_NANO_LLM_MODEL`: `gpt-5.5`
    - `AGENTSOCIETY_EMBEDDING_MODEL`: `text-embedding-3-large` (dims: `1024`)
 
 ### Frontend Architecture

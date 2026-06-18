@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: AgentSociety 2 2.6.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-18 09:45+0800\n"
+"POT-Creation-Date: 2026-06-18 22:50+0800\n"
 "PO-Revision-Date: 2026-05-19 00:00+0000\n"
 "Last-Translator: AgentSociety Team\n"
 "Language: en\n"
@@ -872,35 +872,6 @@ msgstr "Experiment Information"
 #: agentsociety2.skills.hypothesis.HypothesisModel.model_config:1
 #: agentsociety2.skills.literature.LiteratureEntry.model_config:1
 #: agentsociety2.skills.literature.LiteratureIndex.model_config:1
-#: agentsociety2.skills.paper.Affiliation.model_config:1
-#: agentsociety2.skills.paper.Author.model_config:1
-#: agentsociety2.skills.paper.Claim.model_config:1
-#: agentsociety2.skills.paper.ClaimLedger.model_config:1
-#: agentsociety2.skills.paper.CompileResult.model_config:1
-#: agentsociety2.skills.paper.Counters.model_config:1
-#: agentsociety2.skills.paper.DispatchRecord.model_config:1
-#: agentsociety2.skills.paper.Envelope.model_config:1
-#: agentsociety2.skills.paper.EvidenceBacklog.model_config:1
-#: agentsociety2.skills.paper.EvidenceGap.model_config:1
-#: agentsociety2.skills.paper.FigureArgumentMap.model_config:1
-#: agentsociety2.skills.paper.FigureSpec.model_config:1
-#: agentsociety2.skills.paper.HumanGate.model_config:1
-#: agentsociety2.skills.paper.PaperMeta.model_config:1
-#: agentsociety2.skills.paper.PaperState.model_config:1
-#: agentsociety2.skills.paper.ParagraphTemplate.model_config:1
-#: agentsociety2.skills.paper.ProvenanceEntry.model_config:1
-#: agentsociety2.skills.paper.ResearchPack.model_config:1
-#: agentsociety2.skills.paper.ResearchPackAnalysis.model_config:1
-#: agentsociety2.skills.paper.ResearchPackExperiment.model_config:1
-#: agentsociety2.skills.paper.ResearchPackFigure.model_config:1
-#: agentsociety2.skills.paper.ResearchPackHypothesis.model_config:1
-#: agentsociety2.skills.paper.ResearchPackLiterature.model_config:1
-#: agentsociety2.skills.paper.ResearchPackReferencePool.model_config:1
-#: agentsociety2.skills.paper.Review.model_config:1
-#: agentsociety2.skills.paper.ReviewRound.model_config:1
-#: agentsociety2.skills.paper.SectionLogic.model_config:1
-#: agentsociety2.skills.paper.StorylineMap.model_config:1
-#: agentsociety2.skills.paper.TemplateSlot.model_config:1
 #: agentsociety2.society.helper.PlanStep.model_config:1
 #: agentsociety2.storage.models.AgentDialog.model_config:1
 #: agentsociety2.storage.models.AgentProfile.model_config:1
@@ -1873,33 +1844,23 @@ msgstr ""
 msgid "Environment variable: AGENTSOCIETY_LLM_ROUND_SAMPLE_CAP Default: 64"
 msgstr "Environment variable: AGENTSOCIETY_LLM_MODEL Default: \"gpt-5.5\""
 
-#: agentsociety2.config.Config.LLM_RAY_WORKERS:1 of
-msgid "Compatibility CPU-budget hint for Ray initialization."
-msgstr ""
-
-#: agentsociety2.config.Config.LLM_RAY_WORKERS:3 of
-msgid "Environment variable: AGENTSOCIETY_LLM_RAY_WORKERS Default: 1"
-msgstr "Environment variable: AGENTSOCIETY_LLM_MODEL Default: \"gpt-5.5\""
-
-#: agentsociety2.config.Config.LLM_RAY_WORKERS:6 of
-msgid ""
-"Kept for compatibility with older configs. The current LLM dispatcher "
-"does not create a central pool or LLM actor workers; this value only "
-"contributes to the ``ray.init(num_cpus=...)`` budget hint."
-msgstr ""
-
 #: agentsociety2.config.Config.LLM_RAY_MAX_WORKERS:1 of
-msgid "Upper bound used as a Ray CPU budget hint."
+msgid "Upper bound used as the Ray CPU budget hint (``ray.init(num_cpus=...)``)."
 msgstr ""
 
 #: agentsociety2.config.Config.LLM_RAY_MAX_WORKERS:3 of
-msgid "Environment variable: AGENTSOCIETY_LLM_RAY_MAX_WORKERS Default: 4"
+#, fuzzy
+msgid ""
+"Environment variable: AGENTSOCIETY_LLM_RAY_MAX_WORKERS Default: machine "
+"logical CPU count (``os.cpu_count()``)."
 msgstr "Environment variable: AGENTSOCIETY_LLM_MODEL Default: \"gpt-5.5\""
 
 #: agentsociety2.config.Config.LLM_RAY_MAX_WORKERS:6 of
 msgid ""
-"Used as the ``num_cpus`` hint to ``ray.init`` so env actors and agent Ray"
-" tasks have reasonable scheduling headroom."
+"Caps how many ``step_agent_batch`` Ray Tasks run concurrently per tick "
+"(one task per ``BATCH_SIZE`` chunk of agents). Lower this below the "
+"physical core count to leave headroom for the driver, the env-router "
+"actor, and the trace/replay actors."
 msgstr ""
 
 #: agentsociety2.config.Config.LLM_RAY_CONCURRENCY:1 of
@@ -1912,10 +1873,29 @@ msgstr "Environment variable: AGENTSOCIETY_LLM_MODEL Default: \"gpt-5.5\""
 
 #: agentsociety2.config.Config.LLM_RAY_CONCURRENCY:6 of
 msgid ""
-"The initial concurrency each local ``LLMClient`` AIMD semaphore tunes "
-"from. Each process adjusts its own concurrency between "
-"``LLM_RAY_CONCURRENCY//4`` and ``LLM_RAY_CONCURRENCY*4`` based on "
-"observed latency / rate-limit errors."
+"The starting concurrency each local ``LLMClient`` AIMD semaphore tunes "
+"from. There is no hard upper/lower cap — each process adjusts its "
+"concurrency freely via AIMD (additive increase / multiplicative decrease)"
+" based on observed latency and rate-limit errors."
+msgstr ""
+
+#: agentsociety2.config.Config.BATCH_SIZE:1 of
+msgid "Number of agents per ``step_agent_batch`` Ray Task."
+msgstr ""
+
+#: agentsociety2.config.Config.BATCH_SIZE:3 of
+#, fuzzy
+msgid "Environment variable: AGENTSOCIETY_BATCH_SIZE Default: 256"
+msgstr "Environment variable: AGENTSOCIETY_LLM_MODEL Default: \"gpt-5.5\""
+
+#: agentsociety2.config.Config.BATCH_SIZE:6 of
+msgid ""
+"Each simulation tick chunks the agent id list into batches of this size "
+"and submits one Ray Task per chunk (``tasks = ceil(N / BATCH_SIZE)``). At"
+" most ``LLM_RAY_MAX_WORKERS`` tasks run concurrently, so choose a size "
+"where ``ceil(N / BATCH_SIZE) >= LLM_RAY_MAX_WORKERS`` to saturate the "
+"workers; otherwise some workers sit idle. Smaller batches add scheduling "
+"overhead; larger batches mean one slow agent can stall its whole batch."
 msgstr ""
 
 #: agentsociety2.config.Config.LITERATURE_SEARCH_MCP_URL:1 of
@@ -2097,7 +2077,9 @@ msgstr "Lower limit on the maximum number of retries for LLM calls (at least 1).
 #: agentsociety2.env.router_two_tier_plan_execute.TwoTierPlanExecuteRouter.__init__:6
 #: agentsociety2.env.router_two_tier_react.TwoTierReActRouter.__init__:6 of
 msgid "可选回放写入器；若提供会自动注入到各 env module。"
-msgstr "Optional replay writer; when provided, it is automatically injected into each env module."
+msgstr ""
+"Optional replay writer; when provided, it is automatically injected into "
+"each env module."
 
 #: agentsociety2.env.router_base.RouterBase.__init__:7
 #: agentsociety2.env.router_codegen.CodeGenRouter.__init__:7
@@ -2113,8 +2095,8 @@ msgid ""
 msgstr ""
 "Optional injected :class:`LLMClient` handle mapping, such as "
 "``{\"coder\": <LLMClient>, \"default\": <LLMClient>}``. When provided, "
-"the router uses the injected clients; when empty, it builds local clients "
-"from configuration."
+"the router uses the injected clients; when empty, it builds local clients"
+" from configuration."
 
 #: agentsociety2.env.router_base.RouterBase.set_trace_sink:1 of
 msgid "Inject a sync sharded-writer adapter for env-side trace spans."
@@ -3415,18 +3397,12 @@ msgstr ""
 "read, list, and delete operations"
 
 #: agentsociety2.skills:11 of
-msgid "**paper**: Nature/Science 级学术论文生成，通过 paper-orchestrator 驱动的 6-skill 状态机"
-msgstr ""
-"**paper**: Nature/Science-grade paper generation powered by the six-skill"
-" state machine in paper-orchestrator"
-
-#: agentsociety2.skills:12 of
 msgid "**analysis**: 数据分析工具层，提供实验上下文读取、EDA 和工具注册能力"
 msgstr ""
 "**analysis**: data analysis tooling, providing experiment context "
 "loading, EDA, and tool registration capabilities"
 
-#: agentsociety2.skills:15 of
+#: agentsociety2.skills:14 of
 msgid "使用示例"
 msgstr "Usage Example"
 
@@ -4441,207 +4417,12 @@ msgstr ""
 msgid "Dictionary with search results and saved file information"
 msgstr "Dictionary with search results and saved file information"
 
-#: ../../api/skills.rst:43
-msgid "paper"
-msgstr "paper"
-
-#: agentsociety2.skills.paper:1 of
-msgid "Paper-orchestrator harness package (M1)."
-msgstr "Paper-orchestrator harness package (M1)."
-
-#: agentsociety2.skills.paper:3 of
-msgid "Public surface for the Nature/Science-grade paper development OS."
-msgstr "Public surface for the Nature/Science-grade paper development OS."
-
-#: agentsociety2.skills.paper:5 of
-msgid ""
-"All LLM work lives in the plugin skills under ``extension/skills"
-"/agentsociety-paper-*``; this package provides the non-LLM logic those "
-"skills (and the orchestrator CLI) use:"
-msgstr ""
-"All LLM work lives in the plugin skills under ``extension/skills"
-"/agentsociety-paper-*``; this package provides the non-LLM logic those "
-"skills (and the orchestrator CLI) use:"
-
-#: agentsociety2.skills.paper:9 of
-msgid "``agentsociety2.skills.paper.paths`` - on-disk layout helpers"
-msgstr "``agentsociety2.skills.paper.paths`` - on-disk layout helpers"
-
-#: agentsociety2.skills.paper:10 of
-msgid ""
-"``agentsociety2.skills.paper.models`` - pydantic schemas (PaperState, "
-"ResearchPack, ...)"
-msgstr ""
-"``agentsociety2.skills.paper.models`` - pydantic schemas (PaperState, "
-"ResearchPack, ...)"
-
-#: agentsociety2.skills.paper:11 of
-msgid "``agentsociety2.skills.paper.envelope`` - skill return contract"
-msgstr "``agentsociety2.skills.paper.envelope`` - skill return contract"
-
-#: agentsociety2.skills.paper:12 of
-msgid ""
-"``agentsociety2.skills.paper.state`` - YAML/JSON CRUD over "
-"<workspace>/paper/state and artifacts"
-msgstr ""
-"``agentsociety2.skills.paper.state`` - YAML/JSON CRUD over "
-"<workspace>/paper/state and artifacts"
-
-#: agentsociety2.skills.paper:13 of
-msgid ""
-"``agentsociety2.skills.paper.adapter`` - workspace -> ResearchPack "
-"ingestion + reusable helpers"
-msgstr ""
-"``agentsociety2.skills.paper.adapter`` - workspace -> ResearchPack "
-"ingestion + reusable helpers"
-
-#: agentsociety2.skills.paper:14 of
-msgid "``agentsociety2.skills.paper.compose`` - markdown -> LaTeX -> PDF"
-msgstr "``agentsociety2.skills.paper.compose`` - markdown -> LaTeX -> PDF"
-
-#: agentsociety2.skills.paper:15 of
-msgid ""
-"``agentsociety2.skills.paper.cli`` - CLI entry points (init-meta, intake,"
-" build-pack, framing, evidence, architecture, review, compile, run-loop, "
-"status)"
-msgstr ""
-"``agentsociety2.skills.paper.cli`` - CLI entry points (init-meta, intake,"
-" build-pack, framing, evidence, architecture, review, compile, run-loop, "
-"status)"
-
-#: agentsociety2.skills.paper.models.Affiliation:1 of
-msgid "Author affiliation entry."
-msgstr "Author affiliation entry."
-
-#: agentsociety2.skills.paper.models.Claim:1 of
-msgid "Single row in the claim ledger."
-msgstr "Single row in the claim ledger."
-
-#: agentsociety2.skills.paper.models.ClaimLedger:1 of
-#, python-brace-format
-msgid "Canonical register of claims; persists as claim_ledger.{md,json}."
-msgstr "Canonical register of claims; persists as claim_ledger.{md,json}."
-
-#: agentsociety2.skills.paper.models.CompileResult:1 of
-msgid "Outcome of an ``latexmk`` invocation."
-msgstr "Outcome of an ``latexmk`` invocation."
-
-#: agentsociety2.skills.paper.models.Counters:1 of
-msgid "Per-round dispatch caps (figure regen / citation aug)."
-msgstr "Per-round dispatch caps (figure regen / citation aug)."
-
-#: agentsociety2.skills.paper.models.DispatchRecord:1 of
-msgid "One subagent dispatch + its returned envelope."
-msgstr "One subagent dispatch + its returned envelope."
-
-#: agentsociety2.skills.paper.models.Envelope:1 of
-msgid "Common return shape for every paper-skill subagent dispatch."
-msgstr "Common return shape for every paper-skill subagent dispatch."
-
-#: agentsociety2.skills.paper.models.Envelope:3 of
-msgid ""
-"Fields mirror §\"Unified Skill Return Contract\" of the harness design "
-"doc."
-msgstr ""
-"Fields mirror §\"Unified Skill Return Contract\" of the harness design "
-"doc."
-
-#: agentsociety2.skills.paper.template_slots.ParagraphTemplate:1 of
-msgid "A paragraph skeleton plus its declared fillable slots."
-msgstr "A paragraph skeleton plus its declared fillable slots."
-
-#: agentsociety2.skills.paper.models.EvidenceBacklog:1 of
-#, python-brace-format
-msgid "Backlog persisted as evidence_backlog.{md,json}."
-msgstr "Backlog persisted as evidence_backlog.{md,json}."
-
-#: agentsociety2.skills.paper.models.EvidenceGap:1 of
-msgid "Single backlog item (missing analysis / control / figure / ...)."
-msgstr "Single backlog item (missing analysis / control / figure / ...)."
-
-#: agentsociety2.skills.paper.models.FigureArgumentMap:1 of
-#, python-brace-format
-msgid "Persists as figure_argument_map.{md,json}."
-msgstr "Persists as figure_argument_map.{md,json}."
-
-#: agentsociety2.skills.paper.models.FigureSpec:1 of
-msgid "One row in figure_argument_map: figure -> claim/section roles."
-msgstr "One row in figure_argument_map: figure -> claim/section roles."
-
-#: agentsociety2.skills.paper.models.HumanGate:1 of
-msgid "One entry in human_gates.yaml."
-msgstr "One entry in human_gates.yaml."
-
-#: agentsociety2.skills.paper.models.PaperMeta:1 of
-msgid "Identity block written to ``<workspace>/paper/paper_meta.yaml``."
-msgstr "Identity block written to ``<workspace>/paper/paper_meta.yaml``."
-
-#: agentsociety2.skills.paper.models.PaperState:1 of
-msgid "Kernel state persisted as ``state/paper_state.yaml``."
-msgstr "Kernel state persisted as ``state/paper_state.yaml``."
-
-#: agentsociety2.skills.paper.models.ResearchPack:1 of
-msgid "Standardized intake produced by ``agentsociety-paper-adapter``."
-msgstr "Standardized intake produced by ``agentsociety-paper-adapter``."
-
-#: agentsociety2.skills.paper.models.ResearchPackReferencePool:1 of
-msgid "Incremental literature pool for paper-stage citation growth."
-msgstr "Incremental literature pool for paper-stage citation growth."
-
-#: agentsociety2.skills.paper.models.Review:1 of
-msgid "Single reviewer entry inside a review round."
-msgstr "Single reviewer entry inside a review round."
-
-#: agentsociety2.skills.paper.models.ReviewRound:1 of
-msgid "Persisted as reviews/review_round_NNN.yaml (append-only)."
-msgstr "Persisted as reviews/review_round_NNN.yaml (append-only)."
-
-#: agentsociety2.skills.paper.template_slots.SlotType:1 of
-msgid "Supported degraded-generation slot categories."
-msgstr "Supported degraded-generation slot categories."
-
-#: agentsociety2.skills.paper.models.StorylineMap:1 of
-#, python-brace-format
-msgid "Story constitution; persists as storyline_map.{md,json}."
-msgstr "Story constitution; persists as storyline_map.{md,json}."
-
-#: agentsociety2.skills.paper.template_slots.TemplateSlot:1 of
-msgid "One typed placeholder inside a degraded paragraph skeleton."
-msgstr "One typed placeholder inside a degraded paragraph skeleton."
-
-#: agentsociety2.skills.paper.template_slots.build_template_fill_prompt:1 of
-msgid "Compile a fill-only prompt for a degraded paragraph skeleton."
-msgstr "Compile a fill-only prompt for a degraded paragraph skeleton."
-
-#: agentsociety2.skills.paper.envelope.build_envelope:1 of
-msgid "Construct a :class:`SkillEnvelope` with sensible list defaults."
-msgstr "Construct a :class:`SkillEnvelope` with sensible list defaults."
-
-#: agentsociety2.skills.paper.envelope.envelope_to_json:1 of
-msgid "Serialize ``envelope`` to a JSON string (UTF-8 safe)."
-msgstr "Serialize ``envelope`` to a JSON string (UTF-8 safe)."
-
-#: agentsociety2.skills.paper.template_slots.find_unfilled_slot_markers:1 of
-msgid "Return all degraded-generation slot markers still present in text."
-msgstr "Return all degraded-generation slot markers still present in text."
-
-#: agentsociety2.skills.paper.envelope.parse_envelope:1 of
-msgid "Parse an envelope from a JSON string, bytes, or pre-decoded dict."
-msgstr "Parse an envelope from a JSON string, bytes, or pre-decoded dict."
-
-#: agentsociety2.skills.paper.template_slots.parse_template_slots:1 of
-msgid "Extract typed slots from a paragraph skeleton."
-msgstr "Extract typed slots from a paragraph skeleton."
-
-#: agentsociety2.skills.paper.template_slots.render_filled_template:1 of
-msgid "Render a paragraph template with all currently filled slots substituted."
-msgstr "Render a paragraph template with all currently filled slots substituted."
-
-#: ../../api/skills.rst:50
+#: ../../api/skills.rst:44
+#, fuzzy
 msgid ""
 "当前仓库中可公开使用的 research skills 模块为 ``analysis``、``experiment``、 "
-"``hypothesis``、``literature``、``paper``。``web_research`` 目录当前没有保留 "
-"可读源码，因此未列为文档 API 表面。"
+"``hypothesis``、``literature``。``web_research`` 目录当前没有保留 可读源码，因此未列为文档 API "
+"表面。"
 msgstr ""
 "The publicly documented research skill modules in this repository are "
 "``analysis``, ``experiment``, ``hypothesis``, ``literature``, and "
@@ -4649,11 +4430,11 @@ msgstr ""
 "readable source code, so it is not included in the documented API "
 "surface."
 
-#: ../../api/skills.rst:55
+#: ../../api/skills.rst:49
 msgid "Agent Skills"
 msgstr "Agent Skills"
 
-#: ../../api/skills.rst:57
+#: ../../api/skills.rst:51
 msgid ""
 "技能基础设施（发现、可见性/激活、脚本执行、生命周期 hook）已从 ``agent/skills/`` 下沉到 "
 ":mod:`agentsociety2.agent.base`。``agent/skills/`` 目录现在只承载技能**内容**（如内置的 "
@@ -4665,7 +4446,7 @@ msgstr ""
 " only contains skill **content**, such as the built-in ``daily-"
 "guidance/``. For design notes, see :doc:`/agent_skills`."
 
-#: ../../api/skills.rst:62
+#: ../../api/skills.rst:56
 msgid "SkillRegistry"
 msgstr "SkillRegistry"
 
@@ -4805,7 +4586,7 @@ msgstr "source registry."
 msgid "Shallow registry copy."
 msgstr "SkillRegistry"
 
-#: ../../api/skills.rst:70
+#: ../../api/skills.rst:64
 msgid "SkillDescriptor"
 msgstr "SkillRegistry"
 
@@ -4857,7 +4638,7 @@ msgstr ""
 msgid "Relative resource file paths under the skill root."
 msgstr ""
 
-#: ../../api/skills.rst:77
+#: ../../api/skills.rst:71
 msgid "AgentSkillRuntime"
 msgstr "Agent Skills"
 
@@ -5155,7 +4936,7 @@ msgstr "Tool execution result."
 msgid "Run a lifecycle hook for a visible skill."
 msgstr ""
 
-#: ../../api/skills.rst:85
+#: ../../api/skills.rst:79
 msgid "SkillScriptContext"
 msgstr ""
 
@@ -5190,15 +4971,15 @@ msgstr ""
 msgid "Snapshot of the env-var dict the subprocess path would have set."
 msgstr ""
 
-#: ../../api/skills.rst:92
+#: ../../api/skills.rst:86
 msgid "SKILL.md Frontmatter"
 msgstr "SKILL.md Frontmatter"
 
-#: ../../api/skills.rst:94
+#: ../../api/skills.rst:88
 msgid "SKILL.md 文件使用 YAML frontmatter 声明 skill 元信息："
 msgstr "The SKILL.md file uses YAML frontmatter to declare skill metainformation:"
 
-#: ../../api/skills.rst:106
+#: ../../api/skills.rst:100
 msgid ""
 "frontmatter 之后识别的字段：``name``、``description``（选择阶段唯一可见，决定是否激活）、 可选的 "
 "``script``（默认脚本相对路径）与 ``hooks``（生命周期脚本映射，键如 ``pre_step`` / "
@@ -5318,12 +5099,12 @@ msgstr ""
 "its trace / replay actor."
 
 #: agentsociety2.society.society.AgentSociety.__init__:12 of
-msgid "每 ``step_agent_batch`` Ray Task 处理的 agent 数（默认 256）。"
+msgid ""
+"每 ``step_agent_batch`` Ray Task 处理的 agent 数； ``None`` 时回落到 "
+"``Config.BATCH_SIZE``（环境变量 ``AGENTSOCIETY_BATCH_SIZE``，缺省 256）。"
 msgstr ""
-"Number of agents handled by each ``step_agent_batch`` Ray Task; default "
-"is 256."
 
-#: agentsociety2.society.society.AgentSociety.__init__:13 of
+#: agentsociety2.society.society.AgentSociety.__init__:15 of
 msgid "是否启用回放记录。"
 msgstr "Whether to enable playback recording."
 
@@ -5795,3 +5576,215 @@ msgstr "agent conversation record (frame table)."
 #~ "Skill infrastructure (registry / runtime) "
 #~ "has moved down into "
 #~ ":mod:`agentsociety2.agent.base`."
+
+#~ msgid "Compatibility CPU-budget hint for Ray initialization."
+#~ msgstr ""
+
+#~ msgid "Environment variable: AGENTSOCIETY_LLM_RAY_WORKERS Default: 1"
+#~ msgstr "Environment variable: AGENTSOCIETY_LLM_MODEL Default: \"gpt-5.5\""
+
+#~ msgid ""
+#~ "Kept for compatibility with older "
+#~ "configs. The current LLM dispatcher does"
+#~ " not create a central pool or "
+#~ "LLM actor workers; this value only "
+#~ "contributes to the ``ray.init(num_cpus=...)`` "
+#~ "budget hint."
+#~ msgstr ""
+
+#~ msgid "Upper bound used as a Ray CPU budget hint."
+#~ msgstr ""
+
+#~ msgid ""
+#~ "Used as the ``num_cpus`` hint to "
+#~ "``ray.init`` so env actors and agent "
+#~ "Ray tasks have reasonable scheduling "
+#~ "headroom."
+#~ msgstr ""
+
+#~ msgid ""
+#~ "The initial concurrency each local "
+#~ "``LLMClient`` AIMD semaphore tunes from. "
+#~ "Each process adjusts its own concurrency"
+#~ " between ``LLM_RAY_CONCURRENCY//4`` and "
+#~ "``LLM_RAY_CONCURRENCY*4`` based on observed "
+#~ "latency / rate-limit errors."
+#~ msgstr ""
+
+#~ msgid "**paper**: Nature/Science 级学术论文生成，通过 paper-orchestrator 驱动的 6-skill 状态机"
+#~ msgstr ""
+#~ "**paper**: Nature/Science-grade paper "
+#~ "generation powered by the six-skill "
+#~ "state machine in paper-orchestrator"
+
+#~ msgid "paper"
+#~ msgstr "paper"
+
+#~ msgid "Paper-orchestrator harness package (M1)."
+#~ msgstr "Paper-orchestrator harness package (M1)."
+
+#~ msgid "Public surface for the Nature/Science-grade paper development OS."
+#~ msgstr "Public surface for the Nature/Science-grade paper development OS."
+
+#~ msgid ""
+#~ "All LLM work lives in the plugin"
+#~ " skills under ``extension/skills/agentsociety-"
+#~ "paper-*``; this package provides the "
+#~ "non-LLM logic those skills (and the"
+#~ " orchestrator CLI) use:"
+#~ msgstr ""
+#~ "All LLM work lives in the plugin"
+#~ " skills under ``extension/skills/agentsociety-"
+#~ "paper-*``; this package provides the "
+#~ "non-LLM logic those skills (and the"
+#~ " orchestrator CLI) use:"
+
+#~ msgid "``agentsociety2.skills.paper.paths`` - on-disk layout helpers"
+#~ msgstr "``agentsociety2.skills.paper.paths`` - on-disk layout helpers"
+
+#~ msgid ""
+#~ "``agentsociety2.skills.paper.models`` - pydantic "
+#~ "schemas (PaperState, ResearchPack, ...)"
+#~ msgstr ""
+#~ "``agentsociety2.skills.paper.models`` - pydantic "
+#~ "schemas (PaperState, ResearchPack, ...)"
+
+#~ msgid "``agentsociety2.skills.paper.envelope`` - skill return contract"
+#~ msgstr "``agentsociety2.skills.paper.envelope`` - skill return contract"
+
+#~ msgid ""
+#~ "``agentsociety2.skills.paper.state`` - YAML/JSON "
+#~ "CRUD over <workspace>/paper/state and "
+#~ "artifacts"
+#~ msgstr ""
+#~ "``agentsociety2.skills.paper.state`` - YAML/JSON "
+#~ "CRUD over <workspace>/paper/state and "
+#~ "artifacts"
+
+#~ msgid ""
+#~ "``agentsociety2.skills.paper.adapter`` - workspace "
+#~ "-> ResearchPack ingestion + reusable "
+#~ "helpers"
+#~ msgstr ""
+#~ "``agentsociety2.skills.paper.adapter`` - workspace "
+#~ "-> ResearchPack ingestion + reusable "
+#~ "helpers"
+
+#~ msgid "``agentsociety2.skills.paper.compose`` - markdown -> LaTeX -> PDF"
+#~ msgstr "``agentsociety2.skills.paper.compose`` - markdown -> LaTeX -> PDF"
+
+#~ msgid ""
+#~ "``agentsociety2.skills.paper.cli`` - CLI entry "
+#~ "points (init-meta, intake, build-pack,"
+#~ " framing, evidence, architecture, review, "
+#~ "compile, run-loop, status)"
+#~ msgstr ""
+#~ "``agentsociety2.skills.paper.cli`` - CLI entry "
+#~ "points (init-meta, intake, build-pack,"
+#~ " framing, evidence, architecture, review, "
+#~ "compile, run-loop, status)"
+
+#~ msgid "Author affiliation entry."
+#~ msgstr "Author affiliation entry."
+
+#~ msgid "Single row in the claim ledger."
+#~ msgstr "Single row in the claim ledger."
+
+#~ msgid "Canonical register of claims; persists as claim_ledger.{md,json}."
+#~ msgstr "Canonical register of claims; persists as claim_ledger.{md,json}."
+
+#~ msgid "Outcome of an ``latexmk`` invocation."
+#~ msgstr "Outcome of an ``latexmk`` invocation."
+
+#~ msgid "Per-round dispatch caps (figure regen / citation aug)."
+#~ msgstr "Per-round dispatch caps (figure regen / citation aug)."
+
+#~ msgid "One subagent dispatch + its returned envelope."
+#~ msgstr "One subagent dispatch + its returned envelope."
+
+#~ msgid "Common return shape for every paper-skill subagent dispatch."
+#~ msgstr "Common return shape for every paper-skill subagent dispatch."
+
+#~ msgid ""
+#~ "Fields mirror §\"Unified Skill Return "
+#~ "Contract\" of the harness design doc."
+#~ msgstr ""
+#~ "Fields mirror §\"Unified Skill Return "
+#~ "Contract\" of the harness design doc."
+
+#~ msgid "A paragraph skeleton plus its declared fillable slots."
+#~ msgstr "A paragraph skeleton plus its declared fillable slots."
+
+#~ msgid "Backlog persisted as evidence_backlog.{md,json}."
+#~ msgstr "Backlog persisted as evidence_backlog.{md,json}."
+
+#~ msgid "Single backlog item (missing analysis / control / figure / ...)."
+#~ msgstr "Single backlog item (missing analysis / control / figure / ...)."
+
+#~ msgid "Persists as figure_argument_map.{md,json}."
+#~ msgstr "Persists as figure_argument_map.{md,json}."
+
+#~ msgid "One row in figure_argument_map: figure -> claim/section roles."
+#~ msgstr "One row in figure_argument_map: figure -> claim/section roles."
+
+#~ msgid "One entry in human_gates.yaml."
+#~ msgstr "One entry in human_gates.yaml."
+
+#~ msgid "Identity block written to ``<workspace>/paper/paper_meta.yaml``."
+#~ msgstr "Identity block written to ``<workspace>/paper/paper_meta.yaml``."
+
+#~ msgid "Kernel state persisted as ``state/paper_state.yaml``."
+#~ msgstr "Kernel state persisted as ``state/paper_state.yaml``."
+
+#~ msgid "Standardized intake produced by ``agentsociety-paper-adapter``."
+#~ msgstr "Standardized intake produced by ``agentsociety-paper-adapter``."
+
+#~ msgid "Incremental literature pool for paper-stage citation growth."
+#~ msgstr "Incremental literature pool for paper-stage citation growth."
+
+#~ msgid "Single reviewer entry inside a review round."
+#~ msgstr "Single reviewer entry inside a review round."
+
+#~ msgid "Persisted as reviews/review_round_NNN.yaml (append-only)."
+#~ msgstr "Persisted as reviews/review_round_NNN.yaml (append-only)."
+
+#~ msgid "Supported degraded-generation slot categories."
+#~ msgstr "Supported degraded-generation slot categories."
+
+#~ msgid "Story constitution; persists as storyline_map.{md,json}."
+#~ msgstr "Story constitution; persists as storyline_map.{md,json}."
+
+#~ msgid "One typed placeholder inside a degraded paragraph skeleton."
+#~ msgstr "One typed placeholder inside a degraded paragraph skeleton."
+
+#~ msgid "Compile a fill-only prompt for a degraded paragraph skeleton."
+#~ msgstr "Compile a fill-only prompt for a degraded paragraph skeleton."
+
+#~ msgid "Construct a :class:`SkillEnvelope` with sensible list defaults."
+#~ msgstr "Construct a :class:`SkillEnvelope` with sensible list defaults."
+
+#~ msgid "Serialize ``envelope`` to a JSON string (UTF-8 safe)."
+#~ msgstr "Serialize ``envelope`` to a JSON string (UTF-8 safe)."
+
+#~ msgid "Return all degraded-generation slot markers still present in text."
+#~ msgstr "Return all degraded-generation slot markers still present in text."
+
+#~ msgid "Parse an envelope from a JSON string, bytes, or pre-decoded dict."
+#~ msgstr "Parse an envelope from a JSON string, bytes, or pre-decoded dict."
+
+#~ msgid "Extract typed slots from a paragraph skeleton."
+#~ msgstr "Extract typed slots from a paragraph skeleton."
+
+#~ msgid ""
+#~ "Render a paragraph template with all "
+#~ "currently filled slots substituted."
+#~ msgstr ""
+#~ "Render a paragraph template with all "
+#~ "currently filled slots substituted."
+
+#~ msgid "每 ``step_agent_batch`` Ray Task 处理的 agent 数（默认 256）。"
+#~ msgstr ""
+#~ "Number of agents handled by each "
+#~ "``step_agent_batch`` Ray Task; default is "
+#~ "256."
+

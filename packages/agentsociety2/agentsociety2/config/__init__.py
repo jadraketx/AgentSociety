@@ -20,9 +20,9 @@
 - ``AGENTSOCIETY_LLM_MODEL``: 默认模型名称
 - ``AGENTSOCIETY_CODER_LLM_*``: Coder 角色配置
 - ``AGENTSOCIETY_EMBEDDING_*``: Embedding 模型配置
-- ``AGENTSOCIETY_LLM_RAY_WORKERS``: 兼容保留的 Ray CPU 预算提示（默认 1）
-- ``AGENTSOCIETY_LLM_RAY_MAX_WORKERS``: Ray CPU 预算上限提示（默认 4）
-- ``AGENTSOCIETY_LLM_RAY_CONCURRENCY``: 每个本地 LLMClient 的初始并发（默认 16）
+- ``AGENTSOCIETY_LLM_RAY_MAX_WORKERS``: Ray CPU 预算上限提示，默认机器 CPU 核数
+- ``AGENTSOCIETY_LLM_RAY_CONCURRENCY``: 每个本地 LLMClient 的 AIMD 初始并发（默认 16，无硬上下限）
+- ``AGENTSOCIETY_BATCH_SIZE``: 每个 step_agent_batch Ray Task 处理的 agent 数（默认 256）
 """
 
 from .config import (

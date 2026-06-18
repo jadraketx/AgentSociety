@@ -132,13 +132,20 @@ class _AdjustableSemaphore:
 
 
 class AdaptiveSemaphore:
-    """TCP-style AIMD adaptive concurrency semaphore (one per process)."""
+    """TCP-style AIMD adaptive concurrency semaphore (one per process).
+
+    ``max_limit=None`` means unbounded — AIMD probes freely (additive
+    increase / multiplicative decrease) with no artificial cap, relying on
+    latency slowdown and rate-limit errors to back off. Use this for LLM
+    I/O where the remote API is the real ceiling. Pass a finite
+    ``max_limit`` for CPU/local work that must not overrun a single process.
+    """
 
     def __init__(
         self,
         initial: int = 10,
         min_limit: int = 1,
-        max_limit: int = 100,
+        max_limit: int | None = None,
         decrease_factor: float = 0.7,
         overload_threshold: float = 0.1,
         min_round_size: int = 20,
@@ -264,7 +271,8 @@ class AdaptiveSemaphore:
                     )
                     return
 
-                new_limit = min(self._max, self._limit + self._step)
+                bumped = self._limit + self._step
+                new_limit = bumped if self._max is None else min(self._max, bumped)
                 next_step = min(self._step * 2, 16)
                 logger.info(
                     "[AdaptiveSem] INCREASE: %d -> %d (next_step=%d)",
@@ -410,10 +418,13 @@ class LLMClient:
             return
         self._router = _build_router(self.base_url, self.api_key, self.model_name)
         initial = max(1, Config.LLM_RAY_CONCURRENCY)
+        # No hard cap: AIMD probes the real API ceiling freely and backs off
+        # on latency slowdown / rate-limit errors. min=1 lets it shed load
+        # all the way down under sustained pressure.
         self._sem = AdaptiveSemaphore(
             initial=initial,
-            min_limit=max(1, initial // 4),
-            max_limit=max(initial, initial * 4),
+            min_limit=1,
+            max_limit=None,
             latency_degrade_factor=Config.LLM_LATENCY_DEGRADE_FACTOR,
             slow_latency_ms=Config.LLM_SLOW_LATENCY_MS,
             round_sample_cap=Config.LLM_ROUND_SAMPLE_CAP,
@@ -578,7 +589,7 @@ async def init_dispatchers() -> None:
             ray.init(
                 ignore_reinit_error=True,
                 include_dashboard=False,
-                num_cpus=max(Config.LLM_RAY_MAX_WORKERS, Config.LLM_RAY_WORKERS),
+                num_cpus=Config.LLM_RAY_MAX_WORKERS,
                 object_store_memory=1_000_000_000,
                 job_config=_build_ray_job_config(),
                 runtime_env=None,

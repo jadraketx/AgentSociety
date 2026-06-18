@@ -149,11 +149,16 @@ LLM 调度由可序列化的 ``LLMClient`` 完成。每个 Ray task、env router
 
 .. code-block:: bash
 
-   # Ray CPU 预算提示；用于给 env actor / agent tasks 留出调度空间
-   export AGENTSOCIETY_LLM_RAY_MAX_WORKERS=4
+   # Ray CPU 预算（ray.init 的 num_cpus）：封顶每 tick 同时运行的 step_agent_batch
+   # Ray Task 数。默认取机器 CPU 核数；调低可为 driver / env actor / trace 留出空间。
+   # export AGENTSOCIETY_LLM_RAY_MAX_WORKERS=8
 
-   # 每个本地 LLMClient 的初始并发；AIMD 在 //4 ~ *4 之间自调节
+   # 每个本地 LLMClient 的 AIMD 初始并发；无人工上下限，由 AIMD 依延迟/限流自由自调节。
    export AGENTSOCIETY_LLM_RAY_CONCURRENCY=16
+
+   # 每个 step_agent_batch Ray Task 处理的 agent 数；task 数 = ⌈N / BATCH_SIZE⌉，
+   # 应 ≥ 同时运行的 worker 数才能打满 CPU（CLI --batch-size 可覆盖）。
+   # export AGENTSOCIETY_BATCH_SIZE=256
 
    # AIMD “慢调用”判定
    export AGENTSOCIETY_LLM_LATENCY_DEGRADE_FACTOR=4.0   # 相对退避因子（相对健康基线的倍数）
@@ -161,8 +166,9 @@ LLM 调度由可序列化的 ``LLMClient`` 完成。每个 Ray task、env router
 
 .. note::
 
-   若你的 LLM 网关有明确的 QPS / 并发上限，优先调低 ``AGENTSOCIETY_LLM_RAY_CONCURRENCY``；
-   实际总并发还取决于同时运行的 Ray task / actor 数量。
+   ``AGENTSOCIETY_LLM_RAY_CONCURRENCY`` 只是 AIMD 的起点，没有人工上下限——每进程并发会
+   自动逼近 API 真实容量并在延迟/限流恶化时回退。若网关有严格 QPS 上限可调低起点；
+   实际总并发还取决于同时运行的 Ray task 数（``AGENTSOCIETY_LLM_RAY_MAX_WORKERS``）。
 
 支持的 LLM 提供商
 ------------------------

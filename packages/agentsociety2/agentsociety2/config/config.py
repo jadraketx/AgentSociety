@@ -32,6 +32,18 @@ __all__ = [
 logger = get_logger()
 
 
+def _env_int(name: str, default: int) -> int:
+    """Read an int env var, falling back to ``default`` when unset/empty."""
+    raw = os.getenv(name)
+    return int(raw) if raw and raw.strip() else default
+
+
+def _env_int_or_cpu(name: str) -> int:
+    """Read an int env var, falling back to the machine logical CPU count."""
+    raw = os.getenv(name)
+    return int(raw) if raw and raw.strip() else (os.cpu_count() or 1)
+
+
 def _router_model_names(model_list: list[dict[str, Any]]) -> list[str]:
     return [str(entry.get("model_name", "")) for entry in model_list]
 
@@ -234,10 +246,12 @@ class Config:
         "false",
         "False",
     )
-    # Env Ray actor concurrency. Only takes effect (>1) when every mounted env
-    # module declares is_concurrency_safe(); otherwise the actor stays serial.
-    ENV_ACTOR_MAX_CONCURRENCY: int = int(
-        os.getenv("AGENTSOCIETY_ENV_ACTOR_MAX_CONCURRENCY", "8")
+    # Env Ray actor concurrency ceiling (static, NOT AIMD). Only takes effect
+    # (>1) when every mounted env module declares is_concurrency_safe();
+    # otherwise the actor stays serial (concurrency=1). API rate-limit control
+    # is handled by the inner LLMClient AIMD, not here.
+    ENV_ACTOR_MAX_CONCURRENCY: int = _env_int(
+        "AGENTSOCIETY_ENV_ACTOR_MAX_CONCURRENCY", 8
     )
 
     # Adaptive concurrency control for LLM requests (per-worker AIMD).
@@ -287,40 +301,45 @@ class Config:
 
     # Ray / local LLM dispatch configuration. Clients build litellm Routers in
     # their own process / event loop.
-    LLM_RAY_WORKERS: int = int(os.getenv("AGENTSOCIETY_LLM_RAY_WORKERS", "1"))
+    LLM_RAY_MAX_WORKERS: int = _env_int_or_cpu("AGENTSOCIETY_LLM_RAY_MAX_WORKERS")
     """
-    Compatibility CPU-budget hint for Ray initialization.
-
-    Environment variable: AGENTSOCIETY_LLM_RAY_WORKERS
-    Default: 1
-
-    Kept for compatibility with older configs. The current LLM dispatcher does
-    not create a central pool or LLM actor workers; this value only contributes
-    to the ``ray.init(num_cpus=...)`` budget hint.
-    """
-
-    LLM_RAY_MAX_WORKERS: int = int(os.getenv("AGENTSOCIETY_LLM_RAY_MAX_WORKERS", "4"))
-    """
-    Upper bound used as a Ray CPU budget hint.
+    Upper bound used as the Ray CPU budget hint (``ray.init(num_cpus=...)``).
 
     Environment variable: AGENTSOCIETY_LLM_RAY_MAX_WORKERS
-    Default: 4
+    Default: machine logical CPU count (``os.cpu_count()``).
 
-    Used as the ``num_cpus`` hint to ``ray.init`` so env actors and agent Ray
-    tasks have reasonable scheduling headroom.
+    Caps how many ``step_agent_batch`` Ray Tasks run concurrently per tick
+    (one task per ``BATCH_SIZE`` chunk of agents). Lower this below the
+    physical core count to leave headroom for the driver, the env-router
+    actor, and the trace/replay actors.
     """
 
-    LLM_RAY_CONCURRENCY: int = int(os.getenv("AGENTSOCIETY_LLM_RAY_CONCURRENCY", "16"))
+    LLM_RAY_CONCURRENCY: int = _env_int("AGENTSOCIETY_LLM_RAY_CONCURRENCY", 16)
     """
     Initial per-process concurrency for local LLM dispatching.
 
     Environment variable: AGENTSOCIETY_LLM_RAY_CONCURRENCY
     Default: 16
 
-    The initial concurrency each local ``LLMClient`` AIMD semaphore tunes from.
-    Each process adjusts its own concurrency between
-    ``LLM_RAY_CONCURRENCY//4`` and ``LLM_RAY_CONCURRENCY*4`` based on observed
-    latency / rate-limit errors.
+    The starting concurrency each local ``LLMClient`` AIMD semaphore tunes
+    from. There is no hard upper/lower cap — each process adjusts its
+    concurrency freely via AIMD (additive increase / multiplicative
+    decrease) based on observed latency and rate-limit errors.
+    """
+
+    BATCH_SIZE: int = _env_int("AGENTSOCIETY_BATCH_SIZE", 256)
+    """
+    Number of agents per ``step_agent_batch`` Ray Task.
+
+    Environment variable: AGENTSOCIETY_BATCH_SIZE
+    Default: 256
+
+    Each simulation tick chunks the agent id list into batches of this size
+    and submits one Ray Task per chunk (``tasks = ceil(N / BATCH_SIZE)``).
+    At most ``LLM_RAY_MAX_WORKERS`` tasks run concurrently, so choose a size
+    where ``ceil(N / BATCH_SIZE) >= LLM_RAY_MAX_WORKERS`` to saturate the
+    workers; otherwise some workers sit idle. Smaller batches add scheduling
+    overhead; larger batches mean one slow agent can stall its whole batch.
     """
 
     # Web Search API settings
