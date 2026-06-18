@@ -82,6 +82,24 @@ Required and optional methods, LLM/env APIs, config: use **`references/agent-bas
 - Profile fields: `references/profile-design.md`
 - In-repo examples: `references/examples.md`
 
+## Custom Skills
+
+By default an agent loads skills from `<workspace>/custom/skills/` plus any
+environment-module skill dirs. You can also point an agent at skills stored
+**anywhere** on disk — useful for sharing a skill library across agents or
+mounting skills from outside the workspace:
+
+- **Declarative** (recommended): add `extra_skill_paths` to the agent's
+  `init_config.json` (written verbatim to `config.json`, read back on restore):
+  ```json
+  { "extra_skill_paths": ["/shared/skills", "research/skills"] }
+  ```
+- **Programmatic**: `agent.discover_skill_sources(env, extra_skill_paths=[...])`
+
+Each entry is a root of skill subdirectories (same layout as `custom/skills`);
+relative paths resolve against the workspace root. The default scan is unchanged
+when omitted. Full details: `references/agent-base-interface.md` → *Skill sources*.
+
 ## Validation
 
 ```bash
@@ -92,9 +110,10 @@ $PYTHON_PATH .agentsociety/bin/ags.py create-agent --file ... --json
 The script checks: AST shows a **direct** base named **`AgentBase`** or **`PersonAgent`**,
 the three required abstracts (`to_workspace`, `ask`, `step`) are **`async def`**,
 the module imports, and the class is not abstract. That is **stricter**
-than **Scan Custom Modules**: the scanner treats any in-file class with
-`issubclass(cls, AgentBase)` as a candidate and only verifies `hasattr` for the three
-abstract names (no `async` check).
+than **Scan Custom Modules**: the scanner now verifies real overrides of
+`to_workspace`/`ask`/`step`, arg-less construction, and non-empty
+`description()`/`init_description()` (via `build_agent_scan_diagnostic`), but it
+does **not** enforce `async def` or a direct base class — this validator does.
 
 `AgentBase` already defines default `description()` and `init_description()` methods;
 overriding both is still recommended for real modules.

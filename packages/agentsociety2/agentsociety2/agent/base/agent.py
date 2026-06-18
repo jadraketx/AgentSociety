@@ -25,7 +25,7 @@ import json
 import logging
 import re
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
@@ -142,6 +142,10 @@ class AgentBase(ABC):
         self._disabled_skill_ids: set[str] = set()
         self._default_activated_skill_ids: set[str] = set()
         self._default_activated_skills_applied: bool = False
+        # Extra skill scan roots beyond the default <root>/custom/skills
+        # locations. Populated from config["extra_skill_paths"] in restore;
+        # relative paths resolve against the workspace root.
+        self._extra_skill_paths: list[Path] = []
 
         # Generic counters / state — set by restore / subclass restore.
         self._step_count: int = 0
@@ -321,6 +325,14 @@ class AgentBase(ABC):
         self._initialized_at = str(initialized_at) if initialized_at else None
         self._default_activated_skills_applied = bool(activated) or bool(
             self._default_activated_skill_ids
+        )
+
+        # Extra skill scan roots from config (declarative; no code change
+        # needed to add skill sources). Relative paths resolve against the
+        # workspace root. Discovery merges these with the default
+        # <root>/custom/skills locations.
+        self._extra_skill_paths = self._resolve_extra_skill_paths(
+            self._config.get("extra_skill_paths")
         )
 
     # ------------------------------------------------------------------
@@ -770,11 +782,67 @@ The constructor ``__init__`` is arg-less.
         }
         self.skill_runtime.set_visible_skills(visible_skill_ids)
 
-    def discover_skill_sources(self, env: RouterBase) -> dict[str, list[str]]:
+    def _resolve_skill_paths(self, items: Iterable[Any]) -> list[Path]:
+        """Resolve a set of skill-directory paths to absolute, deduped paths.
+
+        Accepts ``str`` / ``Path`` items. Relative paths resolve against the
+        workspace root; absolute paths are used as-is. Empty / falsy items are
+        skipped and invalid input never raises (yields fewer entries).
+
+        Args:
+            items: Iterable of skill-directory path candidates.
+
+        Returns:
+            Deduplicated absolute paths, insertion order preserved.
+        """
+        workspace = self._workspace_root
+        resolved: list[Path] = []
+        seen: set[Path] = set()
+        if items is None:
+            return resolved
+        # A bare str/Path is one path, not an iterable of characters.
+        if isinstance(items, (str, Path)):
+            items = [items]
+        if not isinstance(items, Iterable):
+            return resolved
+        for item in items:
+            text = str(item or "").strip()
+            if not text:
+                continue
+            path = Path(text).expanduser()
+            if not path.is_absolute() and workspace is not None:
+                path = workspace / path
+            path = path.resolve()
+            if path not in seen:
+                seen.add(path)
+                resolved.append(path)
+        return resolved
+
+    def discover_skill_sources(
+        self,
+        env: RouterBase,
+        *,
+        extra_skill_paths: Iterable[Path | str] | None = None,
+    ) -> dict[str, list[str]]:
         """Discover custom and environment-provided skill sources.
+
+        Scans the default ``<root>/custom/skills`` locations (``env.run_dir``
+        and this agent's workspace root), then any extra skill directories
+        merged from two sources:
+
+        - declarative: ``extra_skill_paths`` in ``config.json`` (resolved in
+          :meth:`restore`);
+        - programmatic: the ``extra_skill_paths`` argument here.
+
+        Each extra entry is a directory containing skill subdirectories (same
+        layout as ``custom/skills``). Relative entries resolve against the
+        workspace root. The default scan is unchanged when neither is given, so
+        agents can load custom skills stored anywhere via either entry point.
 
         Args:
             env: Environment router used to locate run directories and modules.
+            extra_skill_paths: Additional skill directories to scan now (each a
+                root of skill subdirectories).
 
         Returns:
             Mapping from discovery source labels to added skill IDs.
@@ -805,6 +873,27 @@ The constructor ``__init__`` is arg-less.
                 added = []
             if added:
                 discovered[f"custom:{root_abs}"] = added
+
+        # Extra skill paths (config-driven + programmatic), scanned directly.
+        # Lets an agent load custom skills stored at any location.
+        for path in self._resolve_skill_paths(
+            [*self._extra_skill_paths, *(extra_skill_paths or [])]
+        ):
+            if path in seen:
+                continue
+            seen.add(path)
+            try:
+                added = self._skill_registry.scan_custom(path)
+            except Exception as exc:
+                logger.warning(
+                    "Agent %s: extra skill scan failed at %s: %s",
+                    self.id,
+                    path,
+                    exc,
+                )
+                added = []
+            if added:
+                discovered[f"custom:{path}"] = added
 
         for module in getattr(env, "env_modules", []) or []:
             for skills_dir in module.skill_dirs():

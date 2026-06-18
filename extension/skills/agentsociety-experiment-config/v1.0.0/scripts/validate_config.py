@@ -238,6 +238,7 @@ class ConfigValidator:
                     "allow_template_mode",
                     "disabled_skill_ids",
                     "default_activated_skill_ids",
+                    "extra_skill_paths",
                 }
                 agent_config_dict = {
                     k: init_kwargs.pop(k)

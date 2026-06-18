@@ -38,6 +38,23 @@ from agentsociety2.logger import get_logger, set_logger_level, add_file_handler
 logger = get_logger()
 
 
+#: Agent ``kwargs`` keys the CLI splits into the static ``config`` record (the
+#: remaining ``kwargs`` become the ``profile``). Must stay in sync with the
+#: validator at ``extension/skills/agentsociety-experiment-config/.../validate_config.py``
+#: and with the keys ``AgentBase.restore`` reads from ``self._config``. Add a key
+#: here whenever an agent gains a new runtime-config field.
+AGENT_CONFIG_KEYS: frozenset[str] = frozenset(
+    {
+        "max_react_turns",
+        "enable_memory",
+        "enable_todo_list",
+        "disabled_skill_ids",
+        "default_activated_skill_ids",
+        "extra_skill_paths",
+    }
+)
+
+
 def _validate_env_early() -> None:
     """早期环境变量验证（在 main 入口处调用）"""
     errors = []
@@ -238,13 +255,7 @@ class ExperimentRunner:
             # PersonAgent, config keys are max_react_turns / enable_todo_list /
             # enable_memory / etc. We extract recognized config keys out of kwargs
             # if present, defaulting the rest.
-            config_keys = {
-                "max_react_turns",
-                "enable_memory",
-                "enable_todo_list",
-                "disabled_skill_ids",
-                "default_activated_skill_ids",
-            }
+            config_keys = AGENT_CONFIG_KEYS
             config = {k: kwargs.pop(k) for k in list(kwargs.keys()) if k in config_keys}
             # profile carries id + the remaining kwargs (name, age, persona, ...).
             profile = dict(kwargs)

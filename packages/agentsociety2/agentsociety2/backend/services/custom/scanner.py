@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from agentsociety2.backend.services.custom.compatibility import (
+    build_agent_scan_diagnostic,
     build_env_scan_diagnostic,
     build_import_error_diagnostic,
 )
@@ -97,31 +98,14 @@ class CustomModuleScanner:
                         and obj.__module__ == module_name
                     ):
                         found = True
-                        accepted = self._validate_agent_class(obj)
-                        issue_list: list[CompatibilityIssue] = []
-                        if not accepted:
-                            issue_list.append(
-                                CompatibilityIssue(
-                                    code="missing_required_methods",
-                                    check="required_methods",
-                                    message=f"{obj.__name__} 缺少 ask/step/dump/load 中的必需方法",
-                                )
-                            )
-                        diagnostics.append(
-                            ScanDiagnostic(
-                                module_kind="agent",
-                                module_path=module_path,
-                                file_path=str(py_file),
-                                class_name=obj.__name__,
-                                accepted=accepted,
-                                issues=issue_list,
-                                metadata={
-                                    "type": obj.__name__,
-                                    "class_name": obj.__name__,
-                                },
-                            ).model_dump(mode="json")
+                        diagnostic = build_agent_scan_diagnostic(
+                            workspace_path=self.workspace_path,
+                            module_path=module_path,
+                            file_path=py_file,
+                            cls=obj,
                         )
-                        if accepted:
+                        diagnostics.append(diagnostic.model_dump(mode="json"))
+                        if diagnostic.accepted:
                             agents.append(
                                 {
                                     "type": obj.__name__,
@@ -257,10 +241,6 @@ class CustomModuleScanner:
 
         if module_name in sys.modules:
             del sys.modules[module_name]
-
-    def _validate_agent_class(self, cls: type[Any]) -> bool:
-        required_methods = ["ask", "step", "dump", "load"]
-        return all(hasattr(cls, method) for method in required_methods)
 
     def _get_safe_description(self, cls: type[Any]) -> str:
         try:

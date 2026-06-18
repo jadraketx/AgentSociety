@@ -47,7 +47,7 @@ when you need a custom `AGENT.json` layout (see the minimal/game templates).
 | `await self.run_react_loop(*, tick, t, observations=None, question=None, readonly=False, skill_hooks=None) -> str` | Generic ReAct loop until `finish` or turn limit. |
 | `await self.acompletion(messages, stream=False, **kwargs) -> ModelResponse` | One-shot LLM completion via the bound default-role dispatcher. |
 | `await self.run_lifecycle_hooks(hook_type, *, tick, t) -> list[dict]` | Run `pre_step` / `post_step` skill hooks. |
-| `self.discover_skill_sources(env) -> dict[str, list[str]]` | Scan custom + env-provided skills; refresh visible set; apply default-activated. |
+| `self.discover_skill_sources(env, *, extra_skill_paths=None) -> dict[str, list[str]]` | Scan custom + env-provided skills; refresh visible set; apply default-activated. Sources: `<env.run_dir>/custom/skills`, this workspace's `custom/skills`, any `config["extra_skill_paths"]`, the optional `extra_skill_paths` arg, and env-module skill dirs. Extra entries are skill-subdir roots; relative paths resolve against the workspace root — so an agent can load custom skills from anywhere. |
 | `self.persist_agent_json(*, tick=None, t=None) -> dict` | Write `AGENT.json` (calls `build_agent_json`). |
 | `self.trace_span(name, *, trace_id=None, parent_span_id=None, attributes=None, end_attributes=None)` | Agent-scoped trace span context manager. |
 | `self.workspace_root_path() -> Path` | Workspace root (raises `RuntimeError` if unbound). |
@@ -115,12 +115,42 @@ reads these generic keys (all optional):
 | `enable_todo_list` | `True` | Enable the built-in TODO tools. |
 | `disabled_skill_ids` | `[]` | Skill ids to hide from the visible set. |
 | `default_activated_skill_ids` | `[]` | Skills to activate on first restore. |
+| `extra_skill_paths` | `[]` | Extra skill directories scanned by `discover_skill_sources` **in addition to** the default `<root>/custom/skills` locations. Each entry is a root of skill subdirectories (same layout as `custom/skills`); relative paths resolve against the workspace root. Lets an agent load custom skills stored anywhere on disk — see [Skill sources](#skill-sources). |
 
 Subclasses add their own keys (e.g. `PersonAgent` reads `enable_memory`,
 `memory_context_max_chars`, etc.). When using the CLI / `init_config.json`, the
 config keys listed above are split out of the agent's `kwargs` into the `config`
 record (see `society/cli.py:_build_agent_specs`); the remaining `kwargs` become the
 `profile` (with `id` + name + persona fields).
+
+## Skill sources
+
+An agent loads its skills from several directories, scanned in order by
+`discover_skill_sources` (called automatically on first use):
+
+1. `<env.run_dir>/custom/skills` — experiment-run-local skills (if `run_dir` is set).
+2. `<workspace>/custom/skills` — the agent workspace's own custom skills.
+3. **`config["extra_skill_paths"]`** — any extra directories you list (each a root of
+   skill subdirectories, same layout as `custom/skills`). Relative paths resolve
+   against the workspace root.
+4. Each registered environment module's `skill_dirs()`.
+5. Built-in skills (`agentsociety2/agent/skills/`) are scanned once globally.
+
+So an agent can use custom skills stored **anywhere** on disk — just point at them
+via `extra_skill_paths`. Two equivalent entry points:
+
+```python
+# Declarative (recommended): in the agent's init_config.json → written verbatim to
+# config.json by create(), read back by restore().
+{
+  "extra_skill_paths": ["/shared/skills", "research/skills"]
+}
+
+# Programmatic: pass when driving discovery directly.
+discovered = agent.discover_skill_sources(env, extra_skill_paths=["/shared/skills"])
+```
+
+The default `<root>/custom/skills` scan is unchanged when no extra paths are given.
 
 ## State management
 

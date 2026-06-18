@@ -39,6 +39,7 @@ The CLI's `_build_agent_specs` (`agentsociety2/society/cli.py`) splits each agen
   | `allow_template_mode` | whether template mode is permitted |
   | `disabled_skill_ids` | skill ids hidden from the visible set |
   | `default_activated_skill_ids` | skills activated on first restore |
+  | `extra_skill_paths` | extra skill directories (roots of skill subdirs, like `custom/skills`) scanned by `discover_skill_sources` on top of the default `<root>/custom/skills`; relative paths resolve against the workspace root. Use it to load custom skills stored anywhere on disk. |
 
 So a typical agent `kwargs` block mixes persona fields and (optionally) the config keys
 above. The split is automatic; you do not nest `profile` / `config` in `init_config.json`.
