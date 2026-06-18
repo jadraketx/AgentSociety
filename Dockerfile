@@ -1,22 +1,30 @@
-# Stage 1: Build VSCode extension as vsix (engines.node: ^22.13.0 || >=24)
+# syntax=docker/dockerfile:1.7
+#
+# Build-speed & layer-reuse notes:
+#   * BuildKit cache mounts for apt / uv / npm -> no re-download on rebuild.
+#   * Layer order = least-changing first: system pkgs -> node/claude -> user ->
+#     python deps (manifest-only) -> project source -> extension vsix (last).
+#   * agentsociety2 deps are pure-PyPI, so we install them from a throwaway stub
+#     of pyproject.toml (cached across source edits), then register the real
+#     source as a cheap `--no-deps` editable install.
+
+# ================= Stage 1: Build VSCode extension as vsix =================
+# engines.node: ^22.13.0 || >=24
 FROM node:22 AS extension-builder
 
-WORKDIR /app
-
-RUN npm config set registry https://registry.npmmirror.com
-
-# Install vsce globally for packaging
-RUN npm install -g @vscode/vsce
-
-# Copy extension dependency files first for better caching
 WORKDIR /app/extension
+
+RUN npm config set registry https://registry.npmmirror.com \
+    && npm install -g @vscode/vsce
+
+# Dependency files first for better caching
 COPY ./extension/package.json ./extension/package-lock.json ./
 COPY ./extension/.npmrc ./
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
 
-# Copy extension source code and config files
-COPY ./extension/tsconfig.json ./
-COPY ./extension/webpack.config.js ./
+# Source + config (changes more often than the lockfile)
+COPY ./extension/tsconfig.json ./extension/webpack.config.js ./
 COPY ./extension/src/ ./src/
 COPY ./extension/media/ ./media/
 COPY ./extension/resources/ ./resources/
@@ -24,121 +32,122 @@ COPY ./extension/skills/ ./skills/
 COPY ./extension/plugins/ ./plugins/
 COPY ./extension/runtime/ ./runtime/
 COPY ./extension/.vscodeignore ./
-# Copy LICENSE file for vsce packaging (from project root)
-COPY LICENSE ./
+# LICENSE lives at repo root and is needed by vsce packaging
+COPY LICENSE /LICENSE
 
-# Build and package the extension
-RUN npm run vscode:prepublish
-RUN vsce package --out /app/extension.vsix
+RUN npm run vscode:prepublish \
+    && vsce package --out /app/extension.vsix
 
-# Stage 2: Python runtime with extension
+# ================= Stage 2: Python runtime with extension =================
 FROM python:3.12
 
-# Switch to Tsinghua TUNA mirror for faster apt downloads
-RUN if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+# ---- System packages (Tsinghua TUNA mirror, BuildKit-cached) ----
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    set -eux; \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
         sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list.d/debian.sources; \
     else \
         sed -i 's|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list; \
-    fi
+    fi; \
+    apt-get update; \
+    apt-get install -y --no-install-recommends \
+        curl \
+        sudo \
+        locales \
+        texlive-latex-recommended \
+        texlive-latex-extra \
+        texlive-fonts-recommended \
+        texlive-fonts-extra \
+        texlive-bibtex-extra \
+        latexmk \
+        biber \
+        pandoc \
+        libreoffice \
+        poppler-utils \
+        tesseract-ocr \
+        unzip \
+        ripgrep
 
-RUN apt-get update && apt-get install -y \
-    curl \
-    sudo \
-    locales \
-    texlive-latex-recommended \
-    texlive-latex-extra \
-    texlive-fonts-recommended \
-    texlive-fonts-extra \
-    texlive-bibtex-extra \
-    latexmk \
-    biber \
-    pandoc \
-    libreoffice \
-    poppler-utils \
-    tesseract-ocr \
-    unzip \
-    ripgrep \
-    && rm -rf /var/lib/apt/lists/*
-
-# apt packages (libreoffice, etc.) may pull in a newer Python into /usr/bin/,
+# apt packages (libreoffice, etc.) may pull a newer Python into /usr/bin/,
 # creating a mismatch with the base image's Python in /usr/local/bin/.
 # Overwrite /usr/bin/python* symlinks so every path resolves to the same interpreter.
 RUN ln -sf /usr/local/bin/python3 /usr/bin/python3 \
     && ln -sf /usr/local/bin/python3-config /usr/bin/python3-config \
-    && if [ -f /usr/local/bin/python3.12 ]; then \
-        ln -sf /usr/local/bin/python3.12 /usr/bin/python3.12; \
-    fi
+    && ( [ -f /usr/local/bin/python3.12 ] && ln -sf /usr/local/bin/python3.12 /usr/bin/python3.12 || true )
 
 WORKDIR /app
 
-# Install uv
+# ---- uv + Tsinghua pypi mirror ----
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
-
-# Ensure both `python` and `python3` point to the system Python where uv installs packages
 RUN ln -sf /usr/local/bin/python3 /usr/local/bin/python
+RUN mkdir -p /etc/uv \
+    && printf '[[index]]\nurl = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"\ndefault = true\n' > /etc/uv/uv.toml
 
-# Copy dependency files
-COPY README.md LICENSE ./
-COPY pyproject.toml uv.lock ./
-COPY packages/ ./packages/
+# ---- coder user (rarely changes) ----
+RUN mkdir -p /etc/sudoers.d \
+    && useradd coder --create-home --shell=/bin/bash --uid=1000 --user-group \
+    && echo "coder ALL=(ALL) NOPASSWD:ALL" >>/etc/sudoers.d/nopasswd
 
-# 使用清华源安装依赖
-RUN mkdir -p /etc/uv
-RUN echo "[[index]]\nurl = \"https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/\"\ndefault = true" > /etc/uv/uv.toml
-
-# 安装 agentsociety2 及其所有依赖到默认 Python 环境（不使用 venv）
-# 使用 --system 标志安装到系统 Python 环境，而不是创建虚拟环境
-RUN uv pip install --system -e ./packages/agentsociety2
-
-# Install Claude Code official office skills dependencies.
-# These are required for the PDF, DOCX, XLSX, and PPTX skills.
-RUN uv pip install --system \
-    pypdf \
-    pdfplumber \
-    reportlab \
-    pytesseract \
-    pdf2image \
-    pandas \
-    openpyxl \
-    python-pptx \
-    Pillow \
-    python-docx \
-    python-dotenv \
-    "easypaper[docling,images]"
-
-# Install paper-toolkit CLI (deterministic paper drafting / typesetting tool).
-# The Claude Code skill ships via the paper-toolkit plugin (auto-prompted at
-# workspace trust via .claude/settings.json seeded by the VS Code extension).
-RUN uv pip install --system "paper-toolkit"
-
-# Copy the vsix file from builder stage
-COPY --from=extension-builder /app/extension.vsix /app/extension.vsix
-
-# Remove the `ubuntu` user and add a user `coder` so that you're not developing as the `root` user
-RUN mkdir -p /etc/sudoers.d && \
-    useradd coder \
-    --create-home \
-    --shell=/bin/bash \
-    --uid=1000 \
-    --user-group && \
-    echo "coder ALL=(ALL) NOPASSWD:ALL" >>/etc/sudoers.d/nopasswd
-
-# Make typing unicode characters in the terminal work.
-# Use C.UTF-8 locale which is available by default in Debian-based images
+# Unicode support in terminal (C.UTF-8 ships with Debian by default)
 ENV LANG=C.UTF-8
 ENV LANGUAGE=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
-# Install pipx and ensure path is set up
-RUN uv pip install --system pipx && pipx ensurepath
+# ---- Python dependencies: manifest-only layers (cached across source edits) ----
+# Install agentsociety2's third-party deps from its pyproject via a throwaway stub
+# package, then drop the stub so the editable install below is the sole record.
+COPY packages/agentsociety2/pyproject.toml /tmp/as2/pyproject.toml
+COPY README.md /tmp/as2/README.md
+RUN --mount=type=cache,target=/root/.cache/uv \
+    set -eux; \
+    mkdir -p /tmp/as2/agentsociety2; \
+    touch /tmp/as2/agentsociety2/__init__.py; \
+    uv pip install --system /tmp/as2; \
+    uv pip uninstall -y agentsociety2; \
+    rm -rf /tmp/as2
 
-# ==================== Node.js + Claude Code ====================
-RUN NODE_VERSION="22.14.0" \
-    && curl -fsSLO https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz \
-    && tar -C /usr/local -xJf node-v*.tar.xz --strip-components=1 \
-    && rm node-v*.tar.xz \
-    && npm install -g @anthropic-ai/claude-code @openai/codex \
-    && npm cache clean --force \
-    && rm -rf ~/.npm
+# Office skills (PDF/DOCX/XLSX/PPTX) + paper-toolkit CLI: independent of project source
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system \
+        pypdf \
+        pdfplumber \
+        reportlab \
+        pytesseract \
+        pdf2image \
+        pandas \
+        openpyxl \
+        python-pptx \
+        Pillow \
+        python-docx \
+        python-dotenv \
+        "easypaper[docling,images]" \
+        "paper-toolkit"
+
+# pipx (used by some tooling)
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system pipx \
+    && pipx ensurepath
+
+# ---- Project source: register editable install cheaply (deps already present) ----
+COPY README.md LICENSE ./
+COPY packages/ ./packages/
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system --no-deps -e ./packages/agentsociety2
+
+# ---- Node.js + Claude Code / Codex (version bumps only invalidate this
+#      layer; placed before vsix so it stays cached across extension changes) ----
+ARG NODE_VERSION=22.14.0
+RUN --mount=type=cache,target=/tmp/node-dl,sharing=locked \
+    --mount=type=cache,target=/root/.npm \
+    set -eux; \
+    curl -fsSLO https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz; \
+    tar -C /usr/local -xJf node-v${NODE_VERSION}-linux-x64.tar.xz --strip-components=1; \
+    rm node-v${NODE_VERSION}-linux-x64.tar.xz; \
+    npm install -g @anthropic-ai/claude-code @openai/codex; \
+    npm cache clean --force
+
+# ---- Extension vsix (changes every build -> truly last layer) ----
+COPY --from=extension-builder /app/extension.vsix /app/extension.vsix
 
 USER coder
