@@ -3,6 +3,7 @@ import json
 import random
 from collections import defaultdict, deque
 from datetime import datetime
+from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Set, Tuple, Union
 
 from agentsociety2.env import EnvBase, tool
@@ -133,6 +134,20 @@ class SocialMediaSpace(EnvBase):
             description="Number of posts created by the user at this step.",
         ),
     ]
+
+    # ---- Skill Discovery ----
+
+    @classmethod
+    def skill_dirs(cls) -> list[Path]:
+        """Return directories containing agent skills provided by SocialMediaSpace.
+
+        Scans ``<module_dir>/agent_skills/`` for skill subdirectories each holding
+        a ``SKILL.md`` (e.g. ``agent_skills/social-media/SKILL.md``). The env
+        router picks these up and exposes them in the agent skill catalog so that
+        agents learn how to interact with this social media environment.
+        """
+        skills_dir = Path(__file__).parent / "agent_skills"
+        return [skills_dir] if skills_dir.is_dir() else []
 
     def __init__(
         self,
