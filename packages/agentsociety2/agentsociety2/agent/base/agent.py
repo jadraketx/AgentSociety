@@ -331,7 +331,7 @@ class AgentBase(ABC):
         # needed to add skill sources). Relative paths resolve against the
         # workspace root. Discovery merges these with the default
         # <root>/custom/skills locations.
-        self._extra_skill_paths = self._resolve_extra_skill_paths(
+        self._extra_skill_paths = self._resolve_skill_paths(
             self._config.get("extra_skill_paths")
         )
 
