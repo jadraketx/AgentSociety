@@ -84,6 +84,10 @@ RUN ln -sf /usr/local/bin/python3 /usr/local/bin/python
 RUN mkdir -p /etc/uv \
     && printf '[[index]]\nurl = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"\ndefault = true\n' > /etc/uv/uv.toml
 
+# uv cache mount lives on a different filesystem than the install target, so
+# hardlinking is impossible; tell uv up-front to copy and skip the warning.
+ENV UV_LINK_MODE=copy
+
 # ---- coder user (rarely changes) ----
 RUN mkdir -p /etc/sudoers.d \
     && useradd coder --create-home --shell=/bin/bash --uid=1000 --user-group \
@@ -94,18 +98,17 @@ ENV LANG=C.UTF-8
 ENV LANGUAGE=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
-# ---- Python dependencies: manifest-only layers (cached across source edits) ----
-# Install agentsociety2's third-party deps from its pyproject via a throwaway stub
-# package, then drop the stub so the editable install below is the sole record.
-COPY packages/agentsociety2/pyproject.toml /tmp/as2/pyproject.toml
-COPY README.md /tmp/as2/README.md
+# ---- Python dependencies: manifest-only layer (cached across source edits) ----
+# Export the pinned dependency set from the lockfile (excluding the project
+# itself) and install just those third-party packages. This layer only depends
+# on pyproject/lock, so source changes don't trigger reinstalling ~155 packages.
+COPY pyproject.toml uv.lock ./
+COPY packages/agentsociety2/pyproject.toml packages/agentsociety2/pyproject.toml
 RUN --mount=type=cache,target=/root/.cache/uv \
-    set -eux; \
-    mkdir -p /tmp/as2/agentsociety2; \
-    touch /tmp/as2/agentsociety2/__init__.py; \
-    uv pip install --system /tmp/as2; \
-    uv pip uninstall -y agentsociety2; \
-    rm -rf /tmp/as2
+    uv export --frozen --no-dev --no-emit-package agentsociety2 \
+        --format requirements-txt -o /tmp/reqs.txt \
+    && uv pip install --system -r /tmp/reqs.txt \
+    && rm /tmp/reqs.txt
 
 # Office skills (PDF/DOCX/XLSX/PPTX) + paper-toolkit CLI: independent of project source
 RUN --mount=type=cache,target=/root/.cache/uv \
