@@ -168,6 +168,7 @@ export interface GatewayUsagePanelProps {
   onClear: () => void;
   customPricing: ModelPricingMap;
   onGetPricing: () => void;
+  onRefreshPricing: () => void;
   onSavePricing: (pricing: ModelPricingMap) => void;
   onClearPricing: () => void;
 }
@@ -182,6 +183,7 @@ export function GatewayUsagePanel({
   onClear,
   customPricing,
   onGetPricing,
+  onRefreshPricing,
   onSavePricing,
   onClearPricing,
 }: GatewayUsagePanelProps) {
@@ -771,12 +773,28 @@ export function GatewayUsagePanel({
         open={pricingModalOpen}
         onOk={() => { onSavePricing(editingPricing); setPricingModalOpen(false); }}
         onCancel={() => setPricingModalOpen(false)}
-        width={600}
+        width={720}
         okText={t('claudeCodeConfig.usagePricingSave')}
       >
-        <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 12 }}>
-          {t('claudeCodeConfig.usagePricingHint')}
-        </Text>
+        <Space style={{ marginBottom: 12, width: '100%', justifyContent: 'space-between' }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {t('claudeCodeConfig.usagePricingHint')}
+          </Text>
+          <Button size="small" icon={<ReloadOutlined />} onClick={() => {
+            onRefreshPricing();
+            setEditingPricing({ ...detectedPricing, ...customPricing });
+          }}>
+            {t('claudeCodeConfig.usagePricingRefresh')}
+          </Button>
+        </Space>
+        {/* Column headers */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, paddingLeft: 4 }}>
+          <Text type="secondary" style={{ fontSize: 10, width: 160 }}>{t('claudeCodeConfig.usagePricingModel')}</Text>
+          <Text type="secondary" style={{ fontSize: 10, width: 88 }}>{t('claudeCodeConfig.usagePricingInput')}</Text>
+          <Text type="secondary" style={{ fontSize: 10, width: 88 }}>{t('claudeCodeConfig.usagePricingOutput')}</Text>
+          <Text type="secondary" style={{ fontSize: 10, width: 88 }}>{t('claudeCodeConfig.usagePricingCacheRead')}</Text>
+          <Text type="secondary" style={{ fontSize: 10, width: 88 }}>{t('claudeCodeConfig.usagePricingCacheCreation')}</Text>
+        </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           {Object.entries(editingPricing).map(([modelId, price]) => (
             <div key={modelId} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
@@ -791,6 +809,7 @@ export function GatewayUsagePanel({
                 style={{ width: 88 }}
                 min={0}
                 step={0.01}
+                placeholder="Input"
               />
               <InputNumber
                 value={price.outputPerMillion}
@@ -798,6 +817,23 @@ export function GatewayUsagePanel({
                 style={{ width: 88 }}
                 min={0}
                 step={0.01}
+                placeholder="Output"
+              />
+              <InputNumber
+                value={price.cacheReadPerMillion ?? 0}
+                onChange={(v) => updatePricingEntry(modelId, 'cacheReadPerMillion', v ?? 0)}
+                style={{ width: 88 }}
+                min={0}
+                step={0.01}
+                placeholder="Cache read"
+              />
+              <InputNumber
+                value={price.cacheCreationPerMillion ?? 0}
+                onChange={(v) => updatePricingEntry(modelId, 'cacheCreationPerMillion', v ?? 0)}
+                style={{ width: 88 }}
+                min={0}
+                step={0.01}
+                placeholder="Cache write"
               />
               <Button size="small" danger icon={<DeleteOutlined />} onClick={() => {
                 setEditingPricing((prev) => {

@@ -28,7 +28,7 @@ export interface ConfigValues {
   embeddingApiBase: string;
   embeddingModel: string;
   embeddingDims: number;
-  // Literature Search (optional, for search_literature tool)
+  // Literature Search
   literatureSearchMcpUrl: string;
   literatureSearchApiKey: string;
 }
@@ -66,22 +66,9 @@ export interface ImportedModelDefaults {
   claudeCodeSonnet: string;
   claudeCodeOpus: string;
   claudeCodeHaiku: string;
-  easyPaperVlm: string;
 }
 
 export interface OverviewStatusMessage {
   backendStatus: BackendStatus;
   claudeCodeCustomized?: boolean;
-}
-
-// ============ EasyPaper 配置 ============
-
-export interface EasyPaperConfigValues {
-  llmModelName: string;
-  llmApiKey: string;
-  llmBaseUrl: string;
-  vlmEnabled: boolean;
-  vlmModel: string;
-  vlmApiKey: string;
-  vlmBaseUrl: string;
 }

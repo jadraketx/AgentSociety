@@ -26,7 +26,7 @@ import type {
 } from './claudeCodeTypes';
 import type { TokenUsageRecord, UsageAggregation } from './gatewayUsageTypes';
 import type { ModelPricingMap } from './modelPricing';
-import type { VSCodeAPI, ConfigValues, WorkspaceInfo, BackendStatus, ValidationState, EasyPaperConfigValues } from './types';
+import type { VSCodeAPI, ConfigValues, WorkspaceInfo, BackendStatus, ValidationState } from './types';
 import { AdvancedConfigSection, type AdvancedTopTab } from './AdvancedConfigSection';
 import { supportsProviderUsageQuery } from './providerUsageSupport';
 import { autoMapClaudeRoleModels } from './aiCliProviderTypes';
@@ -75,16 +75,6 @@ const DEFAULT_CLAUDE_VALUES: ClaudeCodeConfigValues = {
   permissionMode: '',
 };
 
-const DEFAULT_EASYPAPER_VALUES: EasyPaperConfigValues = {
-  llmModelName: '',
-  llmApiKey: '',
-  llmBaseUrl: '',
-  vlmEnabled: false,
-  vlmModel: '',
-  vlmApiKey: '',
-  vlmBaseUrl: '',
-};
-
 interface ConfigPageAppProps {
   vscode: VSCodeAPI;
 }
@@ -94,7 +84,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
   const { isDark, palette, themeConfig } = useVscodeTheme();
   const [form] = Form.useForm<ConfigValues>();
   const [claudeForm] = Form.useForm<ClaudeCodeConfigValues>();
-  const [easyPaperForm] = Form.useForm<EasyPaperConfigValues>();
   const watchedValues = Form.useWatch([], form) as Partial<ConfigValues> | undefined;
   const watchedClaudeValues = Form.useWatch([], claudeForm) as Partial<ClaudeCodeConfigValues> | undefined;
   const currentValues = watchedValues || {};
@@ -583,6 +572,13 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     [vscode]
   );
 
+  const handleToggleFailoverProvider = React.useCallback(
+    (id: string, role: 'claude' | 'codex') => {
+      vscode.postMessage({ command: 'gatewayToggleFailover', providerId: id, role });
+    },
+    [vscode]
+  );
+
   const handleFetchProviderModels = React.useCallback(
     (providerId: string, baseUrl: string, apiKey: string, apiKind?: 'anthropic' | 'openai') => {
       if (!apiKey.trim()) {
@@ -638,6 +634,10 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
 
   const handleGetPricing = React.useCallback(() => {
     vscode.postMessage({ command: 'gatewayGetPricing' });
+  }, [vscode]);
+
+  const handleRefreshPricing = React.useCallback(() => {
+    vscode.postMessage({ command: 'gatewayRefreshPricing' });
   }, [vscode]);
 
   const handleSavePricing = React.useCallback((pricing: ModelPricingMap) => {
@@ -790,20 +790,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     vscode.postMessage({
       command: 'saveClaudeConfig',
       config: getClaudeValuesForValidation(),
-    });
-  };
-
-  const saveEasyPaperConfig = () => {
-    easyPaperForm.validateFields().then((values) => {
-      vscode.postMessage({
-        command: 'saveEasyPaperConfig',
-        config: values,
-      });
-    }).catch(() => {
-      notification.error({
-        message: t('easyPaperConfig.validationFailed'),
-        placement: 'top',
-      });
     });
   };
 
@@ -1042,26 +1028,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
             ...prev,
             [pid]: resolveClaudeModelsFetchError(String(msg.error ?? 'unknown')),
           }));
-        }
-      } else if (message.command === 'initialEasyPaperConfig') {
-        const msg = message as { config?: EasyPaperConfigValues };
-        easyPaperForm.setFieldsValue({
-          ...DEFAULT_EASYPAPER_VALUES,
-          ...msg.config,
-        });
-      } else if (message.command === 'easyPaperSaveResult') {
-        const msg = message as { success?: boolean; error?: string };
-        if (msg.success) {
-          notification.success({
-            message: t('easyPaperConfig.saveSuccess'),
-            placement: 'top',
-          });
-        } else if (msg.error) {
-          notification.error({
-            message: t('easyPaperConfig.saveFailed'),
-            description: msg.error,
-            placement: 'top',
-          });
         }
       } else if (message.command === 'saveResult') {
         const msg = message as { success?: boolean; error?: string };
@@ -1565,6 +1531,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                           onAddClaudeProvider={handleAddClaudeProvider}
                           onRemoveClaudeProvider={handleRemoveClaudeProvider}
                           onActivateClaudeProvider={handleActivateClaudeProvider}
+                          onToggleFailoverProvider={handleToggleFailoverProvider}
                           onCheckClaudeProvider={handleCheckClaudeProvider}
                           onShowClaudeGatewayLog={handleShowClaudeGatewayLog}
                           modelsByProvider={modelsByProvider}
@@ -1581,15 +1548,13 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                           onFailoverToggle={handleFailoverToggle}
                           customPricing={customPricing}
                           onGetPricing={handleGetPricing}
+                          onRefreshPricing={handleRefreshPricing}
                           onSavePricing={handleSavePricing}
                           onClearPricing={handleClearPricing}
                           providerUsage={providerUsage}
                           onQueryProviderUsage={handleQueryProviderUsage}
                           onRestartCodex={handleRestartCodex}
                           form={form}
-                          easyPaperForm={easyPaperForm}
-                          defaultLlmApiKey={effectiveConfigValues.llmApiKey}
-                          onSaveEasyPaper={saveEasyPaperConfig}
                         />
                       </div>
                     ),

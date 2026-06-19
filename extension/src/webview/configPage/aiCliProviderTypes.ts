@@ -11,6 +11,8 @@ export type AiCliProviderRecord = {
   authMode?: AiCliAuthMode;
   activeClaude: boolean;
   activeCodex: boolean;
+  failoverClaude: boolean;
+  failoverCodex: boolean;
   model?: string;
   sonnetModel?: string;
   opusModel?: string;
@@ -18,7 +20,7 @@ export type AiCliProviderRecord = {
   permissionMode?: string;
 };
 
-export const EMPTY_PROVIDER_DRAFT: Omit<AiCliProviderRecord, 'id' | 'activeClaude' | 'activeCodex'> = {
+export const EMPTY_PROVIDER_DRAFT: Omit<AiCliProviderRecord, 'id' | 'activeClaude' | 'activeCodex' | 'failoverClaude' | 'failoverCodex'> = {
   name: '',
   baseUrl: '',
   apiKey: '',

@@ -97,6 +97,8 @@ export type AiCliProviderConfig = {
   authMode?: AiCliAuthMode;
   activeClaude: boolean;
   activeCodex: boolean;
+  failoverClaude: boolean;
+  failoverCodex: boolean;
   model?: string;
   sonnetModel?: string;
   opusModel?: string;
@@ -282,6 +284,8 @@ export class AiCliGatewayManager {
     if (activeCodex === undefined) {
       activeCodex = false;
     }
+    const failoverClaude = raw.failoverClaude ?? false;
+    const failoverCodex = raw.failoverCodex ?? false;
     return this.normalizeProvider({
       id: raw.id,
       name: raw.name ?? '',
@@ -291,6 +295,8 @@ export class AiCliGatewayManager {
       authMode: raw.authMode,
       activeClaude,
       activeCodex,
+      failoverClaude,
+      failoverCodex,
       model: raw.model,
       sonnetModel: raw.sonnetModel,
       opusModel: raw.opusModel,
@@ -754,8 +760,8 @@ export class AiCliGatewayManager {
   }
 
   async addProvider(
-    provider: Omit<AiCliProviderConfig, 'id' | 'activeClaude' | 'activeCodex'> &
-      Partial<Pick<AiCliProviderConfig, 'activeClaude' | 'activeCodex'>>
+    provider: Omit<AiCliProviderConfig, 'id' | 'activeClaude' | 'activeCodex' | 'failoverClaude' | 'failoverCodex'> &
+      Partial<Pick<AiCliProviderConfig, 'activeClaude' | 'activeCodex' | 'failoverClaude' | 'failoverCodex'>>
   ): Promise<AiCliProviderConfig> {
     await this.initialize();
     const providers = this.getProviders();
@@ -766,11 +772,15 @@ export class AiCliGatewayManager {
       provider.activeClaude ?? !providers.some((p) => p.activeClaude);
     const activeCodex =
       provider.activeCodex ?? (isOpenAi && !providers.some((p) => p.activeCodex));
+    const failoverClaude = provider.failoverClaude ?? false;
+    const failoverCodex = provider.failoverCodex ?? false;
     const entry: AiCliProviderConfig = this.normalizeProvider({
       ...provider,
       id,
       activeClaude,
       activeCodex,
+      failoverClaude,
+      failoverCodex,
     });
     providers.push(entry);
     await this.saveProviders(providers);
@@ -913,6 +923,21 @@ export class AiCliGatewayManager {
     if (this.gateway.getStatus().running) {
       await this.applyGatewayRoutes();
     }
+  }
+
+  async toggleFailover(id: string, role: 'claude' | 'codex'): Promise<void> {
+    await this.initialize();
+    const providers = this.getProviders();
+    const target = providers.find((p) => p.id === id);
+    if (!target) {
+      throw new Error('provider_not_found');
+    }
+    const field = role === 'claude' ? 'failoverClaude' : 'failoverCodex';
+    const providersToUpdate = providers.map((p) =>
+      p.id === id ? { ...p, [field]: !p[field] } : p
+    );
+    await this.saveProviders(providersToUpdate);
+    this.syncFailoverToGateway();
   }
 
   async activateProvider(id: string, role: 'claude' | 'codex'): Promise<AiCliGatewayPublicStatus> {
@@ -1154,18 +1179,18 @@ export class AiCliGatewayManager {
 
   private buildClaudeFailoverUpstreams(): AiCliGatewayUpstream[] {
     const providers = this.getProviders().map((p) => this.normalizeProvider(p));
-    const claudeProviders = providers.filter(
-      (p) => this.providerHasApiUpstream(p)
+    const active = providers.find(
+      (p) => p.activeClaude && this.providerHasApiUpstream(p)
     );
-    const active = claudeProviders.find((p) => p.activeClaude) ?? claudeProviders[0];
     const list: AiCliGatewayUpstream[] = [];
     if (active) {
       list.push(this.providerToGatewayUpstream(active));
     }
-    for (const p of claudeProviders) {
-      if (p.id === active?.id) {
-        continue;
-      }
+    // Only include providers explicitly marked for failover
+    const failoverCandidates = providers.filter(
+      (p) => p.failoverClaude && p.id !== active?.id && this.providerHasApiUpstream(p)
+    );
+    for (const p of failoverCandidates) {
       list.push(this.providerToGatewayUpstream(p));
     }
     const stored = this.getStoredUpstream();
@@ -1177,18 +1202,18 @@ export class AiCliGatewayManager {
 
   private buildCodexFailoverUpstreams(): AiCliGatewayUpstream[] {
     const providers = this.getProviders().map((p) => this.normalizeProvider(p));
-    const openaiProviders = providers.filter(
-      (p) => p.apiKind === 'openai' && this.providerHasApiUpstream(p)
+    const active = providers.find(
+      (p) => p.activeCodex && p.apiKind === 'openai' && this.providerHasApiUpstream(p)
     );
-    const active = openaiProviders.find((p) => p.activeCodex) ?? openaiProviders[0];
     const list: AiCliGatewayUpstream[] = [];
     if (active) {
       list.push(this.providerToGatewayUpstream(active));
     }
-    for (const p of openaiProviders) {
-      if (p.id === active?.id) {
-        continue;
-      }
+    // Only include providers explicitly marked for failover
+    const failoverCandidates = providers.filter(
+      (p) => p.failoverCodex && p.id !== active?.id && p.apiKind === 'openai' && this.providerHasApiUpstream(p)
+    );
+    for (const p of failoverCandidates) {
       list.push(this.providerToGatewayUpstream(p));
     }
     return list;

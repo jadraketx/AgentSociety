@@ -3,29 +3,25 @@ import {
   Form,
   Input,
   InputNumber,
-  Select,
   Tabs,
   Typography,
 } from 'antd';
-import { FileTextOutlined } from '@ant-design/icons';
 import type { FormInstance } from 'antd';
 import type { TFunction } from 'i18next';
 import type { VscodeThemePalette } from '../theme';
 import type {
   AiCliGatewayStatus,
   ClaudeCodeCliStatus,
-  ClaudeCodeConfigValues,
   ClaudeModelOption,
 } from './claudeCodeTypes';
 import type { AiCliProviderRecord } from './aiCliProviderTypes';
 import type { TokenUsageRecord, UsageAggregation } from './gatewayUsageTypes';
 import type { ModelPricingMap } from './modelPricing';
 import type { CodexRoutingStatus, ProviderUsageQueryResult } from './claudeCodeTypes';
-import type { ConfigValues, ValidationState, EasyPaperConfigValues } from './types';
+import type { ConfigValues, ValidationState } from './types';
 const AiCliConfigSection = React.lazy(() =>
   import('./AiCliConfigSection').then((m) => ({ default: m.AiCliConfigSection }))
 );
-import { EasyPaperConfigSection } from './EasyPaperConfigSection';
 import { ValidationAction } from './ValidationAction';
 import { tabBodyStyle } from './configPageStyles';
 import {
@@ -37,7 +33,7 @@ import {
 
 const { Text } = Typography;
 
-export type AdvancedTopTab = 'models' | 'python' | 'literature' | 'claude' | 'easypaper';
+export type AdvancedTopTab = 'models' | 'python' | 'literature' | 'claude';
 
 type SpecializedLlmKind = 'coder' | 'embedding';
 
@@ -74,6 +70,7 @@ export interface AdvancedConfigSectionProps {
   ) => void;
   onRemoveClaudeProvider: (id: string) => void;
   onActivateClaudeProvider: (id: string, role: 'claude' | 'codex') => void;
+  onToggleFailoverProvider: (id: string, role: 'claude' | 'codex') => void;
   onCheckClaudeProvider: (baseUrl: string, apiKey: string, apiKind?: 'anthropic' | 'openai') => void;
   onShowClaudeGatewayLog: () => void;
   modelsByProvider: Record<string, ClaudeModelOption[]>;
@@ -86,10 +83,6 @@ export interface AdvancedConfigSectionProps {
     apiKind?: 'anthropic' | 'openai'
   ) => void;
   form: FormInstance<ConfigValues>;
-  // EasyPaper
-  easyPaperForm: FormInstance<EasyPaperConfigValues>;
-  defaultLlmApiKey: string;
-  onSaveEasyPaper: () => void;
   // Usage
   usageRecords: TokenUsageRecord[];
   usageAggregation: UsageAggregation | null;
@@ -102,6 +95,7 @@ export interface AdvancedConfigSectionProps {
   onFailoverToggle: (enabled: boolean) => void;
   customPricing: ModelPricingMap;
   onGetPricing: () => void;
+  onRefreshPricing: () => void;
   onSavePricing: (pricing: ModelPricingMap) => void;
   onClearPricing: () => void;
   providerUsage: Record<string, ProviderUsageQueryResult & { loading?: boolean }>;
@@ -142,6 +136,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   onAddClaudeProvider,
   onRemoveClaudeProvider,
   onActivateClaudeProvider,
+  onToggleFailoverProvider,
   onCheckClaudeProvider,
   onShowClaudeGatewayLog,
   modelsByProvider,
@@ -149,9 +144,6 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   modelsErrorByProvider,
   onFetchProviderModels,
   form,
-  easyPaperForm,
-  defaultLlmApiKey,
-  onSaveEasyPaper,
   usageRecords,
   usageAggregation,
   usageLoading,
@@ -162,6 +154,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   onFailoverToggle,
   customPricing,
   onGetPricing,
+  onRefreshPricing,
   onSavePricing,
   onClearPricing,
   providerUsage,
@@ -200,6 +193,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
     onAddProvider: onAddClaudeProvider,
     onRemoveProvider: onRemoveClaudeProvider,
     onActivateProvider: onActivateClaudeProvider,
+    onToggleFailoverProvider: onToggleFailoverProvider,
     onSpeedtestProvider: onCheckClaudeProvider,
     onShowGatewayLog: onShowClaudeGatewayLog,
     modelsByProvider,
@@ -216,6 +210,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
     onFailoverToggle,
     customPricing,
     onGetPricing,
+    onRefreshPricing,
     onSavePricing,
     onClearPricing,
     providerUsage,
@@ -430,26 +425,6 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
             <AiCliConfigSection {...aiCliSectionProps} />
           </React.Suspense>
         </div>
-      ),
-    },
-    {
-      key: 'easypaper',
-      label: (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <FileTextOutlined />
-          EasyPaper
-        </span>
-      ),
-      children: (
-        <EasyPaperConfigSection
-          t={t}
-          palette={palette}
-          form={easyPaperForm}
-          defaultLlmApiKey={defaultLlmApiKey}
-          defaultLlmApiBase={defaultLlmApiBase}
-          defaultLlmModel={defaultLlmModel}
-          onSave={onSaveEasyPaper}
-        />
       ),
     },
   ];
