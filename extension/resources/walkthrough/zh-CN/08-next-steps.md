@@ -14,7 +14,7 @@
 | [模拟回放](command:aiSocialScientist.openReplay)   | 侧边栏 → 右键实验目录     | 想回看和分析 Agent 模拟的过程  |
 | 论文 Review 查看                                   | 侧边栏 → 右键 `paper/reviews/` | 想查看结构化审稿意见、维度评分和阻塞项 |
 | 证据图查看                                         | 侧边栏 → 右键 evidence graph 节点 | 想可视化分析中的证据关系 |
-| CLI 路由状态                                       | 状态栏 `CLI Route`       | 查看 Claude Code / Codex 是否经本地网关路由 |
+| AI Gateway 路由状态                                | 状态栏 `AI Gateway`      | 查看 Claude Code / Codex 是否经本地网关路由 |
 | Gateway 日志                                       | 配置页 → 查看日志          | 排查路由或供应商连接问题       |
 | [使用指南](command:aiSocialScientist.openHelpPage) | 侧边栏 📖 按钮             | 想查看完整的功能说明           |
 | 术语附录                                           | 本快速入门最后一步         | 不确定某个概念是什么意思时     |

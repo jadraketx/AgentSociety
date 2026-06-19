@@ -42,6 +42,10 @@ import {
   getBuiltinPricing,
 } from './gatewayModelPricing';
 import {
+  fetchRemoteGatewayPricing,
+  selectObservedRemotePricing,
+} from './gatewayRemotePricing';
+import {
   queryProviderUsage,
   supportsProviderUsageQuery,
   type ProviderUsageResult,
@@ -68,10 +72,13 @@ const PROVIDERS_STATE_KEY = 'aiCliGateway.providers';
 const PROVIDER_SECRET_PREFIX = 'aiCliGateway.provider.apiKey.';
 const USAGE_STATE_KEY = 'aiCliGateway.usageRecords';
 const CUSTOM_PRICING_STATE_KEY = 'aiCliGateway.customPricing';
+const REMOTE_PRICING_STATE_KEY = 'aiCliGateway.remotePricing';
+const REMOTE_PRICING_FETCHED_AT_STATE_KEY = 'aiCliGateway.remotePricingFetchedAt';
 const FAILOVER_ENABLED_STATE_KEY = 'aiCliGateway.failoverEnabled';
 const ROUTE_CLAUDE_STATE_KEY = 'aiCliGateway.routeClaude';
 const ROUTE_CODEX_STATE_KEY = 'aiCliGateway.routeCodex';
 const MAX_USAGE_RECORDS = 10000;
+const REMOTE_PRICING_TTL_MS = 24 * 60 * 60 * 1000;
 
 export type AiCliGatewayPublicStatus = AiCliGatewayStatus & {
   enabled: boolean;
@@ -363,14 +370,13 @@ export class AiCliGatewayManager {
     const active = providers.find(
       (p) =>
         p.activeClaude &&
-        this.isAnthropicProvider(p) &&
         this.providerHasApiUpstream(p)
     );
     if (active) {
       return active;
     }
     return providers.find(
-      (p) => this.isAnthropicProvider(p) && this.providerHasApiUpstream(p)
+      (p) => this.providerHasApiUpstream(p)
     );
   }
 
@@ -402,6 +408,10 @@ export class AiCliGatewayManager {
     return {
       baseUrl: upstream.baseUrl,
       apiKey: upstream.apiKey,
+      model: normalized.model,
+      sonnetModel: normalized.sonnetModel,
+      opusModel: normalized.opusModel,
+      haikuModel: normalized.haikuModel,
       codexApiFormat,
       codexModel:
         upstream.apiKind === 'openai'
@@ -476,7 +486,7 @@ export class AiCliGatewayManager {
   }
 
   getActiveClaudeProvider(): AiCliProviderConfig | undefined {
-    return this.getProviders().find((p) => p.activeClaude && this.isAnthropicProvider(p));
+    return this.getProviders().find((p) => p.activeClaude);
   }
 
   getActiveCodexProvider(): AiCliProviderConfig | undefined {
@@ -753,7 +763,7 @@ export class AiCliGatewayManager {
     const kind = provider.apiKind ?? inferApiKindFromBaseUrl(provider.baseUrl);
     const isOpenAi = kind === 'openai';
     const activeClaude =
-      provider.activeClaude ?? (!isOpenAi && !providers.some((p) => p.activeClaude));
+      provider.activeClaude ?? !providers.some((p) => p.activeClaude);
     const activeCodex =
       provider.activeCodex ?? (isOpenAi && !providers.some((p) => p.activeCodex));
     const entry: AiCliProviderConfig = this.normalizeProvider({
@@ -775,11 +785,11 @@ export class AiCliGatewayManager {
   async removeProvider(id: string): Promise<void> {
     await this.initialize();
     let providers = this.getProviders().filter((p) => p.id !== id);
-    const anthropic = providers.filter((p) => this.isAnthropicProvider(p));
+    const claudeProviders = providers.filter((p) => this.providerHasCredentials(p));
     const openai = providers.filter((p) => p.apiKind === 'openai');
-    if (anthropic.length > 0 && !anthropic.some((p) => p.activeClaude)) {
+    if (claudeProviders.length > 0 && !claudeProviders.some((p) => p.activeClaude)) {
       providers = providers.map((p) =>
-        p.id === anthropic[0].id ? { ...p, activeClaude: true } : p
+        p.id === claudeProviders[0].id ? { ...p, activeClaude: true } : p
       );
     }
     if (openai.length > 0 && !openai.some((p) => p.activeCodex)) {
@@ -788,7 +798,7 @@ export class AiCliGatewayManager {
       );
     }
     await this.saveProviders(providers);
-    const activeClaude = providers.find((p) => p.activeClaude && this.isAnthropicProvider(p));
+    const activeClaude = providers.find((p) => p.activeClaude);
     if (activeClaude) {
       await this.applyActiveClaudeProvider(activeClaude);
     } else {
@@ -828,11 +838,8 @@ export class AiCliGatewayManager {
 
   private async applyActiveClaudeProvider(provider: AiCliProviderConfig): Promise<AiCliGatewayPublicStatus> {
     const normalized = this.normalizeProvider(provider);
-    if (!this.isAnthropicProvider(normalized)) {
-      return this.getPublicStatus();
-    }
     const enabled = this.context.globalState.get<boolean>(ENABLED_STATE_KEY, false);
-    if (isOfficialSubscriptionProvider(normalized)) {
+    if (this.isAnthropicProvider(normalized) && isOfficialSubscriptionProvider(normalized)) {
       if (this.isRouteClaudeViaGateway()) {
         await this.context.globalState.update(ROUTE_CLAUDE_STATE_KEY, false);
       }
@@ -842,6 +849,9 @@ export class AiCliGatewayManager {
         await this.reconcileGatewayAfterDirectSwitch();
       }
       return this.getPublicStatus();
+    }
+    if (!this.isAnthropicProvider(normalized) && !this.isRouteClaudeViaGateway()) {
+      await this.context.globalState.update(ROUTE_CLAUDE_STATE_KEY, true);
     }
     const config = this.providerToClaudeConfig(normalized);
     if (enabled) {
@@ -853,7 +863,7 @@ export class AiCliGatewayManager {
     }
     writeClaudeConfig(config);
     const upstream = providerUpstream(normalized);
-    await this.persistUpstream({ baseUrl: upstream.baseUrl, apiKey: upstream.apiKey });
+    await this.persistUpstream(this.providerToGatewayUpstream(normalized));
     return this.getPublicStatus();
   }
 
@@ -913,14 +923,11 @@ export class AiCliGatewayManager {
       throw new Error('provider_not_found');
     }
     const kind = target.apiKind ?? inferApiKindFromBaseUrl(target.baseUrl);
-    if (role === 'claude' && kind === 'openai') {
-      throw new Error('provider_wrong_kind');
-    }
     if (role === 'codex' && kind !== 'openai') {
       throw new Error('provider_wrong_kind');
     }
     for (const p of providers) {
-      if (role === 'claude' && this.isAnthropicProvider(p)) {
+      if (role === 'claude') {
         p.activeClaude = p.id === id;
       }
       if (role === 'codex' && p.apiKind === 'openai') {
@@ -1042,6 +1049,70 @@ export class AiCliGatewayManager {
     return this.context.globalState.get<ModelPricingMap>(CUSTOM_PRICING_STATE_KEY) ?? {};
   }
 
+  getRemotePricing(): ModelPricingMap {
+    return this.context.globalState.get<ModelPricingMap>(REMOTE_PRICING_STATE_KEY) ?? {};
+  }
+
+  private getObservedPricingModelIds(): string[] {
+    const ids = new Set<string>();
+    for (const provider of this.getProviders()) {
+      for (const modelId of [
+        provider.model,
+        provider.sonnetModel,
+        provider.opusModel,
+        provider.haikuModel,
+      ]) {
+        if (modelId?.trim()) {
+          ids.add(modelId.trim());
+        }
+      }
+    }
+    for (const record of this.sessionUsage) {
+      if (record.model?.trim()) {
+        ids.add(record.model.trim());
+      }
+    }
+    const persisted = this.context.globalState.get<TokenUsageRecord[]>(USAGE_STATE_KEY) ?? [];
+    for (const record of persisted) {
+      if (record.model?.trim()) {
+        ids.add(record.model.trim());
+      }
+    }
+    return [...ids];
+  }
+
+  async refreshObservedRemotePricing(force = false): Promise<ModelPricingMap> {
+    const fetchedAt = this.context.globalState.get<number>(REMOTE_PRICING_FETCHED_AT_STATE_KEY, 0);
+    const cached = this.getRemotePricing();
+    if (
+      !force &&
+      Object.keys(cached).length > 0 &&
+      Date.now() - fetchedAt < REMOTE_PRICING_TTL_MS
+    ) {
+      return cached;
+    }
+    const observedModelIds = this.getObservedPricingModelIds();
+    if (observedModelIds.length === 0) {
+      return cached;
+    }
+    try {
+      const remote = await fetchRemoteGatewayPricing();
+      const selected = selectObservedRemotePricing(remote.pricing, observedModelIds);
+      const next = { ...cached, ...selected };
+      await this.context.globalState.update(REMOTE_PRICING_STATE_KEY, next);
+      await this.context.globalState.update(REMOTE_PRICING_FETCHED_AT_STATE_KEY, Date.now());
+      if (Object.keys(selected).length > 0) {
+        this.log(
+          `Pricing cache refreshed from ${remote.sources.join(', ') || 'remote'}: ${Object.keys(selected).length} model(s)`
+        );
+      }
+      return next;
+    } catch (error) {
+      this.log(`Pricing cache refresh skipped: ${error instanceof Error ? error.message : String(error)}`);
+      return cached;
+    }
+  }
+
   async saveCustomPricing(pricing: ModelPricingMap): Promise<void> {
     await this.context.globalState.update(CUSTOM_PRICING_STATE_KEY, pricing);
   }
@@ -1051,7 +1122,7 @@ export class AiCliGatewayManager {
   }
 
   getEffectivePricing(): ModelPricingMap {
-    return { ...getBuiltinPricing(), ...this.getCustomPricing() };
+    return { ...getBuiltinPricing(), ...this.getRemotePricing(), ...this.getCustomPricing() };
   }
 
   // ============ Failover config ============
@@ -1083,21 +1154,19 @@ export class AiCliGatewayManager {
 
   private buildClaudeFailoverUpstreams(): AiCliGatewayUpstream[] {
     const providers = this.getProviders().map((p) => this.normalizeProvider(p));
-    const anthropicProviders = providers.filter(
-      (p) => this.isAnthropicProvider(p) && this.providerHasCredentials(p)
+    const claudeProviders = providers.filter(
+      (p) => this.providerHasApiUpstream(p)
     );
-    const active = anthropicProviders.find((p) => p.activeClaude) ?? anthropicProviders[0];
+    const active = claudeProviders.find((p) => p.activeClaude) ?? claudeProviders[0];
     const list: AiCliGatewayUpstream[] = [];
     if (active) {
-      const upstream = providerUpstream(active);
-      list.push({ baseUrl: upstream.baseUrl, apiKey: upstream.apiKey });
+      list.push(this.providerToGatewayUpstream(active));
     }
-    for (const p of anthropicProviders) {
+    for (const p of claudeProviders) {
       if (p.id === active?.id) {
         continue;
       }
-      const upstream = providerUpstream(p);
-      list.push({ baseUrl: upstream.baseUrl, apiKey: upstream.apiKey });
+      list.push(this.providerToGatewayUpstream(p));
     }
     const stored = this.getStoredUpstream();
     if (list.length === 0 && stored?.baseUrl && stored.apiKey) {

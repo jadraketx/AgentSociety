@@ -120,11 +120,12 @@ workspace/
 ### AI CLI Gateway
 
 - 本地代理网关，将 Claude Code / Codex CLI 请求经第三方供应商路由转发
-- 支持 Claude/Codex 独立路由开关与故障转移
+- 支持共享供应商池：同一供应商可分别应用到 Claude、Codex，OpenAI 兼容 API 可经网关接入 Claude Code
+- 支持 Claude/Codex 独立路由开关、热切换与故障转移
 - Codex 网关自动将 `/v1/responses` 转换为 Chat Completions（兼容智谱、DeepSeek 等供应商）
-- 状态栏 `CLI Route` 显示当前路由状态（Claude / Codex / Claude + Codex）
+- 状态栏 `AI Gateway` 显示当前路由状态（Claude / Codex / Claude + Codex）
 - 用量追踪面板：按天展示请求趋势，区分 Claude 与 Codex 来源
-- 模型定价与费用估算（支持覆盖中转服务价格）
+- 模型定价与费用估算（支持缓存读取/写入、自动价格缓存与覆盖中转服务价格）
 - 「重启 Codex」按钮：修改配置后一键重启 Codex 终端
 
 ### 技能管理

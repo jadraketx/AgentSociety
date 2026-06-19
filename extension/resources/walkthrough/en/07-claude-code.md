@@ -27,15 +27,16 @@ These are project-level files and are safe to maintain with the project. Put per
 
 ### Configure the model service used by Claude Code
 
-Claude Code uses Anthropic by default. The recommended way to configure model routing is through the extension config page under **Advanced → Claude Code / Codex 路由**:
+Claude Code uses Anthropic by default. The recommended way to configure model routing is through the extension config page under **Advanced → Claude / Codex routing**:
 
 [Open Claude Code settings (config page)](command:aiSocialScientist.openClaudeCodeConfig)
 
 The config page supports:
 
-- **Claude Code**: Add Anthropic or third-party Claude providers, enable/disable local proxy routing, and manage failover between providers.
-- **Codex CLI**: Add OpenAI or third-party providers (e.g. Zhipu, DeepSeek). When routed through the local gateway, `/v1/responses` is automatically translated to Chat Completions for providers that only support the Chat protocol.
-- **Gateway status bar**: When local routing is enabled, the status bar shows `CLI Route: Claude + Codex` (or whichever tools are routed). Click to open the config page.
+- **Shared provider pool**: save each provider once, then click **Use for Claude** or **Use for Codex** on the provider card. OpenAI-compatible API providers can be used for both Claude through the gateway bridge and Codex.
+- **Claude Code**: use native Anthropic providers, or route OpenAI-compatible providers through the local gateway bridge to Anthropic Messages.
+- **Codex CLI**: add OpenAI or third-party providers (e.g. Zhipu, DeepSeek). When routed through the local gateway, `/v1/responses` is automatically translated to Chat Completions for providers that only support the Chat protocol.
+- **Gateway status bar**: when local routing is enabled, the status bar shows `AI Gateway: Claude + Codex` (or whichever tools are routed). Click to open the config page.
 
 You can also manually edit `~/.claude/settings.json` (Mac/Linux) or `UserDir/.claude/settings.json` (Windows):
 
@@ -64,7 +65,7 @@ The config page includes a built-in **AI CLI Gateway** that can proxy Claude Cod
 
 Official subscriptions (Anthropic Pro/Max, ChatGPT) use direct OAuth login and do **not** need the local gateway — keep proxy toggled off for those.
 
-> 💡 The gateway also provides usage tracking and estimated costs. Click **View Log** in the config page to inspect routing details.
+> 💡 The gateway also provides usage tracking and estimated costs. Estimates price input, output, cache reads, and cache writes separately; OpenAI/Codex records subtract cache hits from billable input. Click **View Log** in the config page to inspect routing details.
 
 ---
 

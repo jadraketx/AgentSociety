@@ -1,6 +1,10 @@
 export type AiCliGatewayUpstream = {
   baseUrl: string;
   apiKey: string;
+  model?: string;
+  sonnetModel?: string;
+  opusModel?: string;
+  haikuModel?: string;
   codexApiFormat?: 'openai_responses' | 'openai_chat';
   codexModel?: string;
 };

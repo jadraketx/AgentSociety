@@ -375,7 +375,9 @@ const translations: Record<string, Record<string, string>> = {
     'aiCliGateway.noApiProvider': '当前无带 API Key 的供应商，无法启用本地网关。官方订阅请保持网关关闭。',
     'aiCliGateway.routeClaudeRequiresApi': 'Claude 走代理需要带 API Key 的 Anthropic/第三方供应商；Pro/Max 订阅请保持此项关闭。',
     'aiCliGateway.routeCodexRequiresApi': 'Codex 走代理需要带 API Key 的 OpenAI/第三方供应商；ChatGPT 订阅请保持此项关闭。',
-    'aiCliGateway.statusBarTooltip': 'CLI 路由服务运行中\n代理：{0}\n本地地址：{1}\n上游：{2}',
+    'aiCliGateway.statusBarRouteProxy': '经本地网关',
+    'aiCliGateway.statusBarRouteDirect': '直连',
+    'aiCliGateway.statusBarTooltip': 'AI Gateway 运行中\n代理：{0}\nClaude：{1}\nCodex：{2}\n本地地址：{3}\n上游：{4}',
     'aiCliGateway.statusBarStopped': 'CLI 代理路由已启用，但本地服务未运行，请检查日志',
 
     // projectView
@@ -911,7 +913,9 @@ const translations: Record<string, Record<string, string>> = {
     'aiCliGateway.noApiProvider': 'No provider with an API Key — cannot enable the local gateway. Keep the gateway off for official subscriptions.',
     'aiCliGateway.routeClaudeRequiresApi': 'Claude proxy requires an Anthropic/third-party provider with an API Key. Keep this off for Pro/Max subscription.',
     'aiCliGateway.routeCodexRequiresApi': 'Codex proxy requires an OpenAI/third-party provider with an API Key. Keep this off for ChatGPT subscription.',
-    'aiCliGateway.statusBarTooltip': 'CLI routing service running\nProxied: {0}\nLocal: {1}\nUpstream: {2}',
+    'aiCliGateway.statusBarRouteProxy': 'via gateway',
+    'aiCliGateway.statusBarRouteDirect': 'direct',
+    'aiCliGateway.statusBarTooltip': 'AI Gateway running\nProxied: {0}\nClaude: {1}\nCodex: {2}\nLocal: {3}\nUpstream: {4}',
     'aiCliGateway.statusBarStopped': 'CLI proxy routing is enabled but the local service is not running — check the log',
 
     // projectView

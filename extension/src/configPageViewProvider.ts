@@ -34,7 +34,6 @@ import { localize } from './i18n';
 import type { ConfigValues, WorkspaceInfo } from './webview/configPage/types';
 import type { EasyPaperConfigValues } from './webview/configPage/types';
 import { EnvManager } from './envManager';
-import { personAgentConfigFromEnv, personAgentEnvFromConfig } from './personAgentEnv';
 import { LLMValidator, PythonValidator, LLMType } from './services/llmValidator';
 import { fetchCompat, createTimeoutSignal } from './shared/fetchCompat';
 import { CONFIG_PAGE_API_VALIDATE_TIMEOUT_MS } from './services/validateTimeouts';
@@ -261,7 +260,6 @@ export class ConfigPageViewProvider {
       backendHost: envConfig.backendHost || '127.0.0.1',
       backendPort: envConfig.backendPort ?? 8001,
       pythonPath: envConfig.pythonPath || '',
-      ...personAgentConfigFromEnv(envConfig),
       llmApiBase: envConfig.llmApiBase || DEFAULT_LLM_API_BASE,
       llmModel: envConfig.llmModel || DEFAULT_LLM_MODEL,
       backendLogLevel: envConfig.backendLogLevel || 'info',
@@ -292,16 +290,8 @@ export class ConfigPageViewProvider {
     await this._postOverviewStatus();
   }
 
-  public navigateToAdvancedTab(tab: 'models' | 'agent' | 'python' | 'literature' | 'claude' | 'easypaper'): void {
-    if (tab === 'agent') {
-      this._panel.webview.postMessage({ command: 'openPersonAgentSettings' });
-      return;
-    }
+  public navigateToAdvancedTab(tab: 'models' | 'python' | 'literature' | 'claude' | 'easypaper'): void {
     this._panel.webview.postMessage({ command: 'navigateAdvanced', tab });
-  }
-
-  public openPersonAgentSettings(): void {
-    this._panel.webview.postMessage({ command: 'openPersonAgentSettings' });
   }
 
   private async _sendClaudeInitialConfig(): Promise<void> {
@@ -552,10 +542,11 @@ export class ConfigPageViewProvider {
       return;
     }
     const { getBuiltinPricing } = await import('./services/gatewayModelPricing');
+    await manager.refreshObservedRemotePricing();
     this._panel.webview.postMessage({
       command: 'gatewayPricingData',
       builtin: getBuiltinPricing(),
-      custom: manager.getCustomPricing(),
+      custom: { ...manager.getRemotePricing(), ...manager.getCustomPricing() },
     });
   }
 
@@ -839,7 +830,6 @@ export class ConfigPageViewProvider {
       backendHost: config.backendHost,
       backendPort: config.backendPort,
       pythonPath: config.pythonPath,
-      ...personAgentEnvFromConfig(config),
       llmApiBase: config.llmApiBase,
       llmModel: (config.llmModel ?? '').trim() || DEFAULT_LLM_MODEL,
       backendLogLevel: config.backendLogLevel,

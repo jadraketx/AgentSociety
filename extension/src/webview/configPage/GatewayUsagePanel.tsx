@@ -49,6 +49,7 @@ function metricTone(color: string): React.CSSProperties {
 
 type TrendMetric = 'requests' | 'tokens' | 'cost';
 type UsageAppFilter = 'all' | 'claude' | 'codex';
+type UsageRangeFilter = '7d' | '30d' | 'all';
 
 function emptyStats(): UsageModelStats {
   return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, requests: 0 };
@@ -68,6 +69,10 @@ function inferRecordApp(record: TokenUsageRecord): 'claude' | 'codex' {
   }
   const id = record.model.toLowerCase();
   return id.includes('codex') || id.startsWith('gpt-') || /^o\d/.test(id) ? 'codex' : 'claude';
+}
+
+function hasCustomModelPrice(modelId: string, customPricing: ModelPricingMap): boolean {
+  return Object.prototype.hasOwnProperty.call(customPricing, modelId);
 }
 
 function aggregatePanelUsage(records: TokenUsageRecord[]): UsageAggregation | null {
@@ -184,10 +189,26 @@ export function GatewayUsagePanel({
   const [editingPricing, setEditingPricing] = React.useState<ModelPricingMap>({});
   const [trendMetric, setTrendMetric] = React.useState<TrendMetric>('tokens');
   const [appFilter, setAppFilter] = React.useState<UsageAppFilter>('all');
-  const totalAggregation = aggregation ?? aggregatePanelUsage(records);
+  const [rangeFilter, setRangeFilter] = React.useState<UsageRangeFilter>('7d');
+  const autoCachedPricingRef = React.useRef('');
+  const rangeRecords = React.useMemo(() => {
+    if (rangeFilter === 'all') {
+      return records;
+    }
+    const days = rangeFilter === '7d' ? 7 : 30;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    return records.filter((record) => {
+      const ts = Date.parse(record.ts);
+      return Number.isFinite(ts) && ts >= cutoff;
+    });
+  }, [rangeFilter, records]);
+  const totalAggregation = React.useMemo(
+    () => aggregatePanelUsage(rangeRecords),
+    [rangeRecords]
+  );
   const filteredRecords = React.useMemo(
-    () => appFilter === 'all' ? records : records.filter((record) => inferRecordApp(record) === appFilter),
-    [appFilter, records]
+    () => appFilter === 'all' ? rangeRecords : rangeRecords.filter((record) => inferRecordApp(record) === appFilter),
+    [appFilter, rangeRecords]
   );
   const viewAggregation = React.useMemo(
     () => appFilter === 'all' ? totalAggregation : aggregatePanelUsage(filteredRecords),
@@ -196,14 +217,28 @@ export function GatewayUsagePanel({
 
   const detectedPricing = React.useMemo(() => {
     const detected: ModelPricingMap = {};
-    for (const record of filteredRecords) {
+    for (const record of rangeRecords) {
       const price = getModelPrice(record.model, customPricing);
       if (price) {
         detected[record.model] = price;
       }
     }
     return detected;
-  }, [customPricing, filteredRecords]);
+  }, [customPricing, rangeRecords]);
+
+  React.useEffect(() => {
+    const missingDetected: ModelPricingMap = {};
+    for (const [modelId, price] of Object.entries(detectedPricing)) {
+      if (!hasCustomModelPrice(modelId, customPricing)) {
+        missingDetected[modelId] = price;
+      }
+    }
+    const signature = JSON.stringify(missingDetected);
+    if (signature !== '{}' && signature !== autoCachedPricingRef.current) {
+      autoCachedPricingRef.current = signature;
+      onSavePricing({ ...missingDetected, ...customPricing });
+    }
+  }, [customPricing, detectedPricing, onSavePricing]);
 
   const openPricing = React.useCallback(() => {
     setEditingPricing({ ...detectedPricing, ...customPricing });
@@ -220,7 +255,8 @@ export function GatewayUsagePanel({
           r.outputTokens,
           r.cacheReadTokens,
           r.cacheCreationTokens,
-          customPricing
+          customPricing,
+          { app: inferRecordApp(r) }
         );
         return sum + (cost?.total ?? 0);
       }, 0),
@@ -262,14 +298,15 @@ export function GatewayUsagePanel({
       if (!matchKey) {
         continue;
       }
-      const cost = calculateCost(
-        r.model,
-        r.inputTokens,
-        r.outputTokens,
-        r.cacheReadTokens,
-        r.cacheCreationTokens,
-        customPricing
-      );
+        const cost = calculateCost(
+          r.model,
+          r.inputTokens,
+          r.outputTokens,
+          r.cacheReadTokens,
+          r.cacheCreationTokens,
+          customPricing,
+          { app: inferRecordApp(r) }
+        );
       map.set(matchKey, (map.get(matchKey) ?? 0) + (cost?.total ?? 0));
     }
     return viewAggregation.timeSeries.map((b) => map.get(b.key) ?? 0);
@@ -417,8 +454,21 @@ export function GatewayUsagePanel({
       key: 'cost',
       width: 72,
       render: (_: unknown, row: { model: string; input: number; output: number; cacheRead: number; cacheCreation: number }) => {
-        const cost = calculateCost(row.model, row.input, row.output, row.cacheRead, row.cacheCreation, customPricing);
-        return <Text style={{ fontSize: 11 }}>{cost ? formatCost(cost.total) : '—'}</Text>;
+        const cost = filteredRecords
+          .filter((record) => record.model === row.model)
+          .reduce((sum, record) => {
+            const itemCost = calculateCost(
+              record.model,
+              record.inputTokens,
+              record.outputTokens,
+              record.cacheReadTokens,
+              record.cacheCreationTokens,
+              customPricing,
+              { app: inferRecordApp(record) }
+            );
+            return sum + (itemCost?.total ?? 0);
+          }, 0);
+        return <Text style={{ fontSize: 11 }}>{cost > 0 ? formatCost(cost) : '—'}</Text>;
       },
     },
   ];
@@ -461,6 +511,16 @@ export function GatewayUsagePanel({
           <Text strong style={{ fontSize: 13 }}>{t('claudeCodeConfig.usageTitle')}</Text>
         </Space>
         <Space size={[8, 6]} wrap>
+          <Segmented
+            size="small"
+            value={rangeFilter}
+            onChange={(value) => setRangeFilter(value as UsageRangeFilter)}
+            options={[
+              { label: t('claudeCodeConfig.usageRange7d'), value: '7d' },
+              { label: t('claudeCodeConfig.usageRange30d'), value: '30d' },
+              { label: t('claudeCodeConfig.usageRangeAll'), value: 'all' },
+            ]}
+          />
           <Button size="small" icon={<SettingOutlined />} onClick={openPricing}>
             {t('claudeCodeConfig.usagePricingTitle')}
           </Button>
@@ -610,6 +670,9 @@ export function GatewayUsagePanel({
             </Text>
           ) : null}
         </div>
+        <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 8 }}>
+          {t('claudeCodeConfig.usageCostIncludesCache')}
+        </Text>
         <div
           style={{
             display: 'flex',

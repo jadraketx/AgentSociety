@@ -28,8 +28,8 @@ import type { TokenUsageRecord, UsageAggregation } from './gatewayUsageTypes';
 import type { ModelPricingMap } from './modelPricing';
 import type { VSCodeAPI, ConfigValues, WorkspaceInfo, BackendStatus, ValidationState, EasyPaperConfigValues } from './types';
 import { AdvancedConfigSection, type AdvancedTopTab } from './AdvancedConfigSection';
-import { personAgentValuesForFormReset } from './personAgentForm';
 import { supportsProviderUsageQuery } from './providerUsageSupport';
+import { autoMapClaudeRoleModels } from './aiCliProviderTypes';
 import { advancedPanelInnerStyle, glassCardStyle } from './configPageStyles';
 import { ValidationAction } from './ValidationAction';
 import {
@@ -51,19 +51,12 @@ const DEFAULT_VALUES: ConfigValues = {
   backendHost: '127.0.0.1',
   backendPort: 8001,
   pythonPath: '/usr/local/bin/python3',
-  agentContextPreset: 'standard-200k',
   llmApiBase: 'https://api.openai.com/v1',
   llmModel: 'gpt-5.5',
   backendLogLevel: 'info',
   coderLlmApiKey: '',
   coderLlmApiBase: 'https://api.openai.com/v1',
   coderLlmModel: '',
-  nanoLlmApiKey: '',
-  nanoLlmApiBase: 'https://api.openai.com/v1',
-  nanoLlmModel: '',
-  analysisLlmApiKey: '',
-  analysisLlmApiBase: 'https://api.openai.com/v1',
-  analysisLlmModel: '',
   embeddingApiKey: '',
   embeddingApiBase: 'https://api.openai.com/v1',
   embeddingModel: 'text-embedding-3-large',
@@ -146,10 +139,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     switch (llmType) {
       case 'coder':
         return (values.coderLlmApiKey || values.llmApiKey || '').trim();
-      case 'nano':
-        return (values.nanoLlmApiKey || values.llmApiKey || '').trim();
-      case 'analysis':
-        return (values.analysisLlmApiKey || values.llmApiKey || '').trim();
       case 'embedding':
         return (values.embeddingApiKey || values.llmApiKey || '').trim();
       default:
@@ -161,10 +150,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     switch (llmType) {
       case 'coder':
         return (values.coderLlmApiBase || values.llmApiBase || '').trim();
-      case 'nano':
-        return (values.nanoLlmApiBase || values.llmApiBase || '').trim();
-      case 'analysis':
-        return (values.analysisLlmApiBase || values.llmApiBase || '').trim();
       case 'embedding':
         return (values.embeddingApiBase || values.llmApiBase || '').trim();
       default:
@@ -202,8 +187,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
 
   const defaultValidateDisabledReason = getValidationDisabledReason('default', effectiveConfigValues);
   const coderValidateDisabledReason = getValidationDisabledReason('coder', effectiveConfigValues);
-  const nanoValidateDisabledReason = getValidationDisabledReason('nano', effectiveConfigValues);
-  const analysisValidateDisabledReason = getValidationDisabledReason('analysis', effectiveConfigValues);
   const embeddingValidateDisabledReason = getValidationDisabledReason('embedding', effectiveConfigValues);
   const pythonValidateDisabledReason = null;
   const literatureValidateDisabledReason = getValidationDisabledReason('literature', effectiveConfigValues);
@@ -215,8 +198,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
   const [validationState, setValidationState] = React.useState<Record<string, ValidationState>>({
     default: { validating: false, valid: null, error: null },
     coder: { validating: false, valid: null, error: null },
-    nano: { validating: false, valid: null, error: null },
-    analysis: { validating: false, valid: null, error: null },
     embedding: { validating: false, valid: null, error: null },
     python: { validating: false, valid: null, error: null },
     literature: { validating: false, valid: null, error: null },
@@ -264,8 +245,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
   const [customPricing, setCustomPricing] = React.useState<ModelPricingMap>({});
   const [advancedTopTab, setAdvancedTopTab] = React.useState<AdvancedTopTab>('models');
   const advancedSectionRef = React.useRef<HTMLDivElement>(null);
-  const [personAgentCollapseKeys, setPersonAgentCollapseKeys] = React.useState<string[]>([]);
-  const agentSectionRef = React.useRef<HTMLDivElement | null>(null);
   const pythonSectionRef = React.useRef<HTMLDivElement>(null);
   const literatureSectionRef = React.useRef<HTMLDivElement>(null);
   const claudeSectionRef = React.useRef<HTMLDivElement>(null);
@@ -345,33 +324,27 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
 
   const jumpToAdvanced = (tab: AdvancedTopTab = 'models') => {
     const scrollTarget =
-      tab === 'agent'
-        ? agentSectionRef
-        : tab === 'python'
-          ? pythonSectionRef
-          : tab === 'literature'
-            ? literatureSectionRef
-            : tab === 'claude'
-              ? claudeSectionRef
-              : advancedSectionRef;
+      tab === 'python'
+        ? pythonSectionRef
+        : tab === 'literature'
+          ? literatureSectionRef
+          : tab === 'claude'
+            ? claudeSectionRef
+            : advancedSectionRef;
     expandAdvancedConfig(tab, scrollTarget);
   };
 
   const advancedBlockedByKind = React.useMemo(
     (): Record<AdvancedValidationKey, string | null> => ({
       coder: coderValidateDisabledReason,
-      nano: nanoValidateDisabledReason,
-      analysis: analysisValidateDisabledReason,
       embedding: embeddingValidateDisabledReason,
       python: pythonValidateDisabledReason,
       literature: literatureValidateDisabledReason,
     }),
     [
-      analysisValidateDisabledReason,
       coderValidateDisabledReason,
       embeddingValidateDisabledReason,
       literatureValidateDisabledReason,
-      nanoValidateDisabledReason,
       pythonValidateDisabledReason,
     ]
   );
@@ -509,8 +482,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     setValidationState({
       default: { validating: false, valid: null, error: null },
       coder: { validating: false, valid: null, error: null },
-      nano: { validating: false, valid: null, error: null },
-      analysis: { validating: false, valid: null, error: null },
       embedding: { validating: false, valid: null, error: null },
       python: { validating: false, valid: null, error: null },
       literature: { validating: false, valid: null, error: null },
@@ -685,43 +656,13 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     if (claudeAvailableModels.length === 0) {
       return;
     }
-    const byRole = (role: 'sonnet' | 'opus' | 'haiku') => {
-      const pattern =
-        role === 'sonnet' ? /sonnet/i : role === 'opus' ? /opus/i : /haiku/i;
-      return claudeAvailableModels.find(
-        (m) => pattern.test(m.id) || (m.label ? pattern.test(m.label) : false)
-      )?.id;
-    };
-    const sonnet = byRole('sonnet');
-    const opus = byRole('opus');
-    const haiku = byRole('haiku');
-    const fallback = sonnet ?? opus ?? claudeAvailableModels[0]?.id ?? '';
     const current = claudeForm.getFieldsValue();
-    claudeForm.setFieldsValue({
-      model: current.model?.trim() ? current.model : fallback,
-      sonnetModel: current.sonnetModel?.trim() ? current.sonnetModel : sonnet ?? '',
-      opusModel: current.opusModel?.trim() ? current.opusModel : opus ?? '',
-      haikuModel: current.haikuModel?.trim() ? current.haikuModel : haiku ?? '',
-    });
+    claudeForm.setFieldsValue(autoMapClaudeRoleModels(claudeAvailableModels, current));
     notification.success({
       message: t('claudeCodeConfig.autoMapDone'),
       placement: 'top',
     });
   }, [claudeAvailableModels, claudeForm, t]);
-
-  const handleResetPersonAgentDefaults = () => {
-    form.setFieldsValue(personAgentValuesForFormReset());
-    notification.info({
-      message: t('configPage.resetPersonAgentDefaults'),
-      description: t('configPage.resetPersonAgentDefaultsHint'),
-      placement: 'top',
-    });
-  };
-
-  const openPersonAgentAdvanced = () => {
-    setPersonAgentCollapseKeys(['runtime', 'tools', 'survey']);
-    jumpToAdvanced('agent');
-  };
 
   const submitValidation = React.useCallback(
     (llmType: string, values: ConfigValues, options?: { silent?: boolean }) => {
@@ -749,7 +690,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
         return;
       }
 
-      if (['coder', 'nano', 'analysis', 'embedding'].includes(llmType)) {
+      if (['coder', 'embedding'].includes(llmType)) {
         const effectiveApiKey = getEffectiveApiKey(values, llmType);
         if (!effectiveApiKey) {
           failLocal(t('configPage.validation.needsApiKey'));
@@ -975,8 +916,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
           ...DEFAULT_VALUES,
           ...config,
         });
-      } else if (message.command === 'openPersonAgentSettings') {
-        openPersonAgentAdvanced();
       } else if (message.command === 'initialClaudeConfig') {
         const msg = message as {
           config?: Partial<ClaudeCodeConfigValues>;
@@ -1043,6 +982,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
         const usageMsg = message as { records?: TokenUsageRecord[]; aggregation?: UsageAggregation | null };
         setGatewayUsageRecords(usageMsg.records ?? []);
         setGatewayUsageAggregation(usageMsg.aggregation ?? null);
+        vscode.postMessage({ command: 'gatewayGetPricing' });
       } else if (message.command === 'gatewayPricingData') {
         const priceMsg = message as { custom?: ModelPricingMap };
         setCustomPricing(priceMsg.custom ?? {});
@@ -1062,11 +1002,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
         }
       } else if (message.command === 'navigateAdvanced') {
         const tab = (message as { tab?: AdvancedTopTab }).tab ?? 'models';
-        if (tab === 'agent') {
-          openPersonAgentAdvanced();
-        } else {
-          jumpToAdvanced(tab);
-        }
+        jumpToAdvanced(tab);
       } else if (message.command === 'workspaceInfo') {
         setWorkspaceInfo(message.workspaceInfo || { hasWorkspace: false });
       } else if (message.command === 'backendStatus') {
@@ -1606,8 +1542,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                           validationState={validationState}
                           validateDisabledByKind={{
                             coder: coderValidateDisabledReason,
-                            nano: nanoValidateDisabledReason,
-                            analysis: analysisValidateDisabledReason,
                             embedding: embeddingValidateDisabledReason,
                           }}
                           pythonValidateDisabledReason={pythonValidateDisabledReason}
@@ -1656,11 +1590,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                           easyPaperForm={easyPaperForm}
                           defaultLlmApiKey={effectiveConfigValues.llmApiKey}
                           onSaveEasyPaper={saveEasyPaperConfig}
-                          envFilePath={workspaceInfo.envFilePath}
-                          agentSectionRef={agentSectionRef}
-                          personAgentCollapseKeys={personAgentCollapseKeys}
-                          onPersonAgentCollapseKeysChange={setPersonAgentCollapseKeys}
-                          onResetPersonAgent={handleResetPersonAgentDefaults}
                         />
                       </div>
                     ),

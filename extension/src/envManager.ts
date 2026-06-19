@@ -43,25 +43,6 @@ export interface EnvConfig {
   backendLogLevel?: string;
   pythonPath?: string;
 
-  // PersonAgent runtime
-  agentContextPreset?: string;
-  agentContextWindow?: number;
-  agentMaxToolRounds?: number;
-  agentStepTimeout?: number;
-  agentLlmRequestTimeout?: string;
-  agentCheckpointInterval?: number;
-  agentAllowBashTool?: string;
-  agentAllowDynamicSkillCommands?: string;
-  agentDisabledTools?: string;
-  agentProfileMaxChars?: number;
-  agentExternalQuestionFieldMaxChars?: number;
-  agentExternalQuestionContextMaxChars?: number;
-  agentExternalQuestionMemoryJsonlLimit?: number;
-  agentExternalQuestionToolLogsLimit?: number;
-  agentExternalQuestionThreadMessagesLimit?: number;
-  agentEnableLlmHistory?: string;
-  agentLlmHistoryMaxEntries?: number;
-
   // Literature Search
   literatureSearchMcpUrl?: string;
   literatureSearchApiKey?: string;
@@ -86,23 +67,6 @@ const ENV_KEY_MAP: Record<keyof EnvConfig, string> = {
   backendPid: 'BACKEND_PID',
   backendLogLevel: 'BACKEND_LOG_LEVEL',
   pythonPath: 'PYTHON_PATH',
-  agentContextPreset: 'AGENT_CONTEXT_PRESET',
-  agentContextWindow: 'AGENT_CONTEXT_WINDOW',
-  agentMaxToolRounds: 'AGENT_MAX_TOOL_ROUNDS',
-  agentStepTimeout: 'AGENT_STEP_TIMEOUT',
-  agentLlmRequestTimeout: 'AGENT_LLM_REQUEST_TIMEOUT',
-  agentCheckpointInterval: 'AGENT_CHECKPOINT_INTERVAL',
-  agentAllowBashTool: 'AGENT_ALLOW_BASH_TOOL',
-  agentAllowDynamicSkillCommands: 'AGENT_ALLOW_DYNAMIC_SKILL_COMMANDS',
-  agentDisabledTools: 'AGENT_DISABLED_TOOLS',
-  agentProfileMaxChars: 'AGENT_PROFILE_MAX_CHARS',
-  agentExternalQuestionFieldMaxChars: 'AGENT_EXTERNAL_QUESTION_FIELD_MAX_CHARS',
-  agentExternalQuestionContextMaxChars: 'AGENT_EXTERNAL_QUESTION_CONTEXT_MAX_CHARS',
-  agentExternalQuestionMemoryJsonlLimit: 'AGENT_EXTERNAL_QUESTION_MEMORY_JSONL_LIMIT',
-  agentExternalQuestionToolLogsLimit: 'AGENT_EXTERNAL_QUESTION_TOOL_LOGS_LIMIT',
-  agentExternalQuestionThreadMessagesLimit: 'AGENT_EXTERNAL_QUESTION_THREAD_MESSAGES_LIMIT',
-  agentEnableLlmHistory: 'AGENT_ENABLE_LLM_HISTORY',
-  agentLlmHistoryMaxEntries: 'AGENT_LLM_HISTORY_MAX_ENTRIES',
   literatureSearchMcpUrl: 'LITERATURE_SEARCH_MCP_URL',
   literatureSearchApiKey: 'LITERATURE_SEARCH_API_KEY',
 };
@@ -125,7 +89,6 @@ export const DEFAULT_ENV_CONFIG: Partial<EnvConfig> = {
   backendHost: '127.0.0.1',
   backendPort: 8001,
   backendLogLevel: 'info',
-  agentContextPreset: 'standard-200k',
   embeddingModel: 'text-embedding-3-large',
   embeddingDims: 1024,
   literatureSearchMcpUrl: 'https://llmapi.fiblab.net/mcp/',
@@ -201,17 +164,6 @@ export class EnvManager {
             'backendPort',
             'backendPid',
             'embeddingDims',
-            'agentContextWindow',
-            'agentMaxToolRounds',
-            'agentStepTimeout',
-            'agentCheckpointInterval',
-            'agentProfileMaxChars',
-            'agentExternalQuestionFieldMaxChars',
-            'agentExternalQuestionContextMaxChars',
-            'agentExternalQuestionMemoryJsonlLimit',
-            'agentExternalQuestionToolLogsLimit',
-            'agentExternalQuestionThreadMessagesLimit',
-            'agentLlmHistoryMaxEntries',
           ];
           if (numericKeys.includes(configKey as keyof EnvConfig) && value.trim() !== '') {
             (config as any)[configKey] = parseInt(value, 10);
@@ -371,28 +323,6 @@ BACKEND_PORT=8001
 BACKEND_LOG_LEVEL=info
 # Python executable path / Python 可执行文件路径
 PYTHON_PATH=
-
-# ========== PersonAgent Runtime / PersonAgent 运行时 ==========
-# Context preset: standard-200k or long-1m / 上下文预设：standard-200k 或 long-1m
-AGENT_CONTEXT_PRESET=standard-200k
-# Optional overrides (leave blank to use preset defaults) / 留空则沿用预设默认值
-# AGENT_CONTEXT_WINDOW=
-# AGENT_MAX_TOOL_ROUNDS=
-# AGENT_STEP_TIMEOUT=
-# AGENT_LLM_REQUEST_TIMEOUT=
-# AGENT_CHECKPOINT_INTERVAL=
-# AGENT_ALLOW_BASH_TOOL=true
-# AGENT_ALLOW_DYNAMIC_SKILL_COMMANDS=true
-# Comma-separated disableable tools: codegen, workspace_write, batch
-# AGENT_DISABLED_TOOLS=
-# AGENT_PROFILE_MAX_CHARS=
-# AGENT_EXTERNAL_QUESTION_FIELD_MAX_CHARS=
-# AGENT_EXTERNAL_QUESTION_CONTEXT_MAX_CHARS=
-# AGENT_EXTERNAL_QUESTION_MEMORY_JSONL_LIMIT=
-# AGENT_EXTERNAL_QUESTION_TOOL_LOGS_LIMIT=
-# AGENT_EXTERNAL_QUESTION_THREAD_MESSAGES_LIMIT=
-# AGENT_ENABLE_LLM_HISTORY=false
-# AGENT_LLM_HISTORY_MAX_ENTRIES=
 
 # ========== Literature Search / 文献搜索 ==========
 # Literature search MCP URL / 文献搜索 MCP 地址

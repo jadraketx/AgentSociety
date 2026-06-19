@@ -131,8 +131,8 @@
           },
           {
             "id": "claudeCode",
-            "title": "连接 Claude Code",
-            "description": "让 Claude Code 读取项目技能，并通过 MCP 连接本地后端，作为默认编码与研究协作入口。",
+            "title": "连接 Claude / Codex",
+            "description": "配置 Claude Code、Codex CLI 与本地 AI Gateway，共享供应商并按工具应用路由。",
             "media": {
               "markdown": "resources/walkthrough/zh-CN/07-claude-code.md"
             },

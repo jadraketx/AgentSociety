@@ -20,6 +20,13 @@ import {
   resolveUpstreamTargetUrl,
   type AiCliGatewayUpstream,
 } from './aiCliGatewayUpstream';
+import { applyAnthropicModelMapping } from './anthropicModelMapping';
+import {
+  OpenAiChatToAnthropicStreamTranslator,
+  formatAnthropicSseEvent,
+  translateAnthropicMessagesToOpenAiChat,
+  translateOpenAiChatToAnthropicMessage,
+} from './anthropicOpenAiBridge';
 import {
   buildFailoverUpstreamOrder,
   FAILOVER_MAX_ATTEMPTS,
@@ -122,6 +129,34 @@ function readRequestBody(req: IncomingMessage): Promise<Buffer> {
   });
 }
 
+function isAnthropicMessagesPath(urlPath: string): boolean {
+  return urlPath.includes('/messages') && !urlPath.includes('/responses');
+}
+
+function applyAnthropicRequestMapping(
+  upstream: AiCliGatewayUpstream,
+  urlPath: string,
+  body: Buffer
+): { body: Buffer; model: string } {
+  if (!isAnthropicMessagesPath(urlPath) || body.length === 0) {
+    return { body, model: '' };
+  }
+  try {
+    const parsed = JSON.parse(body.toString('utf-8')) as Record<string, unknown>;
+    const mapped = applyAnthropicModelMapping(parsed, upstream);
+    const model =
+      mapped.mappedModel ??
+      mapped.originalModel ??
+      extractModelFromRequest(parsed);
+    if (!mapped.mappedModel) {
+      return { body, model };
+    }
+    return { body: Buffer.from(JSON.stringify(mapped.body), 'utf-8'), model };
+  } catch {
+    return { body, model: '' };
+  }
+}
+
 function filterForwardHeaders(
   headers: IncomingMessage['headers'],
   upstreamHost: string
@@ -209,21 +244,20 @@ export class AiCliGateway {
   configureFailover(config: AiCliGatewayFailoverConfig): void {
     this.upstreams = config.anthropicUpstreams
       .filter((u) => u.baseUrl.trim() && u.apiKey.trim())
-      .map((u) => ({ baseUrl: u.baseUrl.trim(), apiKey: u.apiKey.trim() }));
+      .map((u) => ({
+        ...u,
+        baseUrl: u.baseUrl.trim(),
+        apiKey: u.apiKey.trim(),
+      }));
     this.openaiUpstreams = config.openaiUpstreams
       .filter((u) => u.baseUrl.trim() && u.apiKey.trim())
       .map((u) => this.normalizeOpenaiUpstream(u));
     this.failoverEnabled = config.enabled;
-    if (this.upstream && this.upstreams.length > 0) {
-      const active =
-        this.upstreams.find((u) => u.baseUrl === this.upstream!.baseUrl) ?? this.upstreams[0];
-      this.upstream = active;
+    if (this.upstreams.length > 0) {
+      this.upstream = this.upstreams[0];
     }
-    if (this.openaiUpstream && this.openaiUpstreams.length > 0) {
-      const active =
-        this.openaiUpstreams.find((u) => u.baseUrl === this.openaiUpstream!.baseUrl) ??
-        this.openaiUpstreams[0];
-      this.openaiUpstream = active;
+    if (this.openaiUpstreams.length > 0) {
+      this.openaiUpstream = this.openaiUpstreams[0];
     }
   }
 
@@ -433,7 +467,12 @@ export class AiCliGateway {
       (primaryUpstream.codexApiFormat ?? inferOpenAiApiFormat(primaryUpstream.baseUrl)) ===
       'openai_chat';
 
-    if (usesCodexChatBridge) {
+    const usesClaudeOpenAiChatBridge =
+      method === 'POST' &&
+      isAnthropicMessagesPath(urlPath) &&
+      Boolean(primaryUpstream.codexApiFormat);
+
+    if (usesCodexChatBridge || usesClaudeOpenAiChatBridge) {
       const candidates = this.isFailoverActiveForPath(urlPath)
         ? this.orderedUpstreamsForPath(urlPath)
         : [primaryUpstream];
@@ -451,15 +490,25 @@ export class AiCliGateway {
           continue;
         }
         try {
-          const result = await this.proxyCodexResponsesViaChat(
-            clientReq,
-            clientRes,
-            method,
-            urlPath,
-            startTime,
-            body,
-            upstream
-          );
+          const result = usesClaudeOpenAiChatBridge
+            ? await this.proxyAnthropicMessagesViaOpenAiChat(
+              clientReq,
+              clientRes,
+              method,
+              urlPath,
+              startTime,
+              body,
+              upstream
+            )
+            : await this.proxyCodexResponsesViaChat(
+              clientReq,
+              clientRes,
+              method,
+              urlPath,
+              startTime,
+              body,
+              upstream
+            );
           lastStatus = result.status;
           lastFailDetail = result.detail ?? this.lastError;
           if (result.ok) {
@@ -487,9 +536,10 @@ export class AiCliGateway {
       if (!clientRes.headersSent) {
         this.writeJson(clientRes, lastStatus, {
           error: 'failover_exhausted',
-          message: lastFailDetail ?? 'All configured Codex upstream providers failed',
-          hint:
-            'Third-party Codex routes map gpt-* requests to the provider model (e.g. glm-4.7). Set the model in the provider card or pick a built-in preset.',
+          message: lastFailDetail ?? 'All configured upstream providers failed',
+          hint: usesClaudeOpenAiChatBridge
+            ? 'Claude Code OpenAI-compatible routes translate Anthropic Messages to Chat Completions. Set the provider model explicitly if the upstream rejects Claude model aliases.'
+            : 'Third-party Codex routes map gpt-* requests to the provider model (e.g. glm-4.7). Set the model in the provider card or pick a built-in preset.',
         });
       }
       return;
@@ -590,14 +640,16 @@ export class AiCliGateway {
     const headers = filterForwardHeaders(clientReq.headers, parsed.host);
     headers['x-upstream-base'] = upstream.baseUrl;
     applyUpstreamAuth(headers, upstream.apiKey, upstream.baseUrl);
-    if (body.length > 0) {
-      headers['content-length'] = String(body.length);
+    const mappedRequest = applyAnthropicRequestMapping(upstream, urlPath, body);
+    const forwardedBody = mappedRequest.body;
+    if (forwardedBody.length > 0) {
+      headers['content-length'] = String(forwardedBody.length);
     }
 
-    let reqModel = '';
+    let reqModel = mappedRequest.model;
     if (captureUsage && body.length > 0) {
       try {
-        reqModel = extractModelFromRequest(JSON.parse(body.toString('utf-8')));
+        reqModel = reqModel || extractModelFromRequest(JSON.parse(body.toString('utf-8')));
       } catch {
         /* ignore */
       }
@@ -658,8 +710,8 @@ export class AiCliGateway {
         clientRes.end();
         resolve({ ok: false, status: 502, canRetry: false });
       });
-      if (body.length > 0) {
-        proxyReq.write(body);
+      if (forwardedBody.length > 0) {
+        proxyReq.write(forwardedBody);
       }
       proxyReq.end();
     });
@@ -680,14 +732,16 @@ export class AiCliGateway {
     const headers = filterForwardHeaders(clientReq.headers, parsed.host);
     headers['x-upstream-base'] = upstream.baseUrl;
     applyUpstreamAuth(headers, upstream.apiKey, upstream.baseUrl);
-    if (body.length > 0) {
-      headers['content-length'] = String(body.length);
+    const mappedRequest = applyAnthropicRequestMapping(upstream, urlPath, body);
+    const forwardedBody = mappedRequest.body;
+    if (forwardedBody.length > 0) {
+      headers['content-length'] = String(forwardedBody.length);
     }
 
-    let reqModel = '';
+    let reqModel = mappedRequest.model;
     if (captureUsage && body.length > 0) {
       try {
-        reqModel = extractModelFromRequest(JSON.parse(body.toString('utf-8')));
+        reqModel = reqModel || extractModelFromRequest(JSON.parse(body.toString('utf-8')));
       } catch {
         /* ignore */
       }
@@ -804,8 +858,8 @@ export class AiCliGateway {
         clientRes.end();
         resolve({ ok: false, status: 502, canRetry: false });
       });
-      if (body.length > 0) {
-        proxyReq.write(body);
+      if (forwardedBody.length > 0) {
+        proxyReq.write(forwardedBody);
       }
       proxyReq.end();
     });
@@ -1053,6 +1107,192 @@ export class AiCliGateway {
         proxyRes.on('error', () => {
           clientRes.end();
           resolve({ ok: false, status: 502, canRetry: false });
+        });
+      });
+      proxyReq.on('error', (err) => {
+        this.lastError = err.message;
+        if (!clientRes.headersSent) {
+          resolve({ ok: false, status: 0, canRetry: true });
+          return;
+        }
+        clientRes.end();
+        resolve({ ok: false, status: 502, canRetry: false });
+      });
+      proxyReq.write(chatBody);
+      proxyReq.end();
+    });
+  }
+
+  private async proxyAnthropicMessagesViaOpenAiChat(
+    clientReq: IncomingMessage,
+    clientRes: ServerResponse,
+    method: string,
+    urlPath: string,
+    startTime: number,
+    body: Buffer,
+    upstream: AiCliGatewayUpstream
+  ): Promise<ProxyAttemptResult> {
+    let anthropicRequest: Record<string, unknown>;
+    try {
+      anthropicRequest = JSON.parse(body.toString('utf-8')) as Record<string, unknown>;
+    } catch {
+      this.writeJson(clientRes, 400, { error: 'invalid_json' });
+      return { ok: false, status: 400, canRetry: false };
+    }
+
+    const mapped = applyAnthropicModelMapping(anthropicRequest, upstream);
+    const chatModel = String(mapped.body.model ?? mapped.mappedModel ?? mapped.originalModel ?? upstream.model ?? 'gpt-4o');
+    const chatRequest = translateAnthropicMessagesToOpenAiChat(mapped.body, chatModel);
+    const targetUrl = resolveChatCompletionsTargetUrl(upstream.baseUrl);
+    const parsed = new URL(targetUrl);
+    const isStreaming = chatRequest.stream !== false;
+    const headers = filterForwardHeaders(clientReq.headers, parsed.host);
+    applyUpstreamAuth(headers, upstream.apiKey, upstream.baseUrl);
+    const chatBody = Buffer.from(JSON.stringify(chatRequest), 'utf-8');
+    headers['content-type'] = 'application/json';
+    headers['content-length'] = String(chatBody.length);
+    if (isStreaming) {
+      headers.accept = 'text/event-stream';
+    }
+
+    const transport = parsed.protocol === 'https:' ? https : http;
+
+    return new Promise<ProxyAttemptResult>((resolve) => {
+      const proxyReq = transport.request(parsed, { method, headers }, (proxyRes) => {
+        const status = proxyRes.statusCode ?? 502;
+        if (status < 200 || status >= 300) {
+          const canRetry = shouldFailoverHttpStatus(status) && !clientRes.headersSent;
+          const chunks: Buffer[] = [];
+          proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+          proxyRes.on('end', () => {
+            if (canRetry) {
+              resolve({ ok: false, status, canRetry: true });
+              return;
+            }
+            const respBody = Buffer.concat(chunks);
+            const detail = summarizeUpstreamErrorBody(respBody, status);
+            this.lastError = detail;
+            this.writeJson(clientRes, status, { error: 'upstream_error', message: detail });
+            resolve({ ok: false, status, canRetry: false, detail });
+          });
+          return;
+        }
+
+        if (isStreaming) {
+          clientRes.writeHead(status, {
+            'content-type': 'text/event-stream; charset=utf-8',
+            'cache-control': 'no-cache',
+            connection: 'keep-alive',
+          });
+          const translator = new OpenAiChatToAnthropicStreamTranslator(chatModel);
+          let buffer = '';
+          let usageInfo: {
+            model: string;
+            inputTokens: number;
+            outputTokens: number;
+            cacheReadTokens: number;
+            cacheCreationTokens: number;
+            serverToolUseTokens: number;
+          } | null = null;
+          proxyRes.on('data', (chunk: Buffer) => {
+            buffer += chunk.toString('utf-8');
+            const blocks = buffer.split(/\n\n/);
+            buffer = blocks.pop() ?? '';
+            for (const block of blocks) {
+              const dataLine = block.split(/\r?\n/).find((line) => line.startsWith('data:'));
+              if (!dataLine) {
+                continue;
+              }
+              const payload = dataLine.slice(5).trim();
+              if (!payload || payload === '[DONE]') {
+                continue;
+              }
+              try {
+                const parsedChunk = JSON.parse(payload) as Record<string, unknown>;
+                const usage = extractTokenUsage(parsedChunk);
+                if (usage) {
+                  usageInfo = usage;
+                }
+                for (const event of translator.acceptChunk(parsedChunk)) {
+                  clientRes.write(event);
+                }
+              } catch {
+                /* ignore malformed chunks */
+              }
+            }
+          });
+          proxyRes.on('end', () => {
+            if (!clientRes.writableEnded) {
+              clientRes.end();
+            }
+            if (usageInfo) {
+              this.emitUsage({
+                app: 'claude',
+                model: usageInfo.model || chatModel,
+                inputTokens: usageInfo.inputTokens,
+                outputTokens: usageInfo.outputTokens,
+                cacheReadTokens: usageInfo.cacheReadTokens,
+                cacheCreationTokens: usageInfo.cacheCreationTokens,
+                serverToolUseTokens: usageInfo.serverToolUseTokens,
+                requestId: '',
+                upstream: targetUrl,
+                ts: new Date().toISOString(),
+              });
+            }
+            const ms = Date.now() - startTime;
+            this.emitLog({
+              ts: new Date().toISOString(),
+              method,
+              path: urlPath,
+              upstream: targetUrl,
+              status,
+              ms,
+              model: usageInfo?.model || chatModel,
+              inputTokens: usageInfo?.inputTokens,
+              outputTokens: usageInfo?.outputTokens,
+            });
+            resolve({ ok: true, status, canRetry: false });
+          });
+          proxyRes.on('error', () => {
+            clientRes.end();
+            resolve({ ok: false, status, canRetry: false });
+          });
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+        proxyRes.on('end', () => {
+          const rawBody = Buffer.concat(chunks);
+          try {
+            const parsedBody = JSON.parse(rawBody.toString('utf-8')) as Record<string, unknown>;
+            const translated = translateOpenAiChatToAnthropicMessage(parsedBody, chatModel);
+            const usageInfo = this.emitUsageFromResponseBody(translated, chatModel, targetUrl, urlPath);
+            const responseBody = Buffer.from(JSON.stringify(translated), 'utf-8');
+            clientRes.writeHead(status, {
+              'content-type': 'application/json',
+              'content-length': String(responseBody.length),
+            });
+            clientRes.end(responseBody);
+            const ms = Date.now() - startTime;
+            this.emitLog({
+              ts: new Date().toISOString(),
+              method,
+              path: urlPath,
+              upstream: targetUrl,
+              status,
+              ms,
+              model: usageInfo?.model || chatModel,
+              inputTokens: usageInfo?.inputTokens,
+              outputTokens: usageInfo?.outputTokens,
+            });
+            resolve({ ok: true, status, canRetry: false });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.lastError = message;
+            this.writeJson(clientRes, 502, { error: 'translation_failed', message });
+            resolve({ ok: false, status: 502, canRetry: false, detail: message });
+          }
         });
       });
       proxyReq.on('error', (err) => {

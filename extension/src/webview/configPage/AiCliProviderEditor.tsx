@@ -27,6 +27,7 @@ import {
 } from './officialEndpoints';
 import { ClaudeModelSelect } from './ClaudeModelSelect';
 import type { AiCliProviderRecord } from './aiCliProviderTypes';
+import { autoMapClaudeRoleModels } from './aiCliProviderTypes';
 import { inferProviderAuthMode } from './providerAuth';
 
 const { Text } = Typography;
@@ -38,6 +39,8 @@ const MODEL_FIELDS = [
   { key: 'opusModel' as const, envVar: 'ANTHROPIC_DEFAULT_OPUS_MODEL', labelKey: 'claudeCodeConfig.opusModel' },
   { key: 'haikuModel' as const, envVar: 'ANTHROPIC_DEFAULT_HAIKU_MODEL', labelKey: 'claudeCodeConfig.haikuModel' },
 ];
+const HINT_STYLE: React.CSSProperties = { display: 'block', fontSize: 11, marginBottom: 6 };
+const FIELD_LABEL_STYLE: React.CSSProperties = { fontSize: 11, display: 'block', marginBottom: 4 };
 
 type ProviderEditorProps = {
   t: TFunction;
@@ -80,8 +83,11 @@ export function ProviderEditor({
     setDraft(provider);
   }, [provider]);
 
-  const apiKind = editorRole === 'codex' ? 'openai' : 'anthropic';
-  const rolePresets = getProviderPresetsForRole(editorRole);
+  const apiKind = editorRole === 'codex' ? 'openai' : (draft.apiKind ?? 'anthropic');
+  const rolePresets =
+    editorRole === 'claude' && apiKind === 'openai'
+      ? getProviderPresetsForRole('codex')
+      : getProviderPresetsForRole(editorRole);
   const resolvedBase = resolveProviderBaseUrl(draft.baseUrl, apiKind);
   const isOfficialUrl = (baseUrl: string) => {
     const trimmed = baseUrl.trim();
@@ -108,8 +114,6 @@ export function ProviderEditor({
 
   const canFetch = Boolean(draft.apiKey.trim()) && !isSubscription;
   const isCodex = editorRole === 'codex';
-  const codexModelOptions =
-    models.length > 0 ? models : isCodex ? CODEX_SUGGESTED_MODELS : models;
 
   const patch = (partial: Partial<AiCliProviderRecord>) => {
     setDraft((prev) => ({ ...prev, ...partial }));
@@ -119,20 +123,7 @@ export function ProviderEditor({
     if (models.length === 0) {
       return;
     }
-    const byRole = (role: 'sonnet' | 'opus' | 'haiku') => {
-      const pattern = role === 'sonnet' ? /sonnet/i : role === 'opus' ? /opus/i : /haiku/i;
-      return models.find((m) => pattern.test(m.id) || (m.label ? pattern.test(m.label) : false))?.id;
-    };
-    const sonnet = byRole('sonnet');
-    const opus = byRole('opus');
-    const haiku = byRole('haiku');
-    const fallback = sonnet ?? opus ?? models[0]?.id ?? '';
-    patch({
-      model: draft.model?.trim() ? draft.model : fallback,
-      sonnetModel: draft.sonnetModel?.trim() ? draft.sonnetModel : (sonnet ?? ''),
-      opusModel: draft.opusModel?.trim() ? draft.opusModel : (opus ?? ''),
-      haikuModel: draft.haikuModel?.trim() ? draft.haikuModel : (haiku ?? ''),
-    });
+    patch(autoMapClaudeRoleModels(models, draft));
   };
 
   const availabilityTag = () => {
@@ -168,6 +159,31 @@ export function ProviderEditor({
         value={draft.name}
         onChange={(e) => patch({ name: e.target.value })}
       />
+      {editorRole === 'claude' ? (
+        <Select
+          size="small"
+          value={apiKind}
+          style={{ width: '100%' }}
+          options={[
+            { value: 'anthropic', label: t('claudeCodeConfig.providerKindClaude') },
+            { value: 'openai', label: t('claudeCodeConfig.providerKindOpenAiCompatible') },
+          ]}
+          onChange={(value) => patch({
+            apiKind: value,
+            baseUrl: '',
+            authMode: value === 'openai' ? 'api' : draft.authMode,
+            model: '',
+            sonnetModel: value === 'openai' ? '' : draft.sonnetModel,
+            opusModel: value === 'openai' ? '' : draft.opusModel,
+            haikuModel: value === 'openai' ? '' : draft.haikuModel,
+          })}
+        />
+      ) : null}
+      {editorRole === 'claude' && apiKind === 'openai' ? (
+        <Text type="secondary" style={{ fontSize: 11 }}>
+          {t('claudeCodeConfig.providerClaudeOpenAiBridgeHint')}
+        </Text>
+      ) : null}
       <Space.Compact style={{ width: '100%' }}>
         <Select
           size="small"
@@ -215,15 +231,15 @@ export function ProviderEditor({
             const nextOfficial = isOfficialUrl(nextBaseUrl);
             patch({
               baseUrl: nextBaseUrl,
-              apiKind: editorRole === 'codex' ? 'openai' : 'anthropic',
+              apiKind,
               authMode: nextOfficial && draft.authMode !== 'api' ? 'subscription' : 'api',
             });
           }}
         />
       </Space.Compact>
-      {isCodex ? (
+      {apiKind === 'openai' ? (
         <Tag color="blue" style={{ margin: 0, fontSize: 10 }}>
-          {t('claudeCodeConfig.providerKindCodex')}
+          {t('claudeCodeConfig.providerKindOpenAiCompatible')}
         </Tag>
       ) : isOfficialUrl(draft.baseUrl) ? (
         <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>
@@ -277,10 +293,10 @@ export function ProviderEditor({
       {!isCodex ? (
         <>
           <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.modelMapping')}</Text>
-          <Text type="secondary" style={{ display: 'block', fontSize: 11, marginTop: -4 }}>
+          <Text type="secondary" style={HINT_STYLE}>
             {t('claudeCodeConfig.modelHotSwitchClaudeHint')}
           </Text>
-          <Text type="secondary" style={{ display: 'block', fontSize: 11, marginTop: -4 }}>
+          <Text type="secondary" style={HINT_STYLE}>
             {t('claudeCodeConfig.modelContextClaudeHint')}
           </Text>
           <Space size={8} wrap>
@@ -305,7 +321,7 @@ export function ProviderEditor({
 
           {MODEL_FIELDS.map((field) => (
             <div key={field.key}>
-              <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+              <Text type="secondary" style={FIELD_LABEL_STYLE}>
                 {t(field.labelKey)}
               </Text>
               <ClaudeModelSelect
@@ -319,7 +335,7 @@ export function ProviderEditor({
           ))}
 
           <div>
-            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
+            <Text type="secondary" style={FIELD_LABEL_STYLE}>
               {t('claudeCodeConfig.permissionMode')}
             </Text>
             <Select
@@ -338,18 +354,18 @@ export function ProviderEditor({
         </>
       ) : (
         <>
-          <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 6 }}>
+          <Text type="secondary" style={HINT_STYLE}>
             {t('claudeCodeConfig.providerOpenAiHint')}
           </Text>
           <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.providerCodexModel')}</Text>
-          <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 6 }}>
+          <Text type="secondary" style={HINT_STYLE}>
             {t('claudeCodeConfig.providerCodexModelConfigHint')}
           </Text>
-          <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 6 }}>
+          <Text type="secondary" style={HINT_STYLE}>
             {t('claudeCodeConfig.modelHotSwitchCodexHint')}
           </Text>
           {!isSubscription ? (
-            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 6 }}>
+            <Text type="secondary" style={HINT_STYLE}>
               {t('claudeCodeConfig.providerCodexModelUpstreamHint')}
             </Text>
           ) : null}
@@ -380,7 +396,7 @@ export function ProviderEditor({
             ) : null}
           </Space>
           <ClaudeModelSelect
-            models={codexModelOptions}
+            models={models.length > 0 ? models : CODEX_SUGGESTED_MODELS}
             value={draft.model ?? ''}
             onChange={(v) => patch({ model: v })}
             placeholder={t('claudeCodeConfig.providerCodexModelPlaceholder')}

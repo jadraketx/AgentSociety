@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Space, Tag, Typography, Button } from 'antd';
+import { Space, Tag, Button } from 'antd';
 import { ReloadOutlined } from '@ant-design/icons';
 import type { TFunction } from 'i18next';
 import type { VscodeThemePalette } from '../theme';
@@ -14,18 +14,13 @@ import type {
 import { AiCliProviderGroup } from './AiCliProviderGroup';
 import { AiCliToolProxySection } from './AiCliToolProxySection';
 import type { AiCliProviderRecord } from './aiCliProviderTypes';
-import { inferApiKindFromBaseUrl } from './officialEndpoints';
 import { providerHasApiUpstream } from './providerAuth';
 
-const { Text } = Typography;
-
-export interface ClaudeCodeConfigSectionProps {
-  mode: 'claude' | 'codex';
+export type ProviderSectionCommonProps = {
   t: TFunction;
   palette: VscodeThemePalette;
   cliStatus: ClaudeCodeCliStatus;
   settingsPath: string;
-  onReset?: () => void;
   gatewayStatus: AiCliGatewayStatus;
   gatewayToggling: boolean;
   onRouteClaudeToggle: (enabled: boolean) => void;
@@ -51,6 +46,11 @@ export interface ClaudeCodeConfigSectionProps {
   providerUsage: Record<string, ProviderUsageQueryResult & { loading?: boolean }>;
   onQueryProviderUsage: (id: string) => void;
   onRestartCodex?: () => void;
+};
+
+export interface ClaudeCodeConfigSectionProps extends ProviderSectionCommonProps {
+  mode: 'claude' | 'codex';
+  onReset?: () => void;
 }
 
 export function ClaudeCodeConfigSection({
@@ -82,31 +82,21 @@ export function ClaudeCodeConfigSection({
   onRestartCodex,
 }: ClaudeCodeConfigSectionProps) {
   const isClaude = mode === 'claude';
-  const hasAnthropicApiForGateway = providers.some(
-    (p) =>
-      (p.apiKind ?? inferApiKindFromBaseUrl(p.baseUrl)) === 'anthropic' &&
-      providerHasApiUpstream(p)
-  );
-  const hasOpenAiApiForGateway = providers.some(
-    (p) => p.apiKind === 'openai' && providerHasApiUpstream(p)
-  );
-  const claudeProxyAvailable =
-    gatewayStatus.claudeProxyAvailable ?? hasAnthropicApiForGateway;
-  const codexProxyAvailable = gatewayStatus.codexProxyAvailable ?? hasOpenAiApiForGateway;
-  const routeClaude = gatewayStatus.routeClaude ?? false;
-  const routeCodex = gatewayStatus.routeCodex ?? false;
-  const gatewayBaseUrl = gatewayStatus.running ? gatewayStatus.baseUrl : undefined;
-
-  const claudeRouteMode: 'proxy' | 'direct' | 'off' = routeClaude
-    ? gatewayStatus.running && claudeProxyAvailable
-      ? 'proxy'
-      : 'off'
+  const routeEnabled = isClaude
+    ? (gatewayStatus.routeClaude ?? false)
+    : (gatewayStatus.routeCodex ?? false);
+  const hasUpstreamForRole = isClaude
+    ? providers.some((p) => providerHasApiUpstream(p))
+    : providers.some((p) => p.apiKind === 'openai' && providerHasApiUpstream(p));
+  const proxyAvailable = isClaude
+    ? (gatewayStatus.claudeProxyAvailable ?? hasUpstreamForRole)
+    : (gatewayStatus.codexProxyAvailable ?? hasUpstreamForRole);
+  const gatewayRunning = gatewayStatus.running;
+  const routeRecognized = isClaude ? true : (codexRouting?.routed ?? false);
+  const routeMode: 'proxy' | 'direct' | 'off' = routeEnabled
+    ? (gatewayRunning && proxyAvailable && routeRecognized ? 'proxy' : 'off')
     : 'direct';
-  const codexRouteMode: 'proxy' | 'direct' | 'off' = routeCodex
-    ? gatewayStatus.running && codexProxyAvailable && codexRouting?.routed
-      ? 'proxy'
-      : 'off'
-    : 'direct';
+  const gatewayBaseUrl = gatewayRunning ? gatewayStatus.baseUrl : undefined;
 
   const providerGroupProps = {
     t,
@@ -128,76 +118,62 @@ export function ClaudeCodeConfigSection({
     onRestartCodex,
   };
 
+  const proxySection = (
+    <AiCliToolProxySection
+      t={t}
+      palette={palette}
+      tool={mode}
+      proxyEnabled={routeEnabled}
+      proxyAvailable={proxyAvailable}
+      proxyToggling={gatewayToggling}
+      routeMode={routeMode}
+      configPath={isClaude ? settingsPath : (codexRouting?.configPath ?? '~/.codex/config.toml')}
+      authPath={isClaude ? undefined : codexRouting?.authPath}
+      gatewayBaseUrl={routeEnabled ? gatewayBaseUrl : undefined}
+      onProxyToggle={isClaude ? onRouteClaudeToggle : onRouteCodexToggle}
+    />
+  );
+
   return (
     <div style={{ paddingTop: 4 }}>
       {isClaude ? (
-        <>
-          <Space size={8} wrap style={{ marginBottom: 10 }}>
-            {cliStatus.installed ? (
-              <Tag color="success" style={{ margin: 0 }}>
-                {t('claudeCodeConfig.cliDetected', { version: cliStatus.version })}
-              </Tag>
-            ) : (
-              <Tag color="warning" style={{ margin: 0 }}>
-                {t('claudeCodeConfig.cliNotInstalled')}
-              </Tag>
-            )}
-          </Space>
-          <AiCliToolProxySection
-            t={t}
-            palette={palette}
-            tool="claude"
-            proxyEnabled={routeClaude}
-            proxyAvailable={claudeProxyAvailable}
-            proxyToggling={gatewayToggling}
-            routeMode={claudeRouteMode}
-            configPath={settingsPath}
-            gatewayBaseUrl={routeClaude ? gatewayBaseUrl : undefined}
-            onProxyToggle={onRouteClaudeToggle}
-          />
-          <AiCliProviderGroup
-            {...providerGroupProps}
-            role="claude"
-            proxyEnabled={routeClaude}
-          />
-          {onReset ? (
-            <Button icon={<ReloadOutlined />} onClick={onReset} style={{ marginTop: 12 }}>
-              {t('configPage.resetClaudeDefaults')}
-            </Button>
-          ) : null}
-        </>
-      ) : (
-        <>
-          <AiCliToolProxySection
-            t={t}
-            palette={palette}
-            tool="codex"
-            proxyEnabled={routeCodex}
-            proxyAvailable={codexProxyAvailable}
-            proxyToggling={gatewayToggling}
-            routeMode={codexRouteMode}
-            configPath={codexRouting?.configPath ?? '~/.codex/config.toml'}
-            authPath={codexRouting?.authPath}
-            gatewayBaseUrl={routeCodex ? gatewayBaseUrl : undefined}
-            onProxyToggle={onRouteCodexToggle}
-          />
-          {onRestartCodex ? (
-            <Button
-              size="small"
-              icon={<ReloadOutlined />}
-              onClick={onRestartCodex}
-              style={{ marginBottom: 12 }}
-            >
-              {t('claudeCodeConfig.restartCodex')}
-            </Button>
-          ) : null}
-          <AiCliProviderGroup
-            {...providerGroupProps}
-            role="codex"
-            proxyEnabled={routeCodex}
-          />
-        </>
-      )}
+        <Space size={8} wrap style={{ marginBottom: 10 }}>
+          {cliStatus.installed ? (
+            <Tag color="success" style={{ margin: 0 }}>
+              {t('claudeCodeConfig.cliDetected', { version: cliStatus.version })}
+            </Tag>
+          ) : (
+            <Tag color="warning" style={{ margin: 0 }}>
+              {t('claudeCodeConfig.cliNotInstalled')}
+            </Tag>
+          )}
+        </Space>
+      ) : null}
+
+      {proxySection}
+
+      {!isClaude && onRestartCodex ? (
+        <Button
+          size="small"
+          icon={<ReloadOutlined />}
+          onClick={onRestartCodex}
+          style={{ marginBottom: 12 }}
+        >
+          {t('claudeCodeConfig.restartCodex')}
+        </Button>
+      ) : null}
+
+      <AiCliProviderGroup
+        {...providerGroupProps}
+        role={mode}
+        proxyEnabled={routeEnabled}
+      />
+
+      {isClaude && onReset ? (
+        <Button icon={<ReloadOutlined />} onClick={onReset} style={{ marginTop: 12 }}>
+          {t('configPage.resetClaudeDefaults')}
+        </Button>
+      ) : null}
     </div>
   );
 }

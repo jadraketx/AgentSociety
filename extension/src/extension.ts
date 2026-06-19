@@ -697,17 +697,21 @@ export function activate(context: vscode.ExtensionContext) {
     if (s.enabled && s.running) {
       const routedTools =
         s.routeClaude && s.routeCodex ? 'Claude + Codex' : s.routeClaude ? 'Claude' : 'Codex';
-      gatewayStatusBar.text = `$(radio-tower) CLI Route: ${routedTools}`;
+      const claudeRoute = s.routeClaude ? localize('aiCliGateway.statusBarRouteProxy') : localize('aiCliGateway.statusBarRouteDirect');
+      const codexRoute = s.routeCodex ? localize('aiCliGateway.statusBarRouteProxy') : localize('aiCliGateway.statusBarRouteDirect');
+      gatewayStatusBar.text = `$(radio-tower) AI Gateway: ${routedTools}`;
       gatewayStatusBar.tooltip = localize(
         'aiCliGateway.statusBarTooltip',
         routedTools,
+        claudeRoute,
+        codexRoute,
         s.baseUrl ?? '',
         s.upstreamBaseUrl ?? ''
       );
       gatewayStatusBar.backgroundColor = undefined;
       gatewayStatusBar.show();
     } else if (s.enabled) {
-      gatewayStatusBar.text = '$(warning) CLI Route';
+      gatewayStatusBar.text = '$(warning) AI Gateway';
       gatewayStatusBar.tooltip = localize('aiCliGateway.statusBarStopped');
       gatewayStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
       gatewayStatusBar.show();

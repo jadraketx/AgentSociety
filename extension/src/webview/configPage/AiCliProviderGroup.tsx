@@ -4,7 +4,6 @@ import { BarChartOutlined, EditOutlined, PlusOutlined, QuestionCircleOutlined, R
 import type { TFunction } from 'i18next';
 import type { VscodeThemePalette } from '../theme';
 import type { ClaudeModelOption, ProviderUsageQueryResult, ProviderAvailabilityResult } from './claudeCodeTypes';
-import { getProviderPresetsForRole } from './aiCliProviderPresets';
 import { inferApiKindFromBaseUrl, isOfficialAnthropicBaseUrl, type AiCliApiKind } from './officialEndpoints';
 import type { AiCliProviderRecord } from './aiCliProviderTypes';
 import { EMPTY_PROVIDER_DRAFT, isAnthropicProvider } from './aiCliProviderTypes';
@@ -63,9 +62,8 @@ export function AiCliProviderGroup({
   const queriedUsageIds = React.useRef(new Set<string>());
   const isClaude = role === 'claude';
   const filtered = providers.filter((p) =>
-    isClaude ? isAnthropicProvider(p) : !isAnthropicProvider(p)
+    isClaude ? true : !isAnthropicProvider(p)
   );
-  const rolePresets = getProviderPresetsForRole(role);
   const newDraft: AiCliProviderRecord = {
     id: NEW_ID,
     activeClaude: false,
@@ -165,8 +163,11 @@ export function AiCliProviderGroup({
         {filtered.map((p) => {
           const apiKind = p.apiKind ?? inferApiKindFromBaseUrl(p.baseUrl);
           const active = isClaude ? p.activeClaude : p.activeCodex;
+          const activeAny = p.activeClaude || p.activeCodex;
           const editing = editingIds.has(p.id);
           const authMode = inferProviderAuthMode(p);
+          const canApplyClaude = apiKind !== 'openai' || authMode === 'api';
+          const canApplyCodex = apiKind === 'openai';
           const toggleEditing = () => {
             setEditingIds((current) => {
               const next = new Set(current);
@@ -191,15 +192,20 @@ export function AiCliProviderGroup({
                 <Space size={6} wrap>
                   <Text strong style={{ fontSize: 13 }}>{p.name || p.baseUrl || t('claudeCodeConfig.providerUnnamed')}</Text>
                   {apiKind === 'openai' ? (
-                    <Tag style={{ margin: 0, fontSize: 10 }}>{t('claudeCodeConfig.providerKindCodex')}</Tag>
+                    <Tag style={{ margin: 0, fontSize: 10 }}>{t('claudeCodeConfig.providerKindOpenAiCompatible')}</Tag>
                   ) : authMode === 'subscription' && isOfficialAnthropicBaseUrl(p.baseUrl) ? (
                     <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>
                       {t('claudeCodeConfig.providerKindClaudeOfficial')}
                     </Tag>
                   ) : null}
-                  {active ? (
+                  {p.activeClaude ? (
                     <Tag color="processing" style={{ margin: 0 }}>
-                      {t(isClaude ? 'claudeCodeConfig.providerActiveClaude' : 'claudeCodeConfig.providerActiveCodex')}
+                      {t('claudeCodeConfig.providerActiveClaude')}
+                    </Tag>
+                  ) : null}
+                  {p.activeCodex ? (
+                    <Tag color="cyan" style={{ margin: 0 }}>
+                      {t('claudeCodeConfig.providerActiveCodex')}
                     </Tag>
                   ) : null}
                   {proxyEnabled && active ? (
@@ -211,9 +217,14 @@ export function AiCliProviderGroup({
               }
               extra={
                 <Space size={6}>
-                  {!active ? (
-                    <Button size="small" type="primary" onClick={() => onActivate(p.id, role)}>
-                      {t('claudeCodeConfig.providerSwitch')}
+                  {canApplyClaude && !p.activeClaude ? (
+                    <Button size="small" onClick={() => onActivate(p.id, 'claude')}>
+                      {t('claudeCodeConfig.providerApplyClaude')}
+                    </Button>
+                  ) : null}
+                  {canApplyCodex && !p.activeCodex ? (
+                    <Button size="small" onClick={() => onActivate(p.id, 'codex')}>
+                      {t('claudeCodeConfig.providerApplyCodex')}
                     </Button>
                   ) : null}
                   <Button size="small" icon={<EditOutlined />} onClick={toggleEditing}>
@@ -247,7 +258,7 @@ export function AiCliProviderGroup({
                     onSave(provider);
                     toggleEditing();
                   }}
-                  onRemove={active ? undefined : () => onRemove(p.id)}
+                  onRemove={activeAny ? undefined : () => onRemove(p.id)}
                   onCheckAvailability={onCheckAvailability}
                   onFetchModels={(baseUrl, apiKey, kind) =>
                     onFetchModels(p.id, baseUrl, apiKey, kind ?? apiKind)

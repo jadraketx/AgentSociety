@@ -111,13 +111,17 @@ export function calculateCost(
   outputTokens: number,
   cacheReadTokens: number,
   cacheCreationTokens: number,
-  customPricing?: ModelPricingMap
+  customPricing?: ModelPricingMap,
+  options?: { app?: 'claude' | 'codex' }
 ): { total: number; input: number; output: number; cacheRead: number; cacheCreation: number } | null {
   const price = getModelPrice(modelId, customPricing);
   if (!price) {
     return null;
   }
-  const input = (inputTokens / 1_000_000) * price.inputPerMillion;
+  const billableInputTokens = options?.app === 'codex'
+    ? Math.max(0, inputTokens - cacheReadTokens)
+    : inputTokens;
+  const input = (billableInputTokens / 1_000_000) * price.inputPerMillion;
   const output = (outputTokens / 1_000_000) * price.outputPerMillion;
   const cacheRead = cacheReadTokens > 0 && price.cacheReadPerMillion
     ? (cacheReadTokens / 1_000_000) * price.cacheReadPerMillion

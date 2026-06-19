@@ -33,9 +33,10 @@ Claude Code 默认使用 Anthropic 服务。推荐通过插件配置页 **高级
 
 配置页支持：
 
-- **Claude Code**：添加 Anthropic 或第三方 Claude 供应商，启用/关闭本地代理路由，管理供应商间的故障转移。
-- **Codex CLI**：添加 OpenAI 或第三方供应商（如智谱、DeepSeek）。经本地网关路由时，会自动将 `/v1/responses` 转换为 Chat Completions 协议，兼容仅支持 Chat 协议的供应商。
-- **Gateway 状态栏**：启用本地路由后，状态栏显示 `CLI Route: Claude + Codex`（或当前路由的工具）。点击可打开配置页。
+- **共享供应商池**：供应商只保存一份；在供应商卡片上点击 **应用到 Claude** 或 **应用到 Codex**，即可决定它服务哪个 CLI。OpenAI 兼容 API 可同时应用到 Claude（经网关转换）和 Codex。
+- **Claude Code**：支持 Anthropic 原生供应商，也支持 OpenAI 兼容供应商经本地网关转换为 Anthropic Messages。
+- **Codex CLI**：支持 OpenAI 或第三方供应商（如智谱、DeepSeek）。经本地网关路由时，会自动将 `/v1/responses` 转换为 Chat Completions 协议，兼容仅支持 Chat 协议的供应商。
+- **Gateway 状态栏**：启用本地路由后，状态栏显示 `AI Gateway: Claude + Codex`（或当前路由的工具）。点击可打开配置页。
 
 你也可以手动编辑 `~/.claude/settings.json`（Mac/Linux）或 `用户目录/.claude/settings.json`（Windows）：
 
@@ -64,7 +65,7 @@ Claude Code 默认使用 Anthropic 服务。推荐通过插件配置页 **高级
 
 官方订阅（Anthropic Pro/Max、ChatGPT）使用 OAuth 直连，**不需要**启用本地网关——保持代理关闭即可。
 
-> 💡 网关还提供用量追踪和费用估算。点击配置页中的 **查看日志** 可查看路由详情。
+> 💡 网关还提供用量追踪和费用估算。费用会分别计算输入、输出、缓存读取和缓存写入；OpenAI/Codex 记录会扣除缓存命中的可计费输入。点击配置页中的 **查看日志** 可查看路由详情。
 
 ---
 

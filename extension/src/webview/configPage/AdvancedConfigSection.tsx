@@ -26,7 +26,6 @@ const AiCliConfigSection = React.lazy(() =>
   import('./AiCliConfigSection').then((m) => ({ default: m.AiCliConfigSection }))
 );
 import { EasyPaperConfigSection } from './EasyPaperConfigSection';
-import { PersonAgentConfigSection } from './PersonAgentConfigSection';
 import { ValidationAction } from './ValidationAction';
 import { tabBodyStyle } from './configPageStyles';
 import {
@@ -38,9 +37,9 @@ import {
 
 const { Text } = Typography;
 
-export type AdvancedTopTab = 'models' | 'agent' | 'python' | 'literature' | 'claude' | 'easypaper';
+export type AdvancedTopTab = 'models' | 'python' | 'literature' | 'claude' | 'easypaper';
 
-type SpecializedLlmKind = 'coder' | 'nano' | 'analysis' | 'embedding';
+type SpecializedLlmKind = 'coder' | 'embedding';
 
 export interface AdvancedConfigSectionProps {
   t: TFunction;
@@ -91,11 +90,6 @@ export interface AdvancedConfigSectionProps {
   easyPaperForm: FormInstance<EasyPaperConfigValues>;
   defaultLlmApiKey: string;
   onSaveEasyPaper: () => void;
-  envFilePath?: string;
-  agentSectionRef: React.RefObject<HTMLDivElement | null>;
-  personAgentCollapseKeys: string[];
-  onPersonAgentCollapseKeysChange: (keys: string[]) => void;
-  onResetPersonAgent: () => void;
   // Usage
   usageRecords: TokenUsageRecord[];
   usageAggregation: UsageAggregation | null;
@@ -115,7 +109,7 @@ export interface AdvancedConfigSectionProps {
   onRestartCodex?: () => void;
 }
 
-const MODEL_TAB_KEYS: SpecializedLlmKind[] = ['coder', 'nano', 'analysis', 'embedding'];
+const MODEL_TAB_KEYS: SpecializedLlmKind[] = ['coder', 'embedding'];
 
 export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   t,
@@ -158,11 +152,6 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   easyPaperForm,
   defaultLlmApiKey,
   onSaveEasyPaper,
-  envFilePath,
-  agentSectionRef,
-  personAgentCollapseKeys,
-  onPersonAgentCollapseKeysChange,
-  onResetPersonAgent,
   usageRecords,
   usageAggregation,
   usageLoading,
@@ -189,8 +178,6 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   });
   const blockedByKind: Record<AdvancedValidationKey, string | null> = {
     coder: validateDisabledByKind.coder,
-    nano: validateDisabledByKind.nano,
-    analysis: validateDisabledByKind.analysis,
     embedding: validateDisabledByKind.embedding,
     python: pythonValidateDisabledReason,
     literature: literatureValidateDisabledReason,
@@ -279,7 +266,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   );
 
   const renderLlmFields = (
-    kind: 'coder' | 'nano' | 'analysis',
+    kind: 'coder',
     hintKey: string,
     fields: { key: string; label: string; placeholder?: string }[]
   ) => (
@@ -330,32 +317,6 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
           key: 'coderLlmModel',
           label: t('configPage.coder.model'),
           placeholder: t('configPage.coder.modelPlaceholder', { model: defaultLlmModel }),
-        },
-      ]),
-    },
-    {
-      key: 'nano',
-      label: tabLabelWithStatus(t('configPage.advanced.nano.shortTitle'), 'nano'),
-      children: renderLlmFields('nano', 'configPage.advanced.nano.hint', [
-        { key: 'nanoLlmApiBase', label: t('configPage.advanced.nano.apiBase'), placeholder: linkedBasePlaceholder },
-        { key: 'nanoLlmApiKey', label: t('configPage.advanced.nano.apiKey') },
-        {
-          key: 'nanoLlmModel',
-          label: t('configPage.advanced.nano.model'),
-          placeholder: t('configPage.advanced.nano.modelPlaceholder', { model: defaultLlmModel }),
-        },
-      ]),
-    },
-    {
-      key: 'analysis',
-      label: tabLabelWithStatus(t('configPage.analysis.shortTitle'), 'analysis'),
-      children: renderLlmFields('analysis', 'configPage.analysis.hint', [
-        { key: 'analysisLlmApiBase', label: t('configPage.analysis.apiBase'), placeholder: linkedBasePlaceholder },
-        { key: 'analysisLlmApiKey', label: t('configPage.analysis.apiKey') },
-        {
-          key: 'analysisLlmModel',
-          label: t('configPage.analysis.model'),
-          placeholder: t('configPage.analysis.modelPlaceholder', { model: defaultLlmModel }),
         },
       ]),
     },
@@ -413,27 +374,6 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
           </Text>
           <Tabs size="small" destroyInactiveTabPane={false} items={modelTabItems} />
         </>
-      ),
-    },
-    {
-      key: 'agent',
-      label: (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          {t('configPage.tabs.agent')}
-        </span>
-      ),
-      children: (
-        <div ref={agentSectionRef}>
-          <PersonAgentConfigSection
-            t={t}
-            palette={palette}
-            form={form}
-            envFilePath={envFilePath}
-            advancedCollapseKeys={personAgentCollapseKeys}
-            onAdvancedCollapseKeysChange={onPersonAgentCollapseKeysChange}
-            onReset={onResetPersonAgent}
-          />
-        </div>
       ),
     },
     {
