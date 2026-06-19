@@ -323,9 +323,17 @@ class AgentBase(ABC):
             self._current_time = None
         initialized_at = meta.get("initialized_at")
         self._initialized_at = str(initialized_at) if initialized_at else None
-        self._default_activated_skills_applied = bool(activated) or bool(
-            self._default_activated_skill_ids
-        )
+        # ``_default_activated_skills_applied`` tracks whether
+        # ``add_default_activated_skills`` has actually been invoked inside
+        # ``discover_skill_sources``. It must NOT be set just because
+        # ``default_activated_skill_ids`` is configured — for a freshly-created
+        # agent ``activated`` is still empty at this point, and setting the flag
+        # here would make ``discover_skill_sources`` skip the default-activation
+        # step entirely, so the configured defaults would never activate. We
+        # only treat it as already-applied when persisted ``activated`` skills
+        # were restored (resume path); the fresh path leaves it False so the
+        # first ``discover_skill_sources`` applies the defaults once.
+        self._default_activated_skills_applied = bool(activated)
 
         # Extra skill scan roots from config (declarative; no code change
         # needed to add skill sources). Relative paths resolve against the
