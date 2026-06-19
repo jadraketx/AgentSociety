@@ -283,7 +283,7 @@ ReAct 首条 user 消息中——而不是被塞进通用 observation dump（那
 SkillRegistry API
 -------------------
 
-``SkillRegistry`` 是技能的发现中心（位于 :mod:`agentsociety2.agent.base.registry`）。在大规模仿真下
+``SkillRegistry`` 是技能的发现中心（位于 :mod:`agentsociety2.agent.base.skill_registry`）。在大规模仿真下
 它是共享只读单例（不再每 agent 复制）。
 
 .. list-table::

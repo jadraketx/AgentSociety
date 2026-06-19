@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from agentsociety2.agent.base.registry import SkillDescriptor
-from agentsociety2.agent.base.runtime import AgentSkillRuntime
+from agentsociety2.agent.base.skill_registry import SkillDescriptor
+from agentsociety2.agent.base.skill_runtime import AgentSkillRuntime
 from agentsociety2.agent.base.tool_schema import react_tool_schemas
 from agentsociety2.env.router_base import _empty_env_skill_catalog, _env_skill_catalog_row
 
@@ -80,3 +80,83 @@ def test_ask_env_schema_requires_variables_for_forced_template_mode():
     assert "variables" in params["required"]
     assert "template/cache mode" in ask_env["description"]
     assert "Required mapping" in variables["description"]
+
+
+class _DocRegistry(_Registry):
+    """Variant whose skills carry a non-empty SKILL.md body for activate()."""
+
+    def read_skill_doc(self, skill_id: str):
+        return f"# {self.skill.name}\n\nbody" if skill_id == self.skill.skill_id else ""
+
+
+def test_resolve_skill_id_accepts_both_id_and_name():
+    runtime = AgentSkillRuntime(agent_id=1, registry=_Registry())
+    runtime.set_visible_skills(["env:MobilitySpace@mobility"])
+
+    assert runtime.resolve_skill_id("env:MobilitySpace@mobility") == "env:MobilitySpace@mobility"
+    assert runtime.resolve_skill_id("mobility") == "env:MobilitySpace@mobility"
+    assert runtime.resolve_skill_id("does-not-exist") == ""
+
+
+def test_set_visible_skills_accepts_mixed_id_and_name():
+    runtime = AgentSkillRuntime(agent_id=1, registry=_Registry())
+
+    runtime.set_visible_skills(["env:MobilitySpace@mobility", "mobility"])
+
+    assert runtime.visible_skill_ids() == {"env:MobilitySpace@mobility"}
+
+
+def test_add_visible_skill_accepts_name_before_visible():
+    runtime = AgentSkillRuntime(agent_id=1, registry=_Registry())
+
+    assert runtime.add_visible_skill("mobility") is True
+    assert runtime.visible_skill_ids() == {"env:MobilitySpace@mobility"}
+    # Unknown name does not silently add anything.
+    assert runtime.add_visible_skill("ghost") is False
+
+
+def test_activate_skill_accepts_both_id_and_name():
+    runtime = AgentSkillRuntime(agent_id=1, registry=_DocRegistry())
+    runtime.set_visible_skills(["env:MobilitySpace@mobility"])
+
+    activated_by_name, skill_id_name, doc_name = runtime.activate_skill("mobility")
+    activated_by_id, skill_id_id, doc_id = runtime.activate_skill(
+        "env:MobilitySpace@mobility"
+    )
+
+    assert (activated_by_name, skill_id_name, bool(doc_name)) == (
+        True,
+        "env:MobilitySpace@mobility",
+        True,
+    )
+    assert (activated_by_id, skill_id_id) == (True, "env:MobilitySpace@mobility")
+    assert runtime.activated_skill_ids() == {"env:MobilitySpace@mobility"}
+
+
+def test_deactivate_skill_accepts_both_id_and_name():
+    runtime = AgentSkillRuntime(agent_id=1, registry=_DocRegistry())
+    runtime.set_visible_skills(["env:MobilitySpace@mobility"])
+    runtime.activate_skill("env:MobilitySpace@mobility")
+    assert runtime.activated_skill_ids() == {"env:MobilitySpace@mobility"}
+
+    removed_by_name, skill_id_name = runtime.deactivate_skill("mobility")
+    assert (removed_by_name, skill_id_name) == (True, "env:MobilitySpace@mobility")
+    assert runtime.activated_skill_ids() == set()
+
+    # Deactivating by id when already inactive reports removed=False but still resolves.
+    runtime.activate_skill("mobility")
+    removed_by_id, skill_id_id = runtime.deactivate_skill("env:MobilitySpace@mobility")
+    assert (removed_by_id, skill_id_id) == (True, "env:MobilitySpace@mobility")
+    assert runtime.activated_skill_ids() == set()
+
+
+def test_by_name_aliases_still_work():
+    """Deprecated *_by_name wrappers delegate to the unified APIs."""
+    runtime = AgentSkillRuntime(agent_id=1, registry=_DocRegistry())
+    runtime.set_visible_skills(["env:MobilitySpace@mobility"])
+
+    assert runtime.resolve_skill_id_by_name("mobility") == "env:MobilitySpace@mobility"
+    activated, _, _ = runtime.activate_skill_by_name("mobility")
+    assert activated is True
+    removed, _ = runtime.deactivate_skill_by_name("mobility")
+    assert removed is True

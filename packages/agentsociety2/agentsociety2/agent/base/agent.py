@@ -43,8 +43,8 @@ from agentsociety2.agent.person_prompt import (
     short_text as _short_text,
     xml_block as _xml_block,
 )
-from agentsociety2.agent.base.registry import get_skill_registry
-from agentsociety2.agent.base.runtime import AgentSkillRuntime
+from agentsociety2.agent.base.skill_registry import get_skill_registry
+from agentsociety2.agent.base.skill_runtime import AgentSkillRuntime
 from agentsociety2.agent.base.workspace_fs import WorkspaceFS
 from agentsociety2.env.router_base import RouterBase
 from agentsociety2.logger import get_logger
@@ -930,7 +930,7 @@ The constructor ``__init__`` is arg-less.
         Returns:
             Matching visible skill ID, or an empty string.
         """
-        skill_id = self.skill_runtime.resolve_skill_id_by_name(
+        skill_id = self.skill_runtime.resolve_skill_id(
             str(args.get("skill_name") or "")
         )
         if skill_id:
@@ -1190,7 +1190,7 @@ The constructor ``__init__`` is arg-less.
                 return ReactToolResult(True, dump_json(data), data)
             if action == "activate_skill":
                 requested_skill_name = str(args.get("skill_name") or "")
-                activated, skill_id, doc = self.skill_runtime.activate_skill_by_name(
+                activated, skill_id, doc = self.skill_runtime.activate_skill(
                     requested_skill_name
                 )
                 if not activated:
@@ -1229,7 +1229,7 @@ The constructor ``__init__`` is arg-less.
                     },
                 )
             if action == "deactivate_skill":
-                removed, skill_id = self.skill_runtime.deactivate_skill_by_name(
+                removed, skill_id = self.skill_runtime.deactivate_skill(
                     str(args.get("skill_name") or "")
                 )
                 return ReactToolResult(

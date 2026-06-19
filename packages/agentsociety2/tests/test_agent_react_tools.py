@@ -5,7 +5,7 @@ from agentsociety2.agent.base.agent import AgentBase
 
 
 class _DummySkillRuntime:
-    def activate_skill_by_name(self, skill_name: str):
+    def activate_skill(self, skill_name: str):
         return False, "", ""
 
 

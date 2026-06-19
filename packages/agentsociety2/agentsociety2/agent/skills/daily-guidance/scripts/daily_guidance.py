@@ -1531,7 +1531,7 @@ async def pre_step() -> str:
     Returns:
         The YAML result string.
     """
-    from agentsociety2.agent.base.hook_context import get_hook_context
+    from agentsociety2.agent.base.skill_hook_context import get_hook_context
 
     ctx = get_hook_context()
     result = _build_hook_result(ctx.workspace_root, ctx.payload)

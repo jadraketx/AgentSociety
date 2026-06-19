@@ -1,4 +1,4 @@
-from agentsociety2.agent.base.registry import SkillRegistry
+from agentsociety2.agent.base.skill_registry import SkillRegistry
 
 
 def test_skill_registry_builtin_namespaced_ids_and_explicit_script():

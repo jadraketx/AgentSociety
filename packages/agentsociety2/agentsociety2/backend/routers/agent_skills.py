@@ -3,7 +3,7 @@ Agent Skills API 路由
 
 提供 agent skill 的列表、扫描自定义 skill、导入/创建/上传 skill 的 API 端点。
 
-本路由基于 v2 skill 注册表 (:mod:`agentsociety2.agent.base.registry`)，它是一个
+本路由基于 v2 skill 注册表 (:mod:`agentsociety2.agent.base.skill_registry`)，它是一个
 **只读元数据注册表**：skill 是"始终存在"的目录，PersonAgent 在运行时按目录选择激活。
 因此本路由**没有** enable/disable/reload/remove 端点（v2 模型无此概念）。
 
@@ -32,7 +32,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel, Field
 
-from agentsociety2.agent.base.registry import (
+from agentsociety2.agent.base.skill_registry import (
     SkillDescriptor,
     get_skill_registry,
 )

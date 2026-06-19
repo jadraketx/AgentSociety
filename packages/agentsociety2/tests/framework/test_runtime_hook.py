@@ -2,8 +2,8 @@ import json
 
 import pytest
 
-from agentsociety2.agent.base.registry import SkillRegistry
-from agentsociety2.agent.base.runtime import AgentSkillRuntime
+from agentsociety2.agent.base.skill_registry import SkillRegistry
+from agentsociety2.agent.base.skill_runtime import AgentSkillRuntime
 from agentsociety2.agent.base.workspace_fs import WorkspaceFS
 from agentsociety2.trace import JsonlTraceWriter, ShardedTraceWriter
 

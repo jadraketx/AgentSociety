@@ -55,7 +55,7 @@ Agent Skills
 SkillRegistry
 ~~~~~~~~~~~~~
 
-.. autoclass:: agentsociety2.agent.base.registry.SkillRegistry
+.. autoclass:: agentsociety2.agent.base.skill_registry.SkillRegistry
    :members:
    :undoc-members:
    :show-inheritance:
@@ -63,14 +63,14 @@ SkillRegistry
 SkillDescriptor
 ~~~~~~~~~~~~~~~
 
-.. autoclass:: agentsociety2.agent.base.registry.SkillDescriptor
+.. autoclass:: agentsociety2.agent.base.skill_registry.SkillDescriptor
    :members:
    :undoc-members:
 
 AgentSkillRuntime
 ~~~~~~~~~~~~~~~~~
 
-.. autoclass:: agentsociety2.agent.base.runtime.AgentSkillRuntime
+.. autoclass:: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime
    :members:
    :undoc-members:
    :show-inheritance:
@@ -78,7 +78,7 @@ AgentSkillRuntime
 SkillScriptContext
 ~~~~~~~~~~~~~~~~~~
 
-.. autoclass:: agentsociety2.agent.base.runtime.SkillScriptContext
+.. autoclass:: agentsociety2.agent.base.skill_runtime.SkillScriptContext
    :members:
    :undoc-members:
 

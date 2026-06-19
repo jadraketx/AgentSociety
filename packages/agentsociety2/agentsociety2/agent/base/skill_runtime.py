@@ -21,12 +21,12 @@ from pathlib import Path
 from typing import Any, Iterable, Protocol
 
 from agentsociety2.agent.person_prompt import skill_content_xml
-from agentsociety2.agent.base.hook_context import (
+from agentsociety2.agent.base.skill_hook_context import (
     HookContext,
     _reset_hook_context,
     _set_hook_context,
 )
-from agentsociety2.agent.base.registry import SkillDescriptor
+from agentsociety2.agent.base.skill_registry import SkillDescriptor
 from agentsociety2.agent.base.workspace_fs import CommandResult, WorkspaceFS
 from agentsociety2.trace import JsonlTraceWriter
 
@@ -269,45 +269,53 @@ class AgentSkillRuntime:
     # Skill facade
     # ------------------------------------------------------------------
 
-    def set_visible_skills(self, skill_ids: Iterable[str]) -> None:
+    def set_visible_skills(self, tokens: Iterable[str]) -> None:
         """Set visible skills for this agent.
 
+        Each entry may be a registry skill id (``namespace@name``) or a display
+        name; both forms resolve against the whole registry.
+
         Args:
-            skill_ids: Candidate registry skill ids.
+            tokens: Candidate skill ids or display names.
 
         Returns:
             None.
         """
-        known = {item.skill_id for item in self._registry.list_all()}
         self._visible_skill_ids = {
-            skill_id for skill_id in skill_ids if skill_id in known
+            sid
+            for sid in (
+                self.resolve_skill_id(tok, visible_only=False) for tok in tokens
+            )
+            if sid
         }
         self._activated_skill_ids.intersection_update(self._visible_skill_ids)
 
-    def add_visible_skill(self, skill_id: str) -> bool:
-        """Add one visible skill.
+    def add_visible_skill(self, token: str) -> bool:
+        """Add one visible skill by id or display name.
 
         Args:
-            skill_id: Registry skill id.
+            token: Skill id (``namespace@name``) or display name.
 
         Returns:
             True when the skill exists and was made visible.
         """
-        if self._registry.get(skill_id) is None:
+        skill_id = self.resolve_skill_id(token, visible_only=False)
+        if not skill_id:
             return False
         self._visible_skill_ids.add(skill_id)
         return True
 
-    def remove_visible_skill(self, skill_id: str) -> bool:
-        """Remove one visible skill.
+    def remove_visible_skill(self, token: str) -> bool:
+        """Remove one visible skill by id or display name.
 
         Args:
-            skill_id: Registry skill id.
+            token: Skill id (``namespace@name``) or display name.
 
         Returns:
             True when the skill was visible and removed.
         """
-        if skill_id not in self._visible_skill_ids:
+        skill_id = self.resolve_skill_id(token)
+        if not skill_id or skill_id not in self._visible_skill_ids:
             return False
         self._visible_skill_ids.remove(skill_id)
         self._activated_skill_ids.discard(skill_id)
@@ -366,34 +374,37 @@ class AgentSkillRuntime:
             for item in self.list_visible_skills()
         ]
 
-    def set_activated_skills(self, skill_ids: Iterable[str]) -> None:
-        """Set activated skills from visible skill ids.
+    def set_activated_skills(self, tokens: Iterable[str]) -> None:
+        """Set activated skills from visible skills.
+
+        Each entry may be a skill id (``namespace@name``) or a display name;
+        both forms resolve against visible skills.
 
         Args:
-            skill_ids: Candidate skill ids to activate.
+            tokens: Candidate skill ids or display names to activate.
 
         Returns:
             None.
         """
         self._activated_skill_ids = {
-            str(skill_id)
-            for skill_id in skill_ids
-            if str(skill_id) in self._visible_skill_ids
+            sid for sid in (self.resolve_skill_id(tok) for tok in tokens) if sid
         }
 
-    def add_default_activated_skills(self, skill_ids: Iterable[str]) -> None:
+    def add_default_activated_skills(self, tokens: Iterable[str]) -> None:
         """Activate configured default skills when they are visible.
 
+        Each entry may be a skill id or a display name.
+
         Args:
-            skill_ids: Skill ids requested by outer agent configuration.
+            tokens: Skill ids or display names requested by outer agent config.
 
         Returns:
             None.
         """
-        for skill_id in skill_ids:
-            text = str(skill_id or "").strip()
-            if text and text in self._visible_skill_ids:
-                self._activated_skill_ids.add(text)
+        for token in tokens:
+            sid = self.resolve_skill_id(token)
+            if sid:
+                self._activated_skill_ids.add(sid)
 
     def activated_skill_ids(self) -> set[str]:
         """Return activated skill ids.
@@ -437,24 +448,43 @@ class AgentSkillRuntime:
             return candidates[0]
         return ""
 
-    def resolve_skill_id_by_name(self, skill_name: str) -> str:
-        """Resolve a visible skill name to a registry skill id.
+    def resolve_skill_id(
+        self, token: str, *, visible_only: bool = True
+    ) -> str:
+        """Resolve a skill id or display name to a registry skill id.
+
+        Accepts either a registry skill id (``namespace@name``) or a bare
+        display ``name`` — every public skill API in this runtime takes the
+        same ``token`` and tolerates both forms. When ``visible_only`` is True
+        (the default) resolution is restricted to visible skills; when False
+        the whole registry is searched (use this for skills that are not yet
+        visible, e.g. in :meth:`add_visible_skill`).
+
+        Ambiguous display names (more than one match) resolve only when exactly
+        one candidate is currently activated.
 
         Args:
-            skill_name: Skill display name from model tool arguments.
+            token: Skill id (``namespace@name``) or display name from tool
+                arguments / agent config.
+            visible_only: Restrict resolution to visible skills.
 
         Returns:
-            Matching visible skill id, or an empty string.
+            Matching skill id, or an empty string when not found or ambiguous.
         """
-        name = str(skill_name or "").strip()
-        if not name:
+        text = str(token or "").strip()
+        if not text:
             return ""
-        if name in self._visible_skill_ids:
-            return name
+        pool = (
+            self._visible_skill_ids
+            if visible_only
+            else {item.skill_id for item in self._registry.list_all()}
+        )
+        if text in pool:
+            return text
         matches = [
             item
-            for item in self._registry.find_by_name(name)
-            if item.skill_id in self._visible_skill_ids
+            for item in self._registry.find_by_name(text)
+            if item.skill_id in pool
         ]
         if len(matches) == 1:
             return matches[0].skill_id
@@ -465,34 +495,67 @@ class AgentSkillRuntime:
             return active_matches[0].skill_id
         return ""
 
-    def activate_skill_by_name(self, skill_name: str) -> tuple[bool, str, str]:
-        """Activate a visible skill by display name.
+    def resolve_skill_id_by_name(self, skill_name: str) -> str:
+        """Deprecated alias for :meth:`resolve_skill_id`.
 
         Args:
-            skill_name: Skill display name from model tool arguments.
+            skill_name: Skill id or display name.
+
+        Returns:
+            Matching visible skill id, or an empty string.
+        """
+        return self.resolve_skill_id(skill_name)
+
+    def activate_skill(self, token: str) -> tuple[bool, str, str]:
+        """Activate a visible skill by id or display name.
+
+        Args:
+            token: Skill id (``namespace@name``) or display name.
 
         Returns:
             Tuple of ``(activated, skill_id, skill_doc)``.
         """
-        skill_id = self.resolve_skill_id_by_name(skill_name)
+        skill_id = self.resolve_skill_id(token)
         doc = self.load_skill_doc(skill_id)
         if doc:
             self._activated_skill_ids.add(skill_id)
         return bool(doc), skill_id, doc
 
-    def deactivate_skill_by_name(self, skill_name: str) -> tuple[bool, str]:
-        """Deactivate a visible skill by display name.
+    def activate_skill_by_name(self, skill_name: str) -> tuple[bool, str, str]:
+        """Deprecated alias for :meth:`activate_skill`.
 
         Args:
-            skill_name: Skill display name from model tool arguments.
+            skill_name: Skill id or display name.
+
+        Returns:
+            Tuple of ``(activated, skill_id, skill_doc)``.
+        """
+        return self.activate_skill(skill_name)
+
+    def deactivate_skill(self, token: str) -> tuple[bool, str]:
+        """Deactivate a visible skill by id or display name.
+
+        Args:
+            token: Skill id (``namespace@name``) or display name.
 
         Returns:
             Tuple of ``(removed, skill_id)``.
         """
-        skill_id = self.resolve_skill_id_by_name(skill_name)
+        skill_id = self.resolve_skill_id(token)
         removed = skill_id in self._activated_skill_ids
         self._activated_skill_ids.discard(skill_id)
         return removed, skill_id
+
+    def deactivate_skill_by_name(self, skill_name: str) -> tuple[bool, str]:
+        """Deprecated alias for :meth:`deactivate_skill`.
+
+        Args:
+            skill_name: Skill id or display name.
+
+        Returns:
+            Tuple of ``(removed, skill_id)``.
+        """
+        return self.deactivate_skill(skill_name)
 
     def activated_skill_content_xml(self) -> str:
         """Render docs and resource hints for activated skills.

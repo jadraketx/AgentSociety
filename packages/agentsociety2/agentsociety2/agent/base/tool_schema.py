@@ -180,7 +180,7 @@ def react_tool_schemas(
             {
                 "skill_name": {
                     "type": "string",
-                    "description": "Skill name shown in <available_skills>.",
+                    "description": "Skill name shown in <available_skills>, or its registry skill id (namespace@name). Both forms are accepted.",
                 },
             },
             ["skill_name"],
@@ -188,14 +188,22 @@ def react_tool_schemas(
         add(
             "deactivate_skill",
             "Remove a skill's SKILL.md from the prompt when it is no longer needed.",
-            {"skill_name": {"type": "string"}},
+            {
+                "skill_name": {
+                    "type": "string",
+                    "description": "Skill name or registry skill id (namespace@name). Both forms are accepted.",
+                }
+            },
             ["skill_name"],
         )
         add(
             "read_skill_file",
             "Read a skill file after SKILL.md references it.",
             {
-                "skill_name": {"type": "string"},
+                "skill_name": {
+                    "type": "string",
+                    "description": "Skill name or registry skill id (namespace@name). Both forms are accepted.",
+                },
                 "path": {"type": "string"},
             },
             ["skill_name", "path"],
@@ -204,7 +212,10 @@ def react_tool_schemas(
             "execute_skill_script",
             "Execute a visible skill's Python script. script_path may be omitted when the skill declares a default script.",
             {
-                "skill_name": {"type": "string"},
+                "skill_name": {
+                    "type": "string",
+                    "description": "Skill name or registry skill id (namespace@name). Both forms are accepted.",
+                },
                 "script_path": {
                     "type": "string",
                     "description": "Optional path relative to the skill root; defaults to the skill's declared script.",
