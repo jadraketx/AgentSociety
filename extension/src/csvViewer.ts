@@ -1,5 +1,6 @@
 /**
  * CSV / TSV 表格预览（轻量，不做编辑）
+ * 支持搜索、列排序、复制 CSV
  */
 
 import * as vscode from 'vscode';
@@ -106,8 +107,16 @@ export class CsvViewer {
     filePath: string,
     isZh: boolean
   ): string {
-    const title = isZh ? '表格预览' : 'Table preview';
+    const title = isZh ? '表格预览' : 'Table Preview';
     const pathLabel = isZh ? '路径' : 'Path';
+    const searchLabel = isZh ? '搜索...' : 'Search...';
+    const copyLabel = isZh ? '复制 CSV' : 'Copy CSV';
+    const copyPathLabel = isZh ? '复制路径' : 'Copy Path';
+    const rowCount = rows.length > 0 ? rows.length - 1 : 0;
+    const colCount = rows.length > 0 ? (rows[0]?.length ?? 0) : 0;
+    const sizeLabel = isZh ? '大小' : 'Size';
+    const fileSize = error ? 0 : Buffer.byteLength(JSON.stringify(rows), 'utf8');
+    const fileSizeStr = fileSize > 1024 ? `${(fileSize / 1024).toFixed(1)} KB` : `${fileSize} B`;
 
     if (error) {
       return `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title>
@@ -117,17 +126,21 @@ export class CsvViewer {
 
     const head = rows[0] || [];
     const body = rows.slice(1);
-    const th = head.map((c) => `<th>${escapeHtml(c)}</th>`).join('');
+    const th = head.map((c, i) =>
+      `<th data-col="${i}" onclick="sortTable(${i})" title="${isZh ? '点击排序' : 'Click to sort'}">${escapeHtml(c)} <span class="sort-arrow" id="sortArrow${i}"></span></th>`
+    ).join('');
     const trs = body
-      .map((r) => {
+      .map((r, rowIdx) => {
         const cells = head.map((_, i) => `<td>${escapeHtml(r[i] ?? '')}</td>`).join('');
-        return `<tr>${cells}</tr>`;
+        return `<tr data-row="${rowIdx}">${cells}</tr>`;
       })
       .join('');
 
     const note = truncated
       ? (isZh ? `<p class="note">仅显示前 ${MAX_ROWS} 行。</p>` : `<p class="note">Showing first ${MAX_ROWS} rows only.</p>`)
       : '';
+
+    const pathLiteral = JSON.stringify(filePath);
 
     return `<!DOCTYPE html>
 <html lang="${isZh ? 'zh-CN' : 'en'}">
@@ -136,21 +149,102 @@ export class CsvViewer {
   <title>${title}</title>
   <style>
     body { font-family: var(--vscode-font-family); background: var(--vscode-editor-background); color: var(--vscode-editor-foreground); margin: 0; padding: 12px 16px 24px; }
-    h1 { font-size: 16px; margin: 0 0 8px; }
-    .path { font-size: 11px; color: var(--vscode-descriptionForeground); word-break: break-all; margin-bottom: 12px; }
+    .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; flex-wrap: wrap; gap: 8px; }
+    .header h1 { font-size: 16px; margin: 0; }
+    .header-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn { padding: 6px 12px; background: var(--vscode-button-secondaryBackground); color: var(--vscode-button-secondaryForeground); border: none; border-radius: 4px; cursor: pointer; font-size: 12px; }
+    .btn:hover { background: var(--vscode-button-secondaryHoverBackground); }
+    .btn.primary { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
+    .meta { display: flex; gap: 16px; font-size: 11px; color: var(--vscode-descriptionForeground); margin-bottom: 8px; flex-wrap: wrap; }
+    .search-box { margin-bottom: 8px; }
+    .search-box input { width: 100%; padding: 8px 12px; background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border); border-radius: 4px; color: var(--vscode-input-foreground); font-size: 13px; }
+    .search-box input:focus { outline: 1px solid var(--vscode-focusBorder); }
     .note { font-size: 12px; color: var(--vscode-editorWarning-foreground); margin: 8px 0; }
-    .wrap { overflow: auto; max-height: calc(100vh - 120px); border: 1px solid var(--vscode-panel-border); border-radius: 6px; }
+    .wrap { overflow: auto; max-height: calc(100vh - 180px); border: 1px solid var(--vscode-panel-border); border-radius: 6px; }
     table { border-collapse: collapse; min-width: 100%; font-size: 12px; }
-    th { position: sticky; top: 0; background: var(--vscode-editorWidget-background); color: var(--vscode-editor-foreground); text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--vscode-panel-border); white-space: nowrap; z-index: 1; }
+    th { position: sticky; top: 0; background: var(--vscode-editorWidget-background); color: var(--vscode-editor-foreground); text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--vscode-panel-border); white-space: nowrap; z-index: 1; cursor: pointer; user-select: none; }
+    th:hover { background: var(--vscode-list-hoverBackground); }
+    .sort-arrow { font-size: 10px; margin-left: 4px; }
     td { padding: 6px 10px; border-bottom: 1px solid var(--vscode-panel-border); vertical-align: top; max-width: 420px; }
     tr:nth-child(even) td { background: var(--vscode-editor-inactiveSelectionBackground, rgba(127,127,127,.08)); }
+    tr.hidden { display: none; }
+    .highlight { background: rgba(255, 215, 0, 0.25) !important; }
   </style>
 </head>
 <body>
-  <h1>${title}</h1>
-  <div class="path">${pathLabel}: ${escapeHtml(filePath)}</div>
+  <div class="header">
+    <h1>📊 ${title}</h1>
+    <div class="header-actions">
+      <button class="btn" id="copyPathBtn">📋 ${copyPathLabel}</button>
+      <button class="btn primary" id="copyBtn">${copyLabel}</button>
+    </div>
+  </div>
+  <div class="meta">
+    <span>${pathLabel}: ${escapeHtml(filePath)}</span>
+    <span>${rowCount} ${isZh ? '行' : 'rows'} × ${colCount} ${isZh ? '列' : 'cols'}</span>
+    <span>${sizeLabel}: ${fileSizeStr}</span>
+  </div>
   ${note}
+  <div class="search-box">
+    <input type="text" id="searchInput" placeholder="${searchLabel}" />
+  </div>
   <div class="wrap"><table><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table></div>
+
+  <script>
+    const isChinese = ${isZh ? 'true' : 'false'};
+    const rows = ${JSON.stringify(rows)};
+    let sortCol = -1;
+    let sortAsc = true;
+
+    function sortTable(col) {
+      if (sortCol === col) { sortAsc = !sortAsc; } else { sortCol = col; sortAsc = true; }
+      const tbody = document.querySelector('tbody');
+      const trs = Array.from(tbody.querySelectorAll('tr'));
+      trs.sort(function(a, b) {
+        const va = (rows[parseInt(a.dataset.row) + 1] || [])[col] || '';
+        const vb = (rows[parseInt(b.dataset.row) + 1] || [])[col] || '';
+        const na = parseFloat(va), nb = parseFloat(vb);
+        if (!isNaN(na) && !isNaN(nb)) return sortAsc ? na - nb : nb - na;
+        return sortAsc ? va.localeCompare(vb) : vb.localeCompare(va);
+      });
+      trs.forEach(function(tr) { tbody.appendChild(tr); });
+      document.querySelectorAll('.sort-arrow').forEach(function(s) { s.textContent = ''; });
+      const arrow = document.getElementById('sortArrow' + col);
+      if (arrow) arrow.textContent = sortAsc ? '▲' : '▼';
+    }
+
+    document.getElementById('searchInput').addEventListener('input', function() {
+      const q = this.value.toLowerCase();
+      document.querySelectorAll('tbody tr').forEach(function(tr) {
+        if (!q || tr.textContent.toLowerCase().indexOf(q) >= 0) {
+          tr.classList.remove('hidden');
+          tr.querySelectorAll('td').forEach(function(td) { td.classList.remove('highlight'); });
+        } else {
+          tr.classList.add('hidden');
+        }
+      });
+      if (q) {
+        document.querySelectorAll('tbody tr:not(.hidden) td').forEach(function(td) {
+          if (td.textContent.toLowerCase().indexOf(q) >= 0) td.classList.add('highlight');
+        });
+      }
+    });
+
+    document.getElementById('copyBtn').addEventListener('click', function() {
+      const csv = rows.map(function(r) { return r.map(function(c) { return c.includes(',') || c.includes('"') ? '"' + c.replace(/"/g, '""') + '"' : c; }).join(','); }).join('\\n');
+      navigator.clipboard.writeText(csv).then(function() {
+        this.textContent = isChinese ? '已复制' : 'Copied';
+        setTimeout(() => { this.textContent = '${copyLabel}'; }, 2000);
+      }.bind(this));
+    });
+
+    document.getElementById('copyPathBtn').addEventListener('click', function() {
+      navigator.clipboard.writeText(${pathLiteral}).then(function() {
+        this.textContent = isChinese ? '已复制' : 'Copied';
+        setTimeout(() => { this.textContent = isChinese ? '复制路径' : 'Copy Path'; }, 2000);
+      }.bind(this));
+    });
+  </script>
 </body>
 </html>`;
   }

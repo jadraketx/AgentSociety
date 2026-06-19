@@ -1133,7 +1133,26 @@ export function activate(context: vscode.ExtensionContext) {
       if (!filePath.toLowerCase().endsWith('.json')) {
         return;
       }
-      await JsonViewer.show(filePath);
+      // Route paper/analysis artifacts to dedicated viewer
+      const fileName = path.basename(filePath);
+      const parentDir = path.basename(path.dirname(filePath));
+      const isPaperArtifact =
+        parentDir === 'paper' || parentDir === 'reviews' || parentDir === 'state' ||
+        parentDir.startsWith('experiment_') || parentDir.startsWith('hypothesis_') ||
+        parentDir === 'analysis' || parentDir === 'synthesis' ||
+        fileName === 'paper_meta.yaml' || fileName === 'paper_state.yaml' ||
+        fileName === 'claim_ledger.json' || fileName === 'claims.json' ||
+        fileName === 'synthesis_brief.json' || fileName === 'evidence_backlog.json' ||
+        fileName === 'evidence_graph.json' || fileName === 'evidence_index.json' ||
+        fileName === 'research_pack.json' || fileName === 'figure_argument_map.json' ||
+        fileName === 'storyline_map.json' || fileName === 'human_gates.yaml' ||
+        fileName === 'run.json' || fileName.startsWith('review_');
+      if (isPaperArtifact) {
+        const { PaperArtifactViewer } = await import('./paperArtifactViewer');
+        await PaperArtifactViewer.show(filePath);
+      } else {
+        await JsonViewer.show(filePath);
+      }
     }
   );
 
