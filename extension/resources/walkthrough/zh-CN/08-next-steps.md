@@ -12,6 +12,11 @@
 | -------------------------------------------------- | ------------------------- | ------------------------------ |
 | [AI Chat](command:aiSocialScientist.openChat)      | 命令面板 → `Open AI Chat` | 想和 AI 助手对话、提问研究问题 |
 | [模拟回放](command:aiSocialScientist.openReplay)   | 侧边栏 → 右键实验目录     | 想回看和分析 Agent 模拟的过程  |
+| 论文工作区                                         | 侧边栏 → `paper/` 目录    | 查看论文章节、图表、编译记录、审阅意见 |
+| 分析工作区                                         | 侧边栏 → `analysis/` 目录 | 查看假设、实验、EDA 分析结果 |
+| 文件查看器                                         | 侧边栏 → 点击任意文件     | JSON/YAML 可折叠查看，CSV 可排序搜索，MD 预览 |
+| AI Gateway 路由状态                                | 状态栏 `AI Gateway`      | 查看 Claude Code / Codex 是否经本地网关路由 |
+| Gateway 日志                                       | 配置页 → 查看日志          | 排查路由或供应商连接问题       |
 | [使用指南](command:aiSocialScientist.openHelpPage) | 侧边栏 📖 按钮             | 想查看完整的功能说明           |
 | 术语附录                                           | 本快速入门最后一步         | 不确定某个概念是什么意思时     |
 

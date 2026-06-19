@@ -1,0 +1,867 @@
+import * as React from 'react';
+import {
+  Button,
+  Input,
+  InputNumber,
+  Modal,
+  Segmented,
+  Space,
+  Table,
+  Typography,
+} from 'antd';
+import {
+  BarChartOutlined,
+  ClearOutlined,
+  DeleteOutlined,
+  ReloadOutlined,
+  SettingOutlined,
+} from '@ant-design/icons';
+import type { TFunction } from 'i18next';
+import type { VscodeThemePalette } from '../theme';
+import type { UsageAggregation, TokenUsageRecord, UsageModelStats } from './gatewayUsageTypes';
+import { calculateCost, formatCost, getModelPrice, type ModelPricingMap } from './modelPricing';
+import { GatewayUsageChart } from './GatewayUsageChart';
+
+const { Text } = Typography;
+
+function formatTokenCount(n: number): string {
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
+function formatChartCost(cost: number): string {
+  if (cost <= 0) return '$0';
+  if (cost < 0.01) return `$${cost.toFixed(4)}`;
+  return formatCost(cost);
+}
+
+function metricTone(color: string): React.CSSProperties {
+  return {
+    fontSize: 22,
+    lineHeight: 1.15,
+    fontWeight: 650,
+    color,
+    letterSpacing: '-0.02em',
+  };
+}
+
+type TrendMetric = 'requests' | 'tokens' | 'cost';
+type UsageAppFilter = 'all' | 'claude' | 'codex';
+type UsageRangeFilter = '7d' | '30d' | 'all';
+
+function emptyStats(): UsageModelStats {
+  return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, requests: 0 };
+}
+
+function addToStats(stats: UsageModelStats, record: TokenUsageRecord): void {
+  stats.input += record.inputTokens;
+  stats.output += record.outputTokens;
+  stats.cacheRead += record.cacheReadTokens;
+  stats.cacheCreation += record.cacheCreationTokens;
+  stats.requests += 1;
+}
+
+function inferRecordApp(record: TokenUsageRecord): 'claude' | 'codex' {
+  if (record.app === 'claude' || record.app === 'codex') {
+    return record.app;
+  }
+  const id = record.model.toLowerCase();
+  return id.includes('codex') || id.startsWith('gpt-') || /^o\d/.test(id) ? 'codex' : 'claude';
+}
+
+function hasCustomModelPrice(modelId: string, customPricing: ModelPricingMap): boolean {
+  return Object.prototype.hasOwnProperty.call(customPricing, modelId);
+}
+
+function aggregatePanelUsage(records: TokenUsageRecord[]): UsageAggregation | null {
+  if (records.length === 0) {
+    return null;
+  }
+  const aggregation: UsageAggregation = {
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCacheReadTokens: 0,
+    totalCacheCreationTokens: 0,
+    totalRequests: records.length,
+    totalTokens: 0,
+    cacheHitRate: 0,
+    byModel: {},
+    byDay: {},
+    byApp: { claude: emptyStats(), codex: emptyStats() },
+    timeSeries: [],
+  };
+  const bucketMap = new Map<string, UsageAggregation['timeSeries'][number]>();
+  for (const record of records) {
+    aggregation.totalInputTokens += record.inputTokens;
+    aggregation.totalOutputTokens += record.outputTokens;
+    aggregation.totalCacheReadTokens += record.cacheReadTokens;
+    aggregation.totalCacheCreationTokens += record.cacheCreationTokens;
+
+    const model = record.model || 'unknown';
+    const modelStats = aggregation.byModel[model] ?? emptyStats();
+    addToStats(modelStats, record);
+    aggregation.byModel[model] = modelStats;
+
+    const day = record.ts.slice(0, 10);
+    const dayStats = aggregation.byDay[day] ?? emptyStats();
+    addToStats(dayStats, record);
+    aggregation.byDay[day] = dayStats;
+
+    addToStats(aggregation.byApp[inferRecordApp(record)], record);
+
+    const bucket = bucketMap.get(day) ?? {
+      key: day,
+      label: day.slice(5),
+      requests: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    };
+    bucket.requests += 1;
+    bucket.inputTokens += record.inputTokens;
+    bucket.outputTokens += record.outputTokens;
+    bucket.cacheReadTokens += record.cacheReadTokens;
+    bucket.cacheCreationTokens += record.cacheCreationTokens;
+    bucketMap.set(day, bucket);
+  }
+  aggregation.totalTokens =
+    aggregation.totalInputTokens +
+    aggregation.totalOutputTokens +
+    aggregation.totalCacheReadTokens +
+    aggregation.totalCacheCreationTokens;
+  const cacheable = aggregation.totalInputTokens + aggregation.totalCacheReadTokens;
+  aggregation.cacheHitRate = cacheable > 0
+    ? Math.min(100, (aggregation.totalCacheReadTokens / cacheable) * 100)
+    : 0;
+  aggregation.timeSeries = [...bucketMap.values()]
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .slice(-30);
+  return aggregation;
+}
+
+function emptyAggregation(): UsageAggregation {
+  return {
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCacheReadTokens: 0,
+    totalCacheCreationTokens: 0,
+    totalRequests: 0,
+    totalTokens: 0,
+    cacheHitRate: 0,
+    byModel: {},
+    byDay: {},
+    byApp: { claude: emptyStats(), codex: emptyStats() },
+    timeSeries: [],
+  };
+}
+
+export interface GatewayUsagePanelProps {
+  t: TFunction;
+  palette: VscodeThemePalette;
+  records: TokenUsageRecord[];
+  aggregation: UsageAggregation | null;
+  loading: boolean;
+  onRefresh: () => void;
+  onClear: () => void;
+  customPricing: ModelPricingMap;
+  onGetPricing: () => void;
+  onRefreshPricing: () => void;
+  onSavePricing: (pricing: ModelPricingMap) => void;
+  onClearPricing: () => void;
+}
+
+export function GatewayUsagePanel({
+  t,
+  palette,
+  records,
+  aggregation,
+  loading,
+  onRefresh,
+  onClear,
+  customPricing,
+  onGetPricing,
+  onRefreshPricing,
+  onSavePricing,
+  onClearPricing,
+}: GatewayUsagePanelProps) {
+  const [pricingModalOpen, setPricingModalOpen] = React.useState(false);
+  const [editingPricing, setEditingPricing] = React.useState<ModelPricingMap>({});
+  const [trendMetric, setTrendMetric] = React.useState<TrendMetric>('tokens');
+  const [appFilter, setAppFilter] = React.useState<UsageAppFilter>('all');
+  const [rangeFilter, setRangeFilter] = React.useState<UsageRangeFilter>('7d');
+  const autoCachedPricingRef = React.useRef('');
+  const rangeRecords = React.useMemo(() => {
+    if (rangeFilter === 'all') {
+      return records;
+    }
+    const days = rangeFilter === '7d' ? 7 : 30;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+    return records.filter((record) => {
+      const ts = Date.parse(record.ts);
+      return Number.isFinite(ts) && ts >= cutoff;
+    });
+  }, [rangeFilter, records]);
+  const totalAggregation = React.useMemo(
+    () => aggregatePanelUsage(rangeRecords),
+    [rangeRecords]
+  );
+  const filteredRecords = React.useMemo(
+    () => appFilter === 'all' ? rangeRecords : rangeRecords.filter((record) => inferRecordApp(record) === appFilter),
+    [appFilter, rangeRecords]
+  );
+  const viewAggregation = React.useMemo(
+    () => appFilter === 'all' ? totalAggregation : aggregatePanelUsage(filteredRecords),
+    [appFilter, filteredRecords, totalAggregation]
+  );
+
+  const detectedPricing = React.useMemo(() => {
+    const detected: ModelPricingMap = {};
+    for (const record of rangeRecords) {
+      const price = getModelPrice(record.model, customPricing);
+      if (price) {
+        detected[record.model] = price;
+      }
+    }
+    return detected;
+  }, [customPricing, rangeRecords]);
+
+  React.useEffect(() => {
+    const missingDetected: ModelPricingMap = {};
+    for (const [modelId, price] of Object.entries(detectedPricing)) {
+      if (!hasCustomModelPrice(modelId, customPricing)) {
+        missingDetected[modelId] = price;
+      }
+    }
+    const signature = JSON.stringify(missingDetected);
+    if (signature !== '{}' && signature !== autoCachedPricingRef.current) {
+      autoCachedPricingRef.current = signature;
+      onSavePricing({ ...missingDetected, ...customPricing });
+    }
+  }, [customPricing, detectedPricing, onSavePricing]);
+
+  const openPricing = React.useCallback(() => {
+    setEditingPricing({ ...detectedPricing, ...customPricing });
+    onGetPricing();
+    setPricingModalOpen(true);
+  }, [customPricing, detectedPricing, onGetPricing]);
+
+  const totalCost = React.useMemo(
+    () =>
+      filteredRecords.reduce((sum, r) => {
+        const cost = calculateCost(
+          r.model,
+          r.inputTokens,
+          r.outputTokens,
+          r.cacheReadTokens,
+          r.cacheCreationTokens,
+          customPricing,
+          { app: inferRecordApp(r) }
+        );
+        return sum + (cost?.total ?? 0);
+      }, 0),
+    [filteredRecords, customPricing]
+  );
+  const pricedRecords = React.useMemo(
+    () => filteredRecords.filter((record) => getModelPrice(record.model, customPricing) !== null).length,
+    [filteredRecords, customPricing]
+  );
+
+  const cacheSavings = React.useMemo(
+    () =>
+      filteredRecords.reduce((sum, r) => {
+        const price = getModelPrice(r.model, customPricing);
+        if (!price) {
+          return sum;
+        }
+        const fullInputCost = (r.cacheReadTokens / 1_000_000) * price.inputPerMillion;
+        const cacheCost = price.cacheReadPerMillion
+          ? (r.cacheReadTokens / 1_000_000) * price.cacheReadPerMillion
+          : 0;
+        return sum + Math.max(0, fullInputCost - cacheCost);
+      }, 0),
+    [filteredRecords, customPricing]
+  );
+
+  const costByBucket = React.useMemo(() => {
+    if (!viewAggregation?.timeSeries.length) {
+      return [];
+    }
+    const keys = viewAggregation.timeSeries.map((b) => b.key);
+    const map = new Map<string, number>();
+    for (const k of keys) {
+      map.set(k, 0);
+    }
+    for (const r of filteredRecords) {
+      const dayKey = r.ts.slice(0, 10);
+      const matchKey = map.has(dayKey) ? dayKey : '';
+      if (!matchKey) {
+        continue;
+      }
+        const cost = calculateCost(
+          r.model,
+          r.inputTokens,
+          r.outputTokens,
+          r.cacheReadTokens,
+          r.cacheCreationTokens,
+          customPricing,
+          { app: inferRecordApp(r) }
+        );
+      map.set(matchKey, (map.get(matchKey) ?? 0) + (cost?.total ?? 0));
+    }
+    return viewAggregation.timeSeries.map((b) => map.get(b.key) ?? 0);
+  }, [viewAggregation, filteredRecords, customPricing]);
+
+  if (!totalAggregation) {
+    return (
+      <div style={{ textAlign: 'center', padding: 20 }}>
+        <Text type="secondary">{t('claudeCodeConfig.usageNoData')}</Text>
+      </div>
+    );
+  }
+
+  const activeAggregation = viewAggregation ?? emptyAggregation();
+  const labels = activeAggregation.timeSeries.map((b) => b.label);
+  const hasTrend = labels.length >= 2;
+  const averageTokens = activeAggregation.totalRequests > 0
+    ? activeAggregation.totalTokens / activeAggregation.totalRequests
+    : 0;
+  const directTokens = activeAggregation.totalInputTokens + activeAggregation.totalOutputTokens;
+  const outputRatio = directTokens > 0
+    ? (activeAggregation.totalOutputTokens / directTokens) * 100
+    : 0;
+  const tokenParts = [
+    {
+      id: 'input',
+      label: t('claudeCodeConfig.usageColInput'),
+      value: activeAggregation.totalInputTokens,
+      color: '#1677ff',
+    },
+    {
+      id: 'output',
+      label: t('claudeCodeConfig.usageColOutput'),
+      value: activeAggregation.totalOutputTokens,
+      color: '#52c41a',
+    },
+    {
+      id: 'cacheRead',
+      label: t('claudeCodeConfig.usageCacheRead'),
+      value: activeAggregation.totalCacheReadTokens,
+      color: '#722ed1',
+    },
+    {
+      id: 'cacheCreate',
+      label: t('claudeCodeConfig.usageCacheCreation'),
+      value: activeAggregation.totalCacheCreationTokens,
+      color: '#fa8c16',
+    },
+  ].filter((part) => part.value > 0);
+  const tokenPartsTotal = tokenParts.reduce((sum, part) => sum + part.value, 0);
+
+  const requestSeries = [
+    {
+      id: 'requests',
+      label: t('claudeCodeConfig.usageChartRequests'),
+      color: '#1677ff',
+      values: activeAggregation.timeSeries.map((b) => b.requests),
+    },
+  ];
+
+  const tokenSeries = [
+    {
+      id: 'input',
+      label: t('claudeCodeConfig.usageColInput'),
+      color: '#1677ff',
+      values: activeAggregation.timeSeries.map((b) => b.inputTokens),
+    },
+    {
+      id: 'output',
+      label: t('claudeCodeConfig.usageColOutput'),
+      color: '#52c41a',
+      values: activeAggregation.timeSeries.map((b) => b.outputTokens),
+    },
+    {
+      id: 'cacheRead',
+      label: t('claudeCodeConfig.usageCacheRead'),
+      color: '#722ed1',
+      values: activeAggregation.timeSeries.map((b) => b.cacheReadTokens),
+    },
+    {
+      id: 'cacheCreate',
+      label: t('claudeCodeConfig.usageCacheCreation'),
+      color: '#fa8c16',
+      values: activeAggregation.timeSeries.map((b) => b.cacheCreationTokens),
+    },
+  ].filter((item) => item.values.some((value) => value > 0));
+
+  const costSeries = [
+    {
+      id: 'cost',
+      label: t('claudeCodeConfig.usageEstCost'),
+      color: '#fa541c',
+      values: costByBucket,
+    },
+  ];
+
+  const modelColumns = [
+    {
+      title: t('claudeCodeConfig.usageColModel'),
+      dataIndex: 'model',
+      key: 'model',
+      render: (model: string, row: { requests: number }) => (
+        <Space direction="vertical" size={0}>
+          <Text style={{ fontSize: 12, fontWeight: 500 }}>{model}</Text>
+          <Text type="secondary" style={{ fontSize: 11 }}>
+            {row.requests} {t('claudeCodeConfig.usageRequests')}
+          </Text>
+        </Space>
+      ),
+    },
+    {
+      title: t('claudeCodeConfig.usageTotalTokens'),
+      key: 'total',
+      width: 150,
+      render: (_: unknown, row: { total: number }) => {
+        const share = activeAggregation.totalTokens > 0 ? (row.total / activeAggregation.totalTokens) * 100 : 0;
+        return (
+          <div style={{ minWidth: 100 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, fontSize: 11 }}>
+              <Text style={{ fontSize: 11 }}>{formatTokenCount(row.total)}</Text>
+              <Text type="secondary" style={{ fontSize: 10 }}>{share.toFixed(1)}%</Text>
+            </div>
+            <div style={{ height: 3, borderRadius: 2, background: palette.panelBorder, marginTop: 4 }}>
+              <div style={{ height: 3, borderRadius: 2, background: '#1677ff', width: `${share}%` }} />
+            </div>
+          </div>
+        );
+      },
+    },
+    {
+      title: t('claudeCodeConfig.usageCacheHitRate'),
+      key: 'cacheHitRate',
+      width: 86,
+      render: (_: unknown, row: { input: number; cacheRead: number }) => {
+        const cacheable = row.input + row.cacheRead;
+        return (
+          <Text style={{ fontSize: 11 }}>
+            {cacheable > 0 ? `${((row.cacheRead / cacheable) * 100).toFixed(1)}%` : '—'}
+          </Text>
+        );
+      },
+    },
+    {
+      title: t('claudeCodeConfig.usageColCost'),
+      key: 'cost',
+      width: 72,
+      render: (_: unknown, row: { model: string; input: number; output: number; cacheRead: number; cacheCreation: number }) => {
+        const cost = filteredRecords
+          .filter((record) => record.model === row.model)
+          .reduce((sum, record) => {
+            const itemCost = calculateCost(
+              record.model,
+              record.inputTokens,
+              record.outputTokens,
+              record.cacheReadTokens,
+              record.cacheCreationTokens,
+              customPricing,
+              { app: inferRecordApp(record) }
+            );
+            return sum + (itemCost?.total ?? 0);
+          }, 0);
+        return <Text style={{ fontSize: 11 }}>{cost > 0 ? formatCost(cost) : '—'}</Text>;
+      },
+    },
+  ];
+
+  const modelData = Object.entries(activeAggregation.byModel)
+    .map(([model, data]) => ({
+      model,
+      ...data,
+      total: data.input + data.output + data.cacheRead + data.cacheCreation,
+      key: model,
+    }))
+    .sort((a, b) => b.total - a.total);
+
+  const updatePricingEntry = (
+    key: string,
+    field: 'inputPerMillion' | 'outputPerMillion' | 'cacheReadPerMillion' | 'cacheCreationPerMillion',
+    value: number
+  ) => {
+    setEditingPricing((prev) => ({
+      ...prev,
+      [key]: { ...prev[key], [field]: value },
+    }));
+  };
+
+  const updatePricingModelId = (oldKey: string, newKey: string) => {
+    setEditingPricing((prev) => {
+      const next: ModelPricingMap = {};
+      for (const [k, v] of Object.entries(prev)) {
+        next[k === oldKey ? newKey : k] = v;
+      }
+      return next;
+    });
+  };
+
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+        <Space>
+          <BarChartOutlined />
+          <Text strong style={{ fontSize: 13 }}>{t('claudeCodeConfig.usageTitle')}</Text>
+        </Space>
+        <Space size={[8, 6]} wrap>
+          <Segmented
+            size="small"
+            value={rangeFilter}
+            onChange={(value) => setRangeFilter(value as UsageRangeFilter)}
+            options={[
+              { label: t('claudeCodeConfig.usageRange7d'), value: '7d' },
+              { label: t('claudeCodeConfig.usageRange30d'), value: '30d' },
+              { label: t('claudeCodeConfig.usageRangeAll'), value: 'all' },
+            ]}
+          />
+          <Button size="small" icon={<SettingOutlined />} onClick={openPricing}>
+            {t('claudeCodeConfig.usagePricingTitle')}
+          </Button>
+          <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={onRefresh}>
+            {t('claudeCodeConfig.usageRefresh')}
+          </Button>
+          <Button size="small" danger icon={<ClearOutlined />} onClick={onClear}>
+            {t('claudeCodeConfig.usageClear')}
+          </Button>
+        </Space>
+      </div>
+      <Segmented
+        size="small"
+        value={appFilter}
+        onChange={(value) => setAppFilter(value as UsageAppFilter)}
+        options={[
+          { label: t('claudeCodeConfig.usageFilterAll'), value: 'all' },
+          { label: 'Claude', value: 'claude' },
+          { label: 'Codex', value: 'codex' },
+        ]}
+        style={{ marginBottom: 10 }}
+      />
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+          gap: 8,
+          marginBottom: 10,
+        }}
+      >
+        {(['claude', 'codex'] as const).map((app) => {
+          const stats = totalAggregation.byApp?.[app] ?? {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheCreation: 0,
+            requests: 0,
+          };
+          const total = stats.input + stats.output + stats.cacheRead + stats.cacheCreation;
+          return (
+            <div
+              key={app}
+              style={{
+                padding: '9px 12px',
+                border: `1px solid ${appFilter === app ? palette.focusBorder : palette.panelBorder}`,
+                borderRadius: 8,
+                background: appFilter === app ? palette.codeBlockBackground : 'transparent',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                gap: 10,
+                cursor: 'pointer',
+              }}
+              onClick={() => setAppFilter(appFilter === app ? 'all' : app)}
+            >
+              <Space size={6}>
+                <span
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: '50%',
+                    background: app === 'claude' ? '#d97706' : '#1677ff',
+                  }}
+                />
+                <Text strong style={{ fontSize: 12 }}>{app === 'claude' ? 'Claude' : 'Codex'}</Text>
+              </Space>
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {stats.requests} {t('claudeCodeConfig.usageRequests')} · {formatTokenCount(total)} Token
+              </Text>
+            </div>
+          );
+        })}
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))',
+          gap: 8,
+          marginBottom: 10,
+        }}
+      >
+        {[
+          {
+            label: t('claudeCodeConfig.usageTotalRequests'),
+            value: String(activeAggregation.totalRequests),
+            detail: t('claudeCodeConfig.usageAvgTokens', { value: formatTokenCount(averageTokens) }),
+            color: palette.editorForeground,
+          },
+          {
+            label: t('claudeCodeConfig.usageTotalTokens'),
+            value: formatTokenCount(activeAggregation.totalTokens),
+            detail: t('claudeCodeConfig.usageOutputRatio', { value: outputRatio.toFixed(1) }),
+            color: '#1677ff',
+          },
+          {
+            label: t('claudeCodeConfig.usageCacheHitRate'),
+            value: activeAggregation.totalCacheReadTokens > 0 ? `${activeAggregation.cacheHitRate.toFixed(1)}%` : '—',
+            detail: `${t('claudeCodeConfig.usageCacheRead')} ${formatTokenCount(activeAggregation.totalCacheReadTokens)}`,
+            color: '#722ed1',
+          },
+          {
+            label: t('claudeCodeConfig.usageEstCost'),
+            value: pricedRecords > 0 ? formatCost(totalCost) : '—',
+            detail: pricedRecords === filteredRecords.length
+              ? t('claudeCodeConfig.usagePricingComplete')
+              : t('claudeCodeConfig.usagePricingCoverage', { priced: pricedRecords, total: filteredRecords.length }),
+            color: '#fa8c16',
+          },
+        ].map((metric) => (
+          <div
+            key={metric.label}
+            style={{
+              padding: '12px 14px',
+              border: `1px solid ${palette.panelBorder}`,
+              borderRadius: 8,
+              background: palette.codeBlockBackground,
+              minWidth: 0,
+            }}
+          >
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 5 }}>
+              {metric.label}
+            </Text>
+            <div style={metricTone(metric.color)}>{metric.value}</div>
+            <Text type="secondary" ellipsis style={{ fontSize: 10, display: 'block', marginTop: 5 }}>
+              {metric.detail}
+            </Text>
+          </div>
+        ))}
+      </div>
+
+      <div
+        style={{
+          padding: '12px 14px',
+          border: `1px solid ${palette.panelBorder}`,
+          borderRadius: 8,
+          background: palette.codeBlockBackground,
+          marginBottom: 14,
+        }}
+      >
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, marginBottom: 9 }}>
+          <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.usageTokenBreakdown')}</Text>
+          {cacheSavings > 0.01 ? (
+            <Text type="secondary" style={{ fontSize: 11 }}>
+              {t('claudeCodeConfig.usageCacheSavings')}: {formatCost(cacheSavings)}
+            </Text>
+          ) : null}
+        </div>
+        <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 8 }}>
+          {t('claudeCodeConfig.usageCostIncludesCache')}
+        </Text>
+        <div
+          style={{
+            display: 'flex',
+            overflow: 'hidden',
+            height: 12,
+            borderRadius: 6,
+            background: palette.panelBorder,
+            marginBottom: 9,
+          }}
+        >
+          {tokenParts.map((part) => (
+            <div
+              key={part.id}
+              title={`${part.label}: ${formatTokenCount(part.value)}`}
+              style={{
+                width: `${tokenPartsTotal > 0 ? (part.value / tokenPartsTotal) * 100 : 0}%`,
+                minWidth: part.value > 0 ? 2 : 0,
+                background: part.color,
+              }}
+            />
+          ))}
+        </div>
+        <Space size={[14, 5]} wrap>
+          {tokenParts.map((part) => (
+            <Space key={part.id} size={5}>
+              <span style={{ width: 8, height: 8, borderRadius: 2, background: part.color, display: 'inline-block' }} />
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {part.label} · {formatTokenCount(part.value)} · {((part.value / tokenPartsTotal) * 100).toFixed(1)}%
+              </Text>
+            </Space>
+          ))}
+        </Space>
+      </div>
+
+      {hasTrend ? (
+        <div style={{ marginBottom: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+            <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.usageTrendTitle')}</Text>
+            <Segmented
+              size="small"
+              value={trendMetric}
+              onChange={(v) => setTrendMetric(v as TrendMetric)}
+              options={[
+                { label: t('claudeCodeConfig.usageChartRequests'), value: 'requests' },
+                { label: t('claudeCodeConfig.usageChartTokens'), value: 'tokens' },
+                { label: t('claudeCodeConfig.usageChartCost'), value: 'cost', disabled: totalCost <= 0 },
+              ]}
+            />
+          </div>
+          {trendMetric === 'requests' ? (
+            <GatewayUsageChart
+              title={t('claudeCodeConfig.usageChartRequests')}
+              labels={labels}
+              series={requestSeries}
+              palette={palette}
+            />
+          ) : null}
+          {trendMetric === 'tokens' ? (
+            <GatewayUsageChart
+              title={t('claudeCodeConfig.usageChartTokens')}
+              labels={labels}
+              series={tokenSeries}
+              palette={palette}
+              valueFormatter={formatTokenCount}
+            />
+          ) : null}
+          {trendMetric === 'cost' && totalCost > 0 ? (
+            <GatewayUsageChart
+              title={t('claudeCodeConfig.usageChartCost')}
+              labels={labels}
+              series={costSeries}
+              palette={palette}
+              valueFormatter={formatChartCost}
+            />
+          ) : null}
+        </div>
+      ) : (
+        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 12 }}>
+          {t('claudeCodeConfig.usageTrendNeedMore')}
+        </Text>
+      )}
+
+      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+        {t('claudeCodeConfig.usageByModel')}
+      </Text>
+      <Table
+        size="small"
+        pagination={modelData.length > 8 ? { pageSize: 8, size: 'small' } : false}
+        dataSource={modelData}
+        columns={modelColumns}
+        style={{ marginBottom: 14 }}
+      />
+
+      <Modal
+        title={t('claudeCodeConfig.usagePricingTitle')}
+        open={pricingModalOpen}
+        onOk={() => { onSavePricing(editingPricing); setPricingModalOpen(false); }}
+        onCancel={() => setPricingModalOpen(false)}
+        width={720}
+        okText={t('claudeCodeConfig.usagePricingSave')}
+      >
+        <Space style={{ marginBottom: 12, width: '100%', justifyContent: 'space-between' }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {t('claudeCodeConfig.usagePricingHint')}
+          </Text>
+          <Button size="small" icon={<ReloadOutlined />} onClick={() => {
+            onRefreshPricing();
+            setEditingPricing({ ...detectedPricing, ...customPricing });
+          }}>
+            {t('claudeCodeConfig.usagePricingRefresh')}
+          </Button>
+        </Space>
+        {/* Column headers */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6, paddingLeft: 4 }}>
+          <Text type="secondary" style={{ fontSize: 10, width: 160 }}>{t('claudeCodeConfig.usagePricingModel')}</Text>
+          <Text type="secondary" style={{ fontSize: 10, width: 88 }}>{t('claudeCodeConfig.usagePricingInput')}</Text>
+          <Text type="secondary" style={{ fontSize: 10, width: 88 }}>{t('claudeCodeConfig.usagePricingOutput')}</Text>
+          <Text type="secondary" style={{ fontSize: 10, width: 88 }}>{t('claudeCodeConfig.usagePricingCacheRead')}</Text>
+          <Text type="secondary" style={{ fontSize: 10, width: 88 }}>{t('claudeCodeConfig.usagePricingCacheCreation')}</Text>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {Object.entries(editingPricing).map(([modelId, price]) => (
+            <div key={modelId} style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Input
+                value={modelId}
+                onChange={(e) => updatePricingModelId(modelId, e.target.value)}
+                style={{ width: 160, fontSize: 12 }}
+              />
+              <InputNumber
+                value={price.inputPerMillion}
+                onChange={(v) => updatePricingEntry(modelId, 'inputPerMillion', v ?? 0)}
+                style={{ width: 88 }}
+                min={0}
+                step={0.01}
+                placeholder="Input"
+              />
+              <InputNumber
+                value={price.outputPerMillion}
+                onChange={(v) => updatePricingEntry(modelId, 'outputPerMillion', v ?? 0)}
+                style={{ width: 88 }}
+                min={0}
+                step={0.01}
+                placeholder="Output"
+              />
+              <InputNumber
+                value={price.cacheReadPerMillion ?? 0}
+                onChange={(v) => updatePricingEntry(modelId, 'cacheReadPerMillion', v ?? 0)}
+                style={{ width: 88 }}
+                min={0}
+                step={0.01}
+                placeholder="Cache read"
+              />
+              <InputNumber
+                value={price.cacheCreationPerMillion ?? 0}
+                onChange={(v) => updatePricingEntry(modelId, 'cacheCreationPerMillion', v ?? 0)}
+                style={{ width: 88 }}
+                min={0}
+                step={0.01}
+                placeholder="Cache write"
+              />
+              <Button size="small" danger icon={<DeleteOutlined />} onClick={() => {
+                setEditingPricing((prev) => {
+                  const next = { ...prev };
+                  delete next[modelId];
+                  return next;
+                });
+              }} />
+            </div>
+          ))}
+        </div>
+        <Space style={{ marginTop: 12 }}>
+          <Button size="small" onClick={() => {
+            setEditingPricing((prev) => ({
+              ...prev,
+              [`custom_${Date.now()}`]: { inputPerMillion: 0, outputPerMillion: 0 },
+            }));
+          }}>
+            {t('claudeCodeConfig.usagePricingAdd')}
+          </Button>
+          <Button size="small" onClick={() => {
+            onClearPricing();
+            setEditingPricing(detectedPricing);
+          }}>
+            {t('claudeCodeConfig.usagePricingReset')}
+          </Button>
+        </Space>
+      </Modal>
+    </div>
+  );
+}

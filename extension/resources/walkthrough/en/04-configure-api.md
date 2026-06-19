@@ -61,7 +61,6 @@ Click the links below to sign up and get your key:
 | --------------- | -------------------------------------------- | ------------------------ |
 | Model           | Default model name                           | `gpt-5.5`                |
 | Coder Model     | Model for code generation                    | Same as default          |
-| Nano Model      | Lightweight model for frequent operations    | Same as default          |
 | Embedding Model | Vector embedding model (for semantic search) | `text-embedding-3-large` |
 
 > 💡 Leave fields blank to reuse defaults. Adjust later as needed.
@@ -73,7 +72,7 @@ Click the links below to sign up and get your key:
 | Validation fails                     | Is the API Key complete? Does the API Base need `/v1`?                                |
 | Model not found                      | Does the Model name match your provider console?                                      |
 | Backend fails to start               | Was `.env` saved, and do you need to restart the backend?                             |
-| Literature or analysis feels slow    | Consider configuring faster Nano/Coder models                                         |
+| Code generation feels slow           | Consider configuring a faster Coder model                                             |
 | Academic literature validation fails | Use `https://llmapi.fiblab.net/mcp/` and a key with academic literature search access |
 
 ### Academic literature search

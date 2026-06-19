@@ -31,9 +31,25 @@ npm install
 
 ```bash
 npm run build        # 生产构建：tsc 主进程 + webpack 全部 webview
+npm run rebuild      # 清理后重新构建
 npm run compile      # 仅编译主进程 TypeScript（不含 webview）
 npm run watch        # tsc --watch（主进程）
 npm run dev          # 主进程 tsc watch + webview webpack watch（并发）
+```
+
+### 清理
+
+```bash
+npm run clean        # 删除 out、.vsix、缓存等
+npm run clean:deep   # 含 node_modules
+npm run clean:dry-run # 仅预览，不删除
+```
+
+### 测试与检查
+
+```bash
+npm run lint              # ESLint 检查
+npm run test:codex-bridge # Codex 响应桥接单测
 ```
 
 ### 调试

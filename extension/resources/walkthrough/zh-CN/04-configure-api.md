@@ -61,7 +61,6 @@ AI Social Scientist 需要一个大语言模型（LLM）API 来驱动文献理�
 | --------------- | ---------------------------- | ------------------------ |
 | Model           | 默认使用的模型名称           | `gpt-5.5`                |
 | Coder Model     | 代码生成用的模型             | 与默认相同               |
-| Nano Model      | 高频操作用的轻量模型         | 与默认相同               |
 | Embedding Model | 向量嵌入模型（用于语义搜索） | `text-embedding-3-large` |
 
 > 💡 留空项将沿用默认配置。熟悉流程后再按需调整即可。
@@ -73,7 +72,7 @@ AI Social Scientist 需要一个大语言模型（LLM）API 来驱动文献理�
 | 验证失败             | API Key 是否复制完整，API Base 是否包含 `/v1`                                                     |
 | 模型不存在           | Model 名称是否与服务商控制台一致                                                                  |
 | 后端启动失败         | `.env` 是否保存成功，是否需要重启后端                                                             |
-| 文献/分析很慢        | 是否需要配置更快的 Nano/Coder 模型                                                                |
+| 代码生成很慢          | 是否需要配置更快的 Coder 模型                                                                    |
 | 学术文献检索验证失败 | `LITERATURE_SEARCH_MCP_URL` 是否为 `https://llmapi.fiblab.net/mcp/`；Key 是否具备学术文献检索权限 |
 
 ### 学术文献检索

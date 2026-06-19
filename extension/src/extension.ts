@@ -32,6 +32,7 @@ import { ApiClient } from './apiClient';
 import { ProjectDragAndDropController } from './dragAndDropController';
 import { localize } from './i18n';
 import { BackendManager } from './services/backendManager';
+import { AiCliGatewayManager } from './services/aiCliGatewayManager';
 import { WorkspaceExportManager } from './services/workspaceExportManager';
 import { filePathToAtReference } from './atReference';
 import { AIChatInvoker } from './aiChatInvoker';
@@ -53,6 +54,7 @@ interface BackendStatusMenuPick extends vscode.QuickPickItem {
 
 // 全局后端服务管理器实例（管理 FastAPI 后端进程的启动、停止、重启）
 let backendManager: BackendManager | null = null;
+let aiCliGatewayManager: AiCliGatewayManager | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
   console.log(localize('extension.activate'));
@@ -65,6 +67,8 @@ export function activate(context: vscode.ExtensionContext) {
   // ========== 初始化后端服务管理器 ==========
   // BackendManager 负责 FastAPI 后端进程的生命周期管理
   backendManager = new BackendManager(context);
+  aiCliGatewayManager = new AiCliGatewayManager(context);
+  ConfigPageViewProvider.attachGatewayManager(aiCliGatewayManager);
   const workspaceExportManager = new WorkspaceExportManager();
   context.subscriptions.push({
     dispose: () => {
@@ -72,8 +76,13 @@ export function activate(context: vscode.ExtensionContext) {
         backendManager.dispose();
         backendManager = null;
       }
+      if (aiCliGatewayManager) {
+        aiCliGatewayManager.dispose();
+        aiCliGatewayManager = null;
+      }
     }
   });
+  void restoreAiCliGatewayIfEnabled();
   context.subscriptions.push(workspaceExportManager);
 
   // 首次启动或配置未完成时，打开配置页；否则按设置决定是否自动启动后端
@@ -662,6 +671,59 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  const showGatewayLogCommand = vscode.commands.registerCommand(
+    'aiSocialScientist.showGatewayLog',
+    () => {
+      if (aiCliGatewayManager) {
+        aiCliGatewayManager.showLogChannel();
+      }
+    }
+  );
+
+  const gatewayStatusBar = vscode.window.createStatusBarItem(
+    vscode.StatusBarAlignment.Right,
+    99
+  );
+  gatewayStatusBar.command = 'aiSocialScientist.openClaudeCodeConfig';
+  context.subscriptions.push(gatewayStatusBar);
+  context.subscriptions.push(showGatewayLogCommand);
+
+  const updateGatewayStatusBar = () => {
+    if (!aiCliGatewayManager) {
+      gatewayStatusBar.hide();
+      return;
+    }
+    const s = aiCliGatewayManager.getPublicStatus();
+    if (s.enabled && s.running) {
+      const routedTools =
+        s.routeClaude && s.routeCodex ? 'Claude + Codex' : s.routeClaude ? 'Claude' : 'Codex';
+      const claudeRoute = s.routeClaude ? localize('aiCliGateway.statusBarRouteProxy') : localize('aiCliGateway.statusBarRouteDirect');
+      const codexRoute = s.routeCodex ? localize('aiCliGateway.statusBarRouteProxy') : localize('aiCliGateway.statusBarRouteDirect');
+      gatewayStatusBar.text = `$(radio-tower) AI Gateway: ${routedTools}`;
+      gatewayStatusBar.tooltip = localize(
+        'aiCliGateway.statusBarTooltip',
+        routedTools,
+        claudeRoute,
+        codexRoute,
+        s.baseUrl ?? '',
+        s.upstreamBaseUrl ?? ''
+      );
+      gatewayStatusBar.backgroundColor = undefined;
+      gatewayStatusBar.show();
+    } else if (s.enabled) {
+      gatewayStatusBar.text = '$(warning) AI Gateway';
+      gatewayStatusBar.tooltip = localize('aiCliGateway.statusBarStopped');
+      gatewayStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+      gatewayStatusBar.show();
+    } else {
+      gatewayStatusBar.backgroundColor = undefined;
+      gatewayStatusBar.hide();
+    }
+  };
+  updateGatewayStatusBar();
+  const gatewayStatusBarInterval = setInterval(updateGatewayStatusBar, 10_000);
+  context.subscriptions.push({ dispose: () => clearInterval(gatewayStatusBarInterval) });
+
   // ========== Help Page ==========
   const openHelpPageCommand = vscode.commands.registerCommand(
     'aiSocialScientist.openHelpPage',
@@ -1071,7 +1133,26 @@ export function activate(context: vscode.ExtensionContext) {
       if (!filePath.toLowerCase().endsWith('.json')) {
         return;
       }
-      await JsonViewer.show(filePath);
+      // Route paper/analysis artifacts to dedicated viewer
+      const fileName = path.basename(filePath);
+      const parentDir = path.basename(path.dirname(filePath));
+      const isPaperArtifact =
+        parentDir === 'paper' || parentDir === 'reviews' || parentDir === 'state' ||
+        parentDir.startsWith('experiment_') || parentDir.startsWith('hypothesis_') ||
+        parentDir === 'analysis' || parentDir === 'synthesis' ||
+        fileName === 'paper_meta.yaml' || fileName === 'paper_state.yaml' ||
+        fileName === 'claim_ledger.json' || fileName === 'claims.json' ||
+        fileName === 'synthesis_brief.json' || fileName === 'evidence_backlog.json' ||
+        fileName === 'evidence_graph.json' || fileName === 'evidence_index.json' ||
+        fileName === 'research_pack.json' || fileName === 'figure_argument_map.json' ||
+        fileName === 'storyline_map.json' || fileName === 'human_gates.yaml' ||
+        fileName === 'run.json' || fileName.startsWith('review_');
+      if (isPaperArtifact) {
+        const { PaperArtifactViewer } = await import('./paperArtifactViewer');
+        await PaperArtifactViewer.show(filePath);
+      } else {
+        await JsonViewer.show(filePath);
+      }
     }
   );
 
@@ -1182,6 +1263,7 @@ export function activate(context: vscode.ExtensionContext) {
     openApiDocsCommand,
     openConfigPageCommand,
     openClaudeCodeConfigCommand,
+    showGatewayLogCommand,
     openHelpPageCommand,
     openWalkthroughCommand,
     openSkillMarketplaceCommand,
@@ -1211,8 +1293,18 @@ export function activate(context: vscode.ExtensionContext) {
   );
 }
 
+async function restoreAiCliGatewayIfEnabled(): Promise<void> {
+  if (!aiCliGatewayManager) {
+    return;
+  }
+  try {
+    await aiCliGatewayManager.restoreIfEnabled();
+  } catch (error) {
+    console.error('Failed to restore AI CLI gateway:', error);
+  }
+}
+
 export function deactivate() {
-  // 扩展停用时：停止后端服务
   if (backendManager) {
     backendManager.stop();
   }

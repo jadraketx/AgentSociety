@@ -137,6 +137,18 @@ Claude Code（推荐）：
      }
    }
 
+也可以通过 AI Social Scientist 插件的 **高级配置 → Claude / Codex 路由**
+打开图形化配置页。该页面提供一个共享供应商池：供应商只保存一份，
+但可以在供应商卡片上分别应用到 Claude Code 或 Codex CLI。Anthropic
+原生供应商可直接服务 Claude Code；OpenAI 兼容供应商可以经本地
+AI Gateway 转换为 Claude Code 所需的 Anthropic Messages 协议，也可同时
+服务 Codex CLI。
+
+本地 AI Gateway 支持 Claude/Codex 独立路由开关、热切换、故障转移、
+用量统计和费用估算。费用估算会分别计算输入、输出、缓存读取和缓存写入；
+对于 Codex/OpenAI 兼容记录，会先从可计费输入中扣除缓存命中，再计算缓存读取费用。
+启用后，VS Code 状态栏会显示 ``AI Gateway``，点击即可回到配置页。
+
 也可以安装 Claude Code 的 VSCode 插件，点击扩展侧边栏的"AI 对话"后会直接弹出 Claude Code 对话页面：
 
 .. image:: _static/images/user_guide/claude_vscode.png

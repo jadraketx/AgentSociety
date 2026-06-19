@@ -9,9 +9,19 @@ import {
 import type { FormInstance } from 'antd';
 import type { TFunction } from 'i18next';
 import type { VscodeThemePalette } from '../theme';
-import type { ClaudeCodeCliStatus, ClaudeCodeConfigValues } from './claudeCodeTypes';
-import type { ImportedModelOptions, ValidationState } from './types';
-import { ClaudeCodeConfigSection } from './ClaudeCodeConfigSection';
+import type {
+  AiCliGatewayStatus,
+  ClaudeCodeCliStatus,
+  ClaudeModelOption,
+} from './claudeCodeTypes';
+import type { AiCliProviderRecord } from './aiCliProviderTypes';
+import type { TokenUsageRecord, UsageAggregation } from './gatewayUsageTypes';
+import type { ModelPricingMap } from './modelPricing';
+import type { CodexRoutingStatus, ProviderUsageQueryResult } from './claudeCodeTypes';
+import type { ConfigValues, ValidationState } from './types';
+const AiCliConfigSection = React.lazy(() =>
+  import('./AiCliConfigSection').then((m) => ({ default: m.AiCliConfigSection }))
+);
 import { ValidationAction } from './ValidationAction';
 import { tabBodyStyle } from './configPageStyles';
 import {
@@ -44,11 +54,53 @@ export interface AdvancedConfigSectionProps {
   pythonSectionRef: React.RefObject<HTMLDivElement | null>;
   literatureSectionRef: React.RefObject<HTMLDivElement | null>;
   claudeSectionRef: React.RefObject<HTMLDivElement | null>;
-  claudeForm: FormInstance<ClaudeCodeConfigValues>;
   claudeCliStatus: ClaudeCodeCliStatus;
   claudeSettingsPath: string;
   onResetClaude: () => void;
-  modelOptions: ImportedModelOptions;
+  aiCliGatewayStatus: AiCliGatewayStatus;
+  gatewayToggling: boolean;
+  onRouteClaudeToggle: (enabled: boolean) => void;
+  onRouteCodexToggle: (enabled: boolean) => void;
+  claudeProviders: AiCliProviderRecord[];
+  claudeProvidersLoading: boolean;
+  providerAvailabilityResults: Record<string, import('./claudeCodeTypes').ProviderAvailabilityResult>;
+  onSaveClaudeProvider: (provider: AiCliProviderRecord) => void;
+  onAddClaudeProvider: (
+    draft: Omit<AiCliProviderRecord, 'id' | 'activeClaude' | 'activeCodex'>
+  ) => void;
+  onRemoveClaudeProvider: (id: string) => void;
+  onActivateClaudeProvider: (id: string, role: 'claude' | 'codex') => void;
+  onToggleFailoverProvider: (id: string, role: 'claude' | 'codex') => void;
+  onCheckClaudeProvider: (baseUrl: string, apiKey: string, apiKind?: 'anthropic' | 'openai') => void;
+  onShowClaudeGatewayLog: () => void;
+  modelsByProvider: Record<string, ClaudeModelOption[]>;
+  modelsLoadingByProvider: Record<string, boolean>;
+  modelsErrorByProvider: Record<string, string | null>;
+  onFetchProviderModels: (
+    providerId: string,
+    baseUrl: string,
+    apiKey: string,
+    apiKind?: 'anthropic' | 'openai'
+  ) => void;
+  form: FormInstance<ConfigValues>;
+  // Usage
+  usageRecords: TokenUsageRecord[];
+  usageAggregation: UsageAggregation | null;
+  usageLoading: boolean;
+  onRefreshUsage: () => void;
+  onClearUsage: () => void;
+  // Codex + Failover + Pricing
+  codexRouting: CodexRoutingStatus | null;
+  failoverEnabled: boolean;
+  onFailoverToggle: (enabled: boolean) => void;
+  customPricing: ModelPricingMap;
+  onGetPricing: () => void;
+  onRefreshPricing: () => void;
+  onSavePricing: (pricing: ModelPricingMap) => void;
+  onClearPricing: () => void;
+  providerUsage: Record<string, ProviderUsageQueryResult & { loading?: boolean }>;
+  onQueryProviderUsage: (id: string) => void;
+  onRestartCodex?: () => void;
 }
 
 const MODEL_TAB_KEYS: SpecializedLlmKind[] = ['coder', 'embedding'];
@@ -70,11 +122,44 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   pythonSectionRef,
   literatureSectionRef,
   claudeSectionRef,
-  claudeForm,
   claudeCliStatus,
   claudeSettingsPath,
   onResetClaude,
-  modelOptions,
+  aiCliGatewayStatus,
+  gatewayToggling,
+  onRouteClaudeToggle,
+  onRouteCodexToggle,
+  claudeProviders,
+  claudeProvidersLoading,
+  providerAvailabilityResults,
+  onSaveClaudeProvider,
+  onAddClaudeProvider,
+  onRemoveClaudeProvider,
+  onActivateClaudeProvider,
+  onToggleFailoverProvider,
+  onCheckClaudeProvider,
+  onShowClaudeGatewayLog,
+  modelsByProvider,
+  modelsLoadingByProvider,
+  modelsErrorByProvider,
+  onFetchProviderModels,
+  form,
+  usageRecords,
+  usageAggregation,
+  usageLoading,
+  onRefreshUsage,
+  onClearUsage,
+  codexRouting,
+  failoverEnabled,
+  onFailoverToggle,
+  customPricing,
+  onGetPricing,
+  onRefreshPricing,
+  onSavePricing,
+  onClearPricing,
+  providerUsage,
+  onQueryProviderUsage,
+  onRestartCodex,
 }) => {
   const linkedKeyPlaceholder = t('configPage.linkedPlaceholders.apiKey', {
     status: hasDefaultLlmKey
@@ -84,12 +169,53 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   const linkedBasePlaceholder = t('configPage.linkedPlaceholders.apiBase', {
     base: defaultLlmApiBase,
   });
-
   const blockedByKind: Record<AdvancedValidationKey, string | null> = {
     coder: validateDisabledByKind.coder,
     embedding: validateDisabledByKind.embedding,
     python: pythonValidateDisabledReason,
     literature: literatureValidateDisabledReason,
+  };
+
+  const aiCliSectionProps = {
+    t,
+    palette,
+    cliStatus: claudeCliStatus,
+    settingsPath: claudeSettingsPath,
+    onResetClaude,
+    gatewayStatus: aiCliGatewayStatus,
+    gatewayToggling,
+    onRouteClaudeToggle,
+    onRouteCodexToggle,
+    providers: claudeProviders,
+    providersLoading: claudeProvidersLoading,
+    speedtestResults: providerAvailabilityResults,
+    onSaveProvider: onSaveClaudeProvider,
+    onAddProvider: onAddClaudeProvider,
+    onRemoveProvider: onRemoveClaudeProvider,
+    onActivateProvider: onActivateClaudeProvider,
+    onToggleFailoverProvider: onToggleFailoverProvider,
+    onSpeedtestProvider: onCheckClaudeProvider,
+    onShowGatewayLog: onShowClaudeGatewayLog,
+    modelsByProvider,
+    modelsLoadingByProvider,
+    modelsErrorByProvider,
+    onFetchProviderModels,
+    usageRecords,
+    usageAggregation,
+    usageLoading,
+    onRefreshUsage,
+    onClearUsage,
+    codexRouting,
+    failoverEnabled,
+    onFailoverToggle,
+    customPricing,
+    onGetPricing,
+    onRefreshPricing,
+    onSavePricing,
+    onClearPricing,
+    providerUsage,
+    onQueryProviderUsage,
+    onRestartCodex,
   };
 
   const tabLabelWithStatus = (label: string, kind: AdvancedValidationKey) => {
@@ -180,8 +306,8 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
       key: 'coder',
       label: tabLabelWithStatus(t('configPage.coder.shortTitle'), 'coder'),
       children: renderLlmFields('coder', 'configPage.coder.hint', [
-        { key: 'coderLlmApiKey', label: t('configPage.coder.apiKey') },
         { key: 'coderLlmApiBase', label: t('configPage.coder.apiBase'), placeholder: linkedBasePlaceholder },
+        { key: 'coderLlmApiKey', label: t('configPage.coder.apiKey') },
         {
           key: 'coderLlmModel',
           label: t('configPage.coder.model'),
@@ -197,11 +323,11 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
           <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
             {t('configPage.advanced.embedding.hint')}
           </Text>
-          <Form.Item name="embeddingApiKey" label={t('configPage.advanced.embedding.apiKey')}>
-            <Input.Password placeholder={linkedKeyPlaceholder} autoComplete="off" />
-          </Form.Item>
           <Form.Item name="embeddingApiBase" label={t('configPage.advanced.embedding.apiBase')}>
             <Input placeholder={linkedBasePlaceholder} />
+          </Form.Item>
+          <Form.Item name="embeddingApiKey" label={t('configPage.advanced.embedding.apiKey')}>
+            <Input.Password placeholder={linkedKeyPlaceholder} autoComplete="off" />
           </Form.Item>
           <Form.Item name="embeddingModel" label={t('configPage.advanced.embedding.model')}>
             <Input placeholder={t('configPage.advanced.embedding.modelPlaceholder')} />
@@ -295,27 +421,23 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
       ),
       children: (
         <div ref={claudeSectionRef}>
-          <ClaudeCodeConfigSection
-            t={t}
-            palette={palette}
-            form={claudeForm}
-            cliStatus={claudeCliStatus}
-            settingsPath={claudeSettingsPath}
-            onReset={onResetClaude}
-            modelOptions={modelOptions.claudeCode}
-          />
+          <React.Suspense fallback={<Text type="secondary">{t('configPage.loading')}</Text>}>
+            <AiCliConfigSection {...aiCliSectionProps} />
+          </React.Suspense>
         </div>
       ),
     },
   ];
 
   return (
-    <Tabs
-      activeKey={activeTopTab}
-      onChange={(key) => onActiveTopTabChange(key as AdvancedTopTab)}
-      items={topTabItems}
-      size="middle"
-      destroyInactiveTabPane={false}
-    />
+    <>
+      <Tabs
+        activeKey={activeTopTab}
+        onChange={(key) => onActiveTopTabChange(key as AdvancedTopTab)}
+        items={topTabItems}
+        size="middle"
+        destroyInactiveTabPane={false}
+      />
+    </>
   );
 };

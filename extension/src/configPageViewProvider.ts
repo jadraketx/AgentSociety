@@ -25,11 +25,13 @@ import {
   readClaudeConfig,
   writeClaudeConfig,
 } from './services/claudeCodeSettings';
+import { fetchProviderModels } from './services/claudeCodeModels';
+import { inferApiKindFromBaseUrl } from './services/aiCliOfficialEndpoints';
+import type { AiCliGatewayManager, AiCliProviderConfig } from './services/aiCliGatewayManager';
 import type { ClaudeCodeConfigValues } from './webview/configPage/claudeCodeTypes';
 import * as path from 'path';
 import { localize } from './i18n';
 import type { ConfigValues, WorkspaceInfo } from './webview/configPage/types';
-import type { EasyPaperConfigValues } from './webview/configPage/types';
 import { EnvManager } from './envManager';
 import { LLMValidator, PythonValidator, LLMType } from './services/llmValidator';
 import { fetchCompat, createTimeoutSignal } from './shared/fetchCompat';
@@ -39,11 +41,16 @@ import { AgentsocietyWebConfigService } from './services/agentsocietyWebConfig';
 const fetch = fetchCompat as unknown as typeof globalThis.fetch;
 
 const DEFAULT_LLM_API_BASE = 'https://api.openai.com/v1';
-const DEFAULT_LLM_MODEL = 'gpt-5.4';
+const DEFAULT_LLM_MODEL = 'gpt-5.5';
 
 export class ConfigPageViewProvider {
   public static currentPanel: ConfigPageViewProvider | undefined;
+  private static gatewayManager: AiCliGatewayManager | null = null;
   private static readonly viewType = 'aiSocialScientistConfigPage';
+
+  public static attachGatewayManager(manager: AiCliGatewayManager): void {
+    ConfigPageViewProvider.gatewayManager = manager;
+  }
 
   private readonly _panel: vscode.WebviewPanel;
   private readonly _extensionPath: string;
@@ -93,6 +100,15 @@ export class ConfigPageViewProvider {
         config?: Partial<ConfigValues> | ClaudeCodeConfigValues;
         llmType?: string;
         url?: string;
+        baseUrl?: string;
+        apiKey?: string;
+        enabled?: boolean;
+        routeTarget?: 'claude' | 'codex';
+        providerId?: string;
+        role?: 'claude' | 'codex';
+        provider?: unknown;
+        apiKind?: 'anthropic' | 'openai';
+        pricing?: Record<string, unknown>;
       }) => {
         switch (message.command) {
           case 'requestConfig':
@@ -125,8 +141,89 @@ export class ConfigPageViewProvider {
           case 'saveClaudeConfig':
             await this._handleSaveClaudeConfig((message.config || {}) as ClaudeCodeConfigValues);
             break;
-          case 'saveEasyPaperConfig':
-            await this._handleSaveEasyPaperConfig(message.config);
+          case 'fetchClaudeModels':
+            await this._handleFetchClaudeModels(
+              String(message.baseUrl ?? ''),
+              String(message.apiKey ?? ''),
+              message.providerId ? String(message.providerId) : undefined,
+              message.apiKind === 'openai' || message.apiKind === 'anthropic'
+                ? message.apiKind
+                : undefined
+            );
+            break;
+          case 'gatewayUpdateProvider':
+            await this._handleGatewayUpdateProvider(
+              message.provider as AiCliProviderConfig
+            );
+            break;
+          case 'gatewaySetRoute':
+            await this._handleGatewaySetRoute(
+              message.routeTarget === 'codex' ? 'codex' : 'claude',
+              Boolean(message.enabled)
+            );
+            break;
+          case 'gatewayListProviders':
+            await this._handleGatewayListProviders();
+            break;
+          case 'gatewaySaveProvider':
+            await this._handleGatewaySaveProvider(
+              message.provider as Partial<AiCliProviderConfig>
+            );
+            break;
+          case 'gatewayRemoveProvider':
+            await this._handleGatewayRemoveProvider(String(message.providerId ?? ''));
+            break;
+          case 'gatewayActivateProvider':
+            await this._handleGatewayActivateProvider(
+              String(message.providerId ?? ''),
+              message.role === 'codex' ? 'codex' : 'claude'
+            );
+            break;
+          case 'gatewayToggleFailover':
+            await this._handleGatewayToggleFailover(
+              String(message.providerId ?? ''),
+              message.role === 'codex' ? 'codex' : 'claude'
+            );
+            break;
+          case 'gatewayCheckProvider':
+          case 'gatewaySpeedtest':
+            await this._handleGatewayCheckProvider(
+              String(message.baseUrl ?? ''),
+              String(message.apiKey ?? ''),
+              message.apiKind === 'openai' || message.apiKind === 'anthropic'
+                ? message.apiKind
+                : undefined
+            );
+            break;
+          case 'gatewayShowLog':
+            ConfigPageViewProvider.gatewayManager?.showLogChannel();
+            break;
+          case 'gatewayGetUsage':
+            await this._handleGatewayGetUsage();
+            break;
+          case 'gatewayClearUsage':
+            await this._handleGatewayClearUsage();
+            break;
+          case 'gatewayGetPricing':
+            await this._handleGatewayGetPricing();
+            break;
+          case 'gatewayRefreshPricing':
+            await this._handleGatewayGetPricing(true);
+            break;
+          case 'gatewaySavePricing':
+            await this._handleGatewaySavePricing(message.pricing);
+            break;
+          case 'gatewayClearPricing':
+            await this._handleGatewayClearPricing();
+            break;
+          case 'gatewaySetFailover':
+            await this._handleGatewaySetFailover(Boolean(message.enabled));
+            break;
+          case 'gatewayQueryProviderUsage':
+            await this._handleGatewayQueryProviderUsage(String(message.providerId ?? ''));
+            break;
+          case 'restartCodexCli':
+            await this._handleRestartCodexCli();
             break;
           case 'startCasdoorDeviceAuth':
             await this._handleStartCasdoorDeviceAuth();
@@ -194,7 +291,6 @@ export class ConfigPageViewProvider {
     });
 
     await this._sendClaudeInitialConfig();
-    await this._sendEasyPaperInitialConfig();
     await this._postOverviewStatus();
   }
 
@@ -204,19 +300,371 @@ export class ConfigPageViewProvider {
 
   private async _sendClaudeInitialConfig(): Promise<void> {
     const cliStatus = await detectClaudeCli();
-    const claudeConfig = readClaudeConfig();
+    await ConfigPageViewProvider.gatewayManager?.initialize();
+    const claudeConfig = ConfigPageViewProvider.gatewayManager?.claudeConfigForUi() ?? readClaudeConfig();
     claudeConfig.permissionMode = vscode.workspace.getConfiguration('claudeCode').get<string>('initialPermissionMode', '');
+    const codexStatus = ConfigPageViewProvider.gatewayManager?.getCodexRoutingStatus();
     this._panel.webview.postMessage({
       command: 'initialClaudeConfig',
       config: claudeConfig,
       settingsPath: CLAUDE_SETTINGS_PATH,
       cliStatus,
+      gatewayStatus: ConfigPageViewProvider.gatewayManager?.getPublicStatus(),
+      codexRouting: codexStatus,
+      failoverEnabled: ConfigPageViewProvider.gatewayManager?.isFailoverEnabled() ?? false,
     });
+  }
+
+  private async _postGatewayStatus(): Promise<void> {
+    if (!ConfigPageViewProvider.gatewayManager) {
+      return;
+    }
+    const manager = ConfigPageViewProvider.gatewayManager;
+    this._panel.webview.postMessage({
+      command: 'aiCliGatewayStatus',
+      status: manager.getPublicStatus(),
+    });
+    this._panel.webview.postMessage({
+      command: 'codexRoutingStatus',
+      codexRouting: manager.getCodexRoutingStatus(),
+    });
+  }
+
+  private async _handleGatewaySetRoute(
+    target: 'claude' | 'codex',
+    enabled: boolean
+  ): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      return;
+    }
+    try {
+      await manager.setGatewayRoute(target, enabled);
+      await this._postGatewayStatus();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      const localized =
+        message === 'route_requires_api'
+          ? localize(
+            target === 'claude'
+              ? 'aiCliGateway.routeClaudeRequiresApi'
+              : 'aiCliGateway.routeCodexRequiresApi'
+          )
+          : localize('aiCliGateway.toggleFailed', message);
+      vscode.window.showWarningMessage(localized);
+      await this._postGatewayStatus();
+    }
+  }
+
+  private async _handleFetchClaudeModels(
+    baseUrl: string,
+    apiKey: string,
+    providerId?: string,
+    apiKind?: 'anthropic' | 'openai'
+  ): Promise<void> {
+    const kind =
+      apiKind ??
+      (providerId
+        ? ConfigPageViewProvider.gatewayManager
+          ?.getProviders()
+          .find((p) => p.id === providerId)?.apiKind
+        : undefined) ??
+      inferApiKindFromBaseUrl(baseUrl);
+    const result = await fetchProviderModels(baseUrl, apiKey, kind);
+    if (result.ok) {
+      this._panel.webview.postMessage({
+        command: 'claudeModelsResult',
+        success: true,
+        models: result.models,
+        providerId,
+      });
+      return;
+    }
+    this._panel.webview.postMessage({
+      command: 'claudeModelsResult',
+      success: false,
+      error: result.error,
+      status: result.status,
+      providerId,
+    });
+  }
+
+  private async _handleGatewayListProviders(): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    const providers = manager
+      ? await manager.ensureDefaultProviderFromClaudeConfig()
+      : [];
+    if (manager) {
+      await manager.syncGatewayRoutesWithProviders();
+    }
+    this._panel.webview.postMessage({
+      command: 'gatewayProvidersList',
+      providers,
+    });
+    if (manager) {
+      const active = manager.getActiveClaudeProvider();
+      if (active) {
+        this._panel.webview.postMessage({
+          command: 'activeProviderConfig',
+          config: manager.providerToClaudeConfig(active),
+        });
+      }
+    }
+  }
+
+  private async _handleGatewaySaveProvider(provider: Partial<AiCliProviderConfig>): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      this._panel.webview.postMessage({ command: 'gatewayProvidersList', providers: [] });
+      return;
+    }
+    await manager.addProvider({
+      name: provider.name?.trim() || provider.baseUrl?.trim() || 'Provider',
+      baseUrl: provider.baseUrl?.trim() ?? '',
+      apiKey: provider.apiKey?.trim() ?? '',
+      apiKind: provider.apiKind ?? inferApiKindFromBaseUrl(provider.baseUrl ?? ''),
+      model: provider.model,
+      sonnetModel: provider.sonnetModel,
+      opusModel: provider.opusModel,
+      haikuModel: provider.haikuModel,
+      permissionMode: provider.permissionMode,
+    });
+    await this._postProvidersAndActiveConfig();
+  }
+
+  private async _handleGatewayUpdateProvider(provider: AiCliProviderConfig): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager || !provider.id) {
+      return;
+    }
+    await manager.updateProvider(provider.id, provider);
+    await this._postGatewayStatus();
+    await this._postProvidersAndActiveConfig();
+  }
+
+  private async _postProvidersAndActiveConfig(): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      return;
+    }
+    this._panel.webview.postMessage({
+      command: 'gatewayProvidersList',
+      providers: manager.getProviders(),
+    });
+    const active = manager.getActiveClaudeProvider();
+    if (active) {
+      this._panel.webview.postMessage({
+        command: 'activeProviderConfig',
+        config: manager.providerToClaudeConfig(active),
+      });
+    }
+  }
+
+  private async _handleGatewayRemoveProvider(id: string): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      return;
+    }
+    await manager.removeProvider(id);
+    this._panel.webview.postMessage({
+      command: 'gatewayProvidersList',
+      providers: manager.getProviders(),
+    });
+  }
+
+  private async _handleGatewayActivateProvider(
+    id: string,
+    role: 'claude' | 'codex'
+  ): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      return;
+    }
+    try {
+      await manager.activateProvider(id, role);
+      await this._postGatewayStatus();
+      await this._postProvidersAndActiveConfig();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      vscode.window.showErrorMessage(localize('aiCliGateway.toggleFailed', message));
+      await this._postGatewayStatus();
+    }
+  }
+
+  private async _handleGatewayToggleFailover(
+    id: string,
+    role: 'claude' | 'codex'
+  ): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      return;
+    }
+    try {
+      await manager.toggleFailover(id, role);
+      await this._postGatewayStatus();
+      await this._postProvidersAndActiveConfig();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : String(err);
+      vscode.window.showErrorMessage(message);
+      await this._postGatewayStatus();
+    }
+  }
+
+  private async _handleGatewayCheckProvider(
+    baseUrl: string,
+    apiKey: string,
+    apiKind?: 'anthropic' | 'openai'
+  ): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      return;
+    }
+    const kind = apiKind ?? inferApiKindFromBaseUrl(baseUrl);
+    const result = await manager.checkProviderAvailability(baseUrl, apiKey, kind);
+    this._panel.webview.postMessage({
+      command: 'gatewayCheckProviderResult',
+      baseUrl,
+      result,
+    });
+  }
+
+  private async _handleGatewayGetUsage(): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      this._panel.webview.postMessage({ command: 'gatewayUsageData', records: [], aggregation: null });
+      return;
+    }
+    await manager.persistUsage();
+    const records = await manager.getPersistedUsage();
+    const { aggregateUsage } = await import('./services/gatewayUsageTracker');
+    const aggregation = aggregateUsage(records);
+    this._panel.webview.postMessage({
+      command: 'gatewayUsageData',
+      records,
+      aggregation,
+    });
+  }
+
+  private async _handleGatewayClearUsage(): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      return;
+    }
+    await manager.clearPersistedUsage();
+    this._panel.webview.postMessage({
+      command: 'gatewayUsageData',
+      records: [],
+      aggregation: null,
+    });
+  }
+
+  private async _handleGatewayGetPricing(force = false): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      this._panel.webview.postMessage({ command: 'gatewayPricingData', builtin: {}, custom: {} });
+      return;
+    }
+    const { getBuiltinPricing } = await import('./services/gatewayModelPricing');
+    await manager.refreshObservedRemotePricing(force);
+    this._panel.webview.postMessage({
+      command: 'gatewayPricingData',
+      builtin: getBuiltinPricing(),
+      custom: { ...manager.getRemotePricing(), ...manager.getCustomPricing() },
+    });
+  }
+
+  private async _handleGatewaySavePricing(pricing: unknown): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager || !pricing || typeof pricing !== 'object') {
+      return;
+    }
+    const typed = JSON.parse(JSON.stringify(pricing)) as Record<string, { inputPerMillion: number; outputPerMillion: number; cacheReadPerMillion?: number; cacheCreationPerMillion?: number }>;
+    await manager.saveCustomPricing(typed);
+    await this._handleGatewayGetPricing();
+  }
+
+  private async _handleGatewayClearPricing(): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      return;
+    }
+    await manager.clearCustomPricing();
+    await this._handleGatewayGetPricing();
+  }
+
+  private async _handleGatewaySetFailover(enabled: boolean): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      return;
+    }
+    await manager.setFailoverEnabled(enabled);
+    this._panel.webview.postMessage({
+      command: 'gatewayFailoverStatus',
+      enabled,
+    });
+  }
+
+  private async _handleGatewayQueryProviderUsage(providerId: string): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager || !providerId) {
+      return;
+    }
+    const provider = manager.getProviders().find((p) => p.id === providerId);
+    if (!provider) {
+      return;
+    }
+    const result = await manager.queryProviderUsageById(providerId);
+    this._panel.webview.postMessage({
+      command: 'gatewayProviderUsageResult',
+      providerId,
+      baseUrl: provider.baseUrl,
+      result,
+    });
+  }
+
+  private async _handleRestartCodexCli(): Promise<void> {
+    const action = localize('aiCliGateway.restartCodexAction');
+    const picked = await vscode.window.showWarningMessage(
+      localize('aiCliGateway.restartCodexConfirm'),
+      { modal: true },
+      action
+    );
+    if (picked !== action) {
+      return;
+    }
+
+    for (const terminal of vscode.window.terminals) {
+      if (/\bcodex\b/i.test(terminal.name)) {
+        terminal.dispose();
+      }
+    }
+
+    const terminal = vscode.window.createTerminal('Codex');
+    terminal.show(true);
+    terminal.sendText('codex');
+    vscode.window.showInformationMessage(localize('aiCliGateway.restartCodexStarted'));
   }
 
   private async _handleSaveClaudeConfig(config: ClaudeCodeConfigValues): Promise<void> {
     try {
-      writeClaudeConfig(config);
+      const manager = ConfigPageViewProvider.gatewayManager;
+      const active = manager?.getActiveClaudeProvider();
+      if (active && manager) {
+        await manager.updateProvider(active.id, {
+          ...active,
+          baseUrl: config.baseUrl,
+          apiKey: config.apiKey,
+          model: config.model,
+          sonnetModel: config.sonnetModel,
+          opusModel: config.opusModel,
+          haikuModel: config.haikuModel,
+          permissionMode: config.permissionMode,
+        });
+      } else if (manager?.getPublicStatus().enabled) {
+        await manager.syncUpstreamFromClaudeConfig(config);
+      } else {
+        writeClaudeConfig(config);
+      }
 
       const mode = (config.permissionMode || '').trim();
       const claudeCfg = vscode.workspace.getConfiguration('claudeCode');
@@ -229,6 +677,7 @@ export class ConfigPageViewProvider {
       }
 
       this._panel.webview.postMessage({ command: 'claudeSaveResult', success: true });
+      await this._postGatewayStatus();
       await this._postOverviewStatus();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -263,7 +712,6 @@ export class ConfigPageViewProvider {
         command: 'webConfigImported',
         config: imported.config,
         claudeConfig: imported.claudeConfig,
-        easyPaperConfig: imported.easyPaperConfig,
         modelOptions: imported.modelOptions,
         defaults: imported.defaults,
         authPath: imported.authPath,
@@ -288,35 +736,6 @@ export class ConfigPageViewProvider {
     if (this._webConfigImport) {
       this._webConfigImport.cancel();
       this._webConfigImport = undefined;
-    }
-  }
-
-  // ============ EasyPaper Config ============
-
-  private async _sendEasyPaperInitialConfig(): Promise<void> {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (!workspaceFolder) {
-      this._panel.webview.postMessage({ command: 'initialEasyPaperConfig', config: undefined });
-      return;
-    }
-    const configPath = path.join(workspaceFolder.uri.fsPath, 'easypaper_config.yaml');
-    const config = readEasyPaperConfig(configPath);
-    this._panel.webview.postMessage({ command: 'initialEasyPaperConfig', config });
-  }
-
-  private async _handleSaveEasyPaperConfig(config: any): Promise<void> {
-    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-    if (!workspaceFolder) {
-      this._panel.webview.postMessage({ command: 'easyPaperSaveResult', success: false, error: 'No workspace open' });
-      return;
-    }
-    try {
-      const configPath = path.join(workspaceFolder.uri.fsPath, 'easypaper_config.yaml');
-      writeEasyPaperConfig(configPath, config);
-      this._panel.webview.postMessage({ command: 'easyPaperSaveResult', success: true });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this._panel.webview.postMessage({ command: 'easyPaperSaveResult', success: false, error: message });
     }
   }
 
@@ -811,119 +1230,4 @@ export class ConfigPageViewProvider {
       if (d) { d.dispose(); }
     }
   }
-}
-
-// ============ EasyPaper YAML Utilities ============
-
-const EASY_PAPER_AGENT_NAMES = [
-  'paper_parser', 'template_parser', 'commander', 'writer',
-  'typesetter', 'metadata', 'reviewer', 'planner',
-];
-
-function readEasyPaperConfig(configPath: string): EasyPaperConfigValues | undefined {
-  const fs = require('fs');
-  const yaml = require('js-yaml');
-  if (!fs.existsSync(configPath)) {
-    return undefined;
-  }
-  try {
-    const raw = fs.readFileSync(configPath, 'utf-8');
-    const data = yaml.load(raw) as any;
-    if (!data || typeof data !== 'object') {
-      return undefined;
-    }
-    const result: EasyPaperConfigValues = {
-      llmModelName: '',
-      llmApiKey: '',
-      llmBaseUrl: '',
-      vlmEnabled: false,
-      vlmModel: '',
-      vlmApiKey: '',
-      vlmBaseUrl: '',
-    };
-    // Extract LLM config from first agent
-    const agents = Array.isArray(data.agents) ? data.agents : [];
-    const firstModel = agents[0]?.model;
-    if (firstModel) {
-      result.llmModelName = firstModel.model_name || '';
-      result.llmApiKey = firstModel.api_key || '';
-      result.llmBaseUrl = firstModel.base_url || '';
-    }
-    // Extract VLM config
-    const vlm = data.vlm_service;
-    if (vlm && vlm.model) {
-      result.vlmEnabled = true;
-      result.vlmModel = vlm.model || '';
-      result.vlmApiKey = vlm.api_key || '';
-      result.vlmBaseUrl = vlm.base_url || '';
-    }
-    return result;
-  } catch {
-    return undefined;
-  }
-}
-
-function writeEasyPaperConfig(configPath: string, config: EasyPaperConfigValues): void {
-  const fs = require('fs');
-  const hasLlm = config.llmModelName?.trim() || config.llmApiKey?.trim() || config.llmBaseUrl?.trim();
-  if (!hasLlm) {
-    // No LLM config — delete the file if it exists
-    if (fs.existsSync(configPath)) {
-      fs.unlinkSync(configPath);
-    }
-    return;
-  }
-
-  const agentBlock = (name: string) => {
-    const entry: any = {
-      name,
-      model: {
-        model_name: config.llmModelName || '',
-        api_key: config.llmApiKey || '',
-        base_url: config.llmBaseUrl || '',
-      },
-    };
-    if (name === 'writer') {
-      entry.writer_config = {};
-    }
-    if (name === 'metadata') {
-      entry.metadata_config = {};
-    }
-    return entry;
-  };
-
-  const yamlObj: any = {
-    skills: {},
-    tools: {
-      table_critic_enabled: true,
-      table_rendered_review_enabled: true,
-      paper_search: { timeout: 15, search_results_per_round: 12 },
-      research_context: {},
-      core_ref_analysis: {},
-      docling: { enabled: true },
-      exemplar: { enabled: true },
-    },
-    agents: EASY_PAPER_AGENT_NAMES.map(agentBlock),
-  };
-
-  // vlm_review agent (no model if VLM disabled)
-  if (!config.vlmEnabled) {
-    yamlObj.agents.push({ name: 'vlm_review', vlm_review_config: { check_layout: true } });
-  } else {
-    yamlObj.agents.push({ name: 'vlm_review', vlm_review_config: { check_layout: true } });
-  }
-
-  // VLM service
-  if (config.vlmEnabled && (config.vlmModel?.trim() || config.vlmApiKey?.trim())) {
-    yamlObj.vlm_service = {
-      model: config.vlmModel || '',
-      api_key: config.vlmApiKey || '',
-      base_url: config.vlmBaseUrl || '',
-    };
-  }
-
-  // Generate YAML manually to preserve formatting
-  const yaml = require('js-yaml');
-  const content = yaml.dump(yamlObj, { lineWidth: 120, noRefs: true });
-  fs.writeFileSync(configPath, content, 'utf-8');
 }

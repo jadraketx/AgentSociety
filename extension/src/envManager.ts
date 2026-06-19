@@ -85,7 +85,7 @@ const OBSOLETE_ENV_KEYS = new Set([
  */
 export const DEFAULT_ENV_CONFIG: Partial<EnvConfig> = {
   llmApiBase: 'https://api.openai.com/v1',
-  llmModel: 'gpt-5.4',
+  llmModel: 'gpt-5.5',
   backendHost: '127.0.0.1',
   backendPort: 8001,
   backendLogLevel: 'info',
@@ -160,7 +160,12 @@ export class EnvManager {
 
       for (const [configKey, envName] of Object.entries(ENV_KEY_MAP)) {
         if (envName === envVar) {
-          if (configKey === 'backendPort' || configKey === 'backendPid' || configKey === 'embeddingDims') {
+          const numericKeys: (keyof EnvConfig)[] = [
+            'backendPort',
+            'backendPid',
+            'embeddingDims',
+          ];
+          if (numericKeys.includes(configKey as keyof EnvConfig) && value.trim() !== '') {
             (config as any)[configKey] = parseInt(value, 10);
           } else {
             (config as any)[configKey] = value;
@@ -293,7 +298,7 @@ AGENTSOCIETY_LLM_API_KEY=your-api-key-here
 # LLM API Base URL / LLM API 基础 URL
 AGENTSOCIETY_LLM_API_BASE=https://api.openai.com/v1
 # LLM Model Name / LLM 模型名称
-AGENTSOCIETY_LLM_MODEL=gpt-5.4
+AGENTSOCIETY_LLM_MODEL=gpt-5.5
 
 # ========== Coder LLM / Coder LLM (代码生成) ==========
 # Coder LLM for code generation / 用于代码生成的 LLM

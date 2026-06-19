@@ -81,6 +81,7 @@ const TREE_OPEN_AS_DOCUMENT_EXTS = new Set([
   'c', 'cc', 'cpp', 'cxx', 'cs', 'css', 'cts', 'go', 'h', 'hpp', 'ini', 'java', 'js',
   'jsx', 'kt', 'less', 'log', 'mjs', 'mts', 'php', 'py', 'rb', 'rs', 'r', 'sass', 'scala',
   'scss', 'sh', 'sql', 'swift', 'toml', 'ts', 'tsx', 'txt', 'vue', 'svelte',
+  'tex', 'bib', 'cls', 'bst',  // LaTeX document files
 ]);
 
 function workspaceRelativePosix(workspaceRoot: string, absolutePath: string): string {
@@ -135,6 +136,9 @@ function shouldShowFileByExt(fileName: string): boolean {
     '.bib',
     '.cls',
     '.bst',
+    '.cfg',
+    '.conf',
+    '.toml',
   ].includes(ext);
 }
 
@@ -931,14 +935,26 @@ export class ProjectItem extends vscode.TreeItem {
       this.iconPath = makeThemeIcon('list-tree', 'charts.blue');
     }
 
-    const useThemedFileIcon =
+    // For paper/file/paperArtifact types, use themed file icons based on extension.
+    // BUT: only set resourceUri (which overrides command) for binary/media files that
+    // don't have custom viewers. For text-based files with custom viewers, we set
+    // the command explicitly below.
+    const isPaperArtifactType = type === 'paper' || type === 'file' || type === 'paperArtifact';
+    const useThemedIcon =
       filePath &&
       fs.existsSync(filePath) &&
-      (type === 'paper' ||
-        type === 'file' ||
+      (isPaperArtifactType ||
         ((type === 'reportHtml' || type === 'reportMd') && !isDirectoryPath));
 
-    if (useThemedFileIcon) {
+    // Only set resourceUri for binary/media files — VSCode opens these natively
+    const mediaExts = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
+    const useResourceUri =
+      useThemedIcon &&
+      mediaExts.includes(ext) &&
+      type !== 'reportHtml' &&
+      type !== 'reportMd';
+
+    if (useResourceUri) {
       this.resourceUri = vscode.Uri.file(filePath);
       this.iconPath = undefined;
     }
@@ -951,7 +967,7 @@ export class ProjectItem extends vscode.TreeItem {
       type === 'analysisPhaseGroup' ||
       type === 'synthesisPhaseGroup';
 
-    if (filePath && collapsibleState === vscode.TreeItemCollapsibleState.None && !isHarnessStatusNode) {
+    if (filePath && collapsibleState === vscode.TreeItemCollapsibleState.None && !isHarnessStatusNode && !useResourceUri) {
       if (type === 'reportHtml' || (ext === 'html' && (type === 'presentationExperiment' || type === 'synthesis'))) {
         this.command = {
           command: 'aiSocialScientist.openHtmlReport',
@@ -988,7 +1004,7 @@ export class ProjectItem extends vscode.TreeItem {
             arguments: [vscode.Uri.file(filePath)]
           };
         } else {
-          // 其他 JSON 文件：使用通用可视化查看器
+          // 其他 JSON 文件（含 paper/analysis）：使用通用可视化查看器
           this.command = {
             command: 'aiSocialScientist.viewJsonFile',
             title: '查看 JSON',
@@ -1972,7 +1988,7 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
           paperDir
         );
         paperItem.tooltip = localize('projectStructure.paperWorkspace.tooltip');
-        paperItem.iconPath = makeThemeIcon('file-text', 'charts.purple');
+        paperItem.iconPath = makeThemeIcon('book', 'charts.purple');
         items.push(paperItem);
       }
 
@@ -3823,48 +3839,97 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
 function buildPaperWorkspaceChildren(paperDir: string): ProjectItem[] {
   const items: ProjectItem[] = [];
 
-  // Known top-level files with special labels
-  const specialFiles: { name: string; labelKey: string }[] = [
-    { name: 'paper.json', labelKey: 'projectStructure.paperState' },
-    { name: 'evidence_graph.json', labelKey: 'projectStructure.evidenceGraph' },
-    { name: 'research_pack.json', labelKey: 'projectStructure.researchPack' },
-    { name: 'main.tex', labelKey: 'projectStructure.paperMainTex' },
-    { name: 'refs.bib', labelKey: 'projectStructure.paperBib' },
+  // Paper-toolkit output files — actual names as produced by the paper skill
+  // Key: { fileName, labelKey, icon, iconColor }
+  // Multi-format files (e.g. claim_ledger.{md,json}) — prefer .json if both exist, fallback to .md
+  const specialFileCandidates: { name: string; labelKey: string; icon: string; iconColor?: string }[] = [
+    // State files
+    { name: 'paper_meta.yaml', labelKey: 'projectStructure.paperState', icon: 'book', iconColor: 'charts.purple' },
+    { name: 'state/paper_state.yaml', labelKey: 'projectStructure.paperState', icon: 'book', iconColor: 'charts.purple' },
+    // Storyline
+    { name: 'storyline_map.json', labelKey: 'projectStructure.analysisStoryline', icon: 'symbol-file', iconColor: 'charts.purple' },
+    { name: 'storyline_map.md', labelKey: 'projectStructure.analysisStoryline', icon: 'markdown', iconColor: 'charts.purple' },
+    // Claims
+    { name: 'claim_ledger.json', labelKey: 'projectStructure.analysisClaims', icon: 'checklist', iconColor: 'charts.green' },
+    { name: 'claim_ledger.md', labelKey: 'projectStructure.analysisClaims', icon: 'markdown', iconColor: 'charts.green' },
+    // Evidence
+    { name: 'evidence_backlog.json', labelKey: 'projectStructure.evidenceGraph', icon: 'graph', iconColor: 'charts.blue' },
+    { name: 'evidence_backlog.md', labelKey: 'projectStructure.evidenceGraph', icon: 'markdown', iconColor: 'charts.blue' },
+    // Figure argument map
+    { name: 'figure_argument_map.json', labelKey: 'projectStructure.paperFigureArgMap', icon: 'graph', iconColor: 'charts.orange' },
+    { name: 'figure_argument_map.md', labelKey: 'projectStructure.paperFigureArgMap', icon: 'markdown', iconColor: 'charts.orange' },
+    // Research pack
+    { name: 'research_pack.json', labelKey: 'projectStructure.researchPack', icon: 'archive', iconColor: 'charts.orange' },
+    // Human gates
+    { name: 'human_gates.yaml', labelKey: 'projectStructure.paperHumanGates', icon: 'feedback', iconColor: 'charts.red' },
+    // Main TeX
+    { name: 'main.tex', labelKey: 'projectStructure.paperMainTex', icon: 'file-code', iconColor: 'charts.green' },
+    // References
+    { name: 'refs.bib', labelKey: 'projectStructure.paperBib', icon: 'list-tree', iconColor: 'charts.yellow' },
+    // Venue
+    { name: 'venue.yaml', labelKey: 'projectStructure.paperVenue', icon: 'globe', iconColor: 'charts.blue' },
+    { name: 'paper_meta.yaml', labelKey: 'projectStructure.paperVenue', icon: 'globe', iconColor: 'charts.blue' },
   ];
 
-  for (const spec of specialFiles) {
+  // Track added labels to avoid duplicates (e.g. paper_meta.yaml + state/paper_state.yaml)
+  const addedLabels = new Set<string>();
+  for (const spec of specialFileCandidates) {
     const fullPath = path.join(paperDir, spec.name);
     if (!fs.existsSync(fullPath)) { continue; }
+    // If both .json and .md exist for the same label, prefer .json
+    if (addedLabels.has(spec.labelKey)) { continue; }
+    addedLabels.add(spec.labelKey);
+
     const item = new ProjectItem(
       localize(spec.labelKey),
       vscode.TreeItemCollapsibleState.None,
       'paperArtifact',
       fullPath
     );
-    // Enrich evidence_graph.json with node count
-    if (spec.name === 'evidence_graph.json') {
+    item.iconPath = makeThemeIcon(spec.icon, spec.iconColor);
+    // Enrich with counts
+    if (spec.name === 'evidence_backlog.json') {
       try {
         const data = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
-        const nodeCount = Array.isArray(data.nodes) ? data.nodes.length : 0;
-        item.description = `${nodeCount} nodes`;
+        const count = Array.isArray(data) ? data.length : (data.items ? data.items.length : 0);
+        if (count > 0) {item.description = `${count} items`;}
+      } catch { /* ignore */ }
+    }
+    if (spec.name === 'claim_ledger.json') {
+      try {
+        const data = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+        const claims = Array.isArray(data) ? data : (data.claims ?? []);
+        if (claims.length > 0) {item.description = `${claims.length} claims`;}
+      } catch { /* ignore */ }
+    }
+    if (spec.name === 'refs.bib') {
+      try {
+        const raw = fs.readFileSync(fullPath, 'utf-8');
+        const bibItemCount = (raw.match(/^@\w+\{/gm) || []).length;
+        if (bibItemCount > 0) {item.description = `${bibItemCount} entries`;}
       } catch { /* ignore */ }
     }
     items.push(item);
   }
 
-  // venue.yaml (optional)
-  const venuePath = path.join(paperDir, 'venue.yaml');
-  if (fs.existsSync(venuePath)) {
-    items.push(new ProjectItem('venue.yaml', vscode.TreeItemCollapsibleState.None, 'paperArtifact', venuePath));
-  }
-
-  // Template support files
-  const templateFiles = ['sn-jnl.cls', 'sn-nature.bst'];
-  for (const tplName of templateFiles) {
-    const tplPath = path.join(paperDir, tplName);
-    if (fs.existsSync(tplPath)) {
-      items.push(new ProjectItem(tplName, vscode.TreeItemCollapsibleState.None, 'paperArtifact', tplPath));
+  // Show any remaining .json / .yaml / .md / .tex / .bib files not already matched
+  const remainingEntries = listDirEntriesSafe(paperDir).filter(e => !shouldHideFsEntry(e));
+  for (const entry of remainingEntries) {
+    const fullPath = path.join(paperDir, entry);
+    const stat = safeStatSync(fullPath);
+    if (!stat || !stat.isFile()) { continue; }
+    if (!shouldShowFileByExt(entry)) { continue; }
+    // Skip if already added as a special file
+    if (addedLabels.has(entry)) { continue; }
+    // Skip template/class files
+    if (entry.endsWith('.cls') || entry.endsWith('.bst') || entry.endsWith('.sty')) {
+      const tplItem = new ProjectItem(entry, vscode.TreeItemCollapsibleState.None, 'paperArtifact', fullPath);
+      tplItem.iconPath = makeThemeIcon('gear', 'descriptionForeground');
+      items.push(tplItem);
+      continue;
     }
+    // Generic file
+    items.push(new ProjectItem(entry, vscode.TreeItemCollapsibleState.None, 'paperArtifact', fullPath));
   }
 
   // Known subdirectories with special labels
@@ -3877,22 +3942,42 @@ function buildPaperWorkspaceChildren(paperDir: string): ProjectItem[] {
     { name: 'compile_runs', type: 'paperCompileRuns', labelKey: 'projectStructure.paperCompileRuns' },
     { name: 'reviews', type: 'paperReviews', labelKey: 'projectStructure.paperReviews' },
     { name: 'lit', type: 'paperLit', labelKey: 'projectStructure.paperLit' },
+    { name: 'state', type: 'paperSections', labelKey: 'projectStructure.paperState' },
   ];
 
+  // Paper subdirectory icon map (mirrors ProjectItem constructor iconMap for paper types)
+  const paperSubIconMap: Record<string, string> = {
+    paperSections: 'symbol-file',
+    paperFigures: 'file-media',
+    paperFigureSpecs: 'symbol-file',
+    paperTables: 'table',
+    paperTableSpecs: 'symbol-file',
+    paperCompileRuns: 'output',
+    paperReviews: 'feedback',
+    paperLit: 'search',
+  };
   for (const sub of subDirs) {
     const fullPath = path.join(paperDir, sub.name);
     if (!fs.existsSync(fullPath) || !fs.statSync(fullPath).isDirectory()) { continue; }
     // Skip empty directories
+    let entryCount = 0;
     try {
       const entries = listDirEntriesSafe(fullPath).filter(e => !shouldHideFsEntry(e));
       if (entries.length === 0) { continue; }
+      entryCount = entries.length;
     } catch { continue; }
-    items.push(new ProjectItem(
+    const childItem = new ProjectItem(
       localize(sub.labelKey),
       vscode.TreeItemCollapsibleState.Collapsed,
       sub.type,
       fullPath
-    ));
+    );
+    childItem.iconPath = makeThemeIcon(
+      paperSubIconMap[sub.type] || 'folder',
+      'charts.purple'
+    );
+    childItem.description = `${entryCount}`;
+    items.push(childItem);
   }
 
   return items;
@@ -3912,6 +3997,7 @@ function buildPaperSubdirFileItems(dirPath: string): ProjectItem[] {
       const subItems = listDirEntriesSafe(fullPath).filter(e => !shouldHideFsEntry(e));
       if (subItems.length > 0) {
         const dirItem = new ProjectItem(entry, vscode.TreeItemCollapsibleState.Collapsed, 'analysisEda', fullPath);
+        dirItem.iconPath = makeThemeIcon('folder', 'charts.blue');
         items.push(dirItem);
       }
     } else if (shouldShowFileByExt(entry)) {
@@ -3940,6 +4026,7 @@ function buildPaperCompileRunsChildren(compileRunsDir: string): ProjectItem[] {
     if (!fs.statSync(runPath).isDirectory()) { continue; }
 
     const item = new ProjectItem(runName, vscode.TreeItemCollapsibleState.Collapsed, 'paperCompileRun', runPath);
+    item.iconPath = makeThemeIcon('file-pdf', 'charts.orange');
 
     // Check for compiled PDF and show status
     const pdfPath = path.join(runPath, 'main.pdf');
@@ -3980,12 +4067,21 @@ function buildAnalysisWorkspaceChildren(analysisDir: string): ProjectItem[] {
       const displayName = match
         ? `${localize('projectStructure.hypothesis')} ${match[1]}`
         : entry;
-      items.push(new ProjectItem(
+      const hypItem = new ProjectItem(
         displayName,
         vscode.TreeItemCollapsibleState.Collapsed,
         'analysisHypothesis',
         fullPath
-      ));
+      );
+      hypItem.iconPath = makeThemeIcon('lightbulb', 'charts.purple');
+      // Count experiments inside
+      try {
+        const expEntries = listDirEntriesSafe(fullPath).filter(e => !shouldHideFsEntry(e) && /^experiment_\d+$/.test(e));
+        if (expEntries.length > 0) {
+          hypItem.description = `${expEntries.length} experiments`;
+        }
+      } catch { /* ignore */ }
+      items.push(hypItem);
     } else if (entry === 'synthesis') {
       // Show synthesis_brief.json files directly
       const synEntries = listDirEntriesSafe(fullPath).filter(e => !shouldHideFsEntry(e));
@@ -3994,12 +4090,14 @@ function buildAnalysisWorkspaceChildren(analysisDir: string): ProjectItem[] {
         if (!fs.statSync(synHypPath).isDirectory()) { continue; }
         const briefPath = path.join(synHypPath, 'synthesis_brief.json');
         if (fs.existsSync(briefPath)) {
-          items.push(new ProjectItem(
+          const synItem = new ProjectItem(
             `${localize('projectStructure.analysisSynthesis')} — ${synEntry}`,
             vscode.TreeItemCollapsibleState.None,
             'paperArtifact',
             briefPath
-          ));
+          );
+          synItem.iconPath = makeThemeIcon('notebook', 'charts.purple');
+          items.push(synItem);
         }
       }
     }
@@ -4022,12 +4120,24 @@ function buildAnalysisHypothesisChildren(hypothesisDir: string): ProjectItem[] {
       const displayName = match
         ? `${localize('projectStructure.analysisExperiment')} ${match[1]}`
         : entry;
-      items.push(new ProjectItem(
+      const expItem = new ProjectItem(
         displayName,
         vscode.TreeItemCollapsibleState.Collapsed,
         'analysisExperiment',
         fullPath
-      ));
+      );
+      expItem.iconPath = makeThemeIcon('flame', 'charts.orange');
+      // Check for claims.json
+      if (fs.existsSync(path.join(fullPath, 'claims.json'))) {
+        try {
+          const claimsData = JSON.parse(fs.readFileSync(path.join(fullPath, 'claims.json'), 'utf-8'));
+          const claimCount = Array.isArray(claimsData) ? claimsData.length : 0;
+          if (claimCount > 0) {
+            expItem.description = `${claimCount} claims`;
+          }
+        } catch { /* ignore */ }
+      }
+      items.push(expItem);
     }
   }
   return items;
@@ -4037,22 +4147,24 @@ function buildAnalysisExperimentChildren(experimentDir: string): ProjectItem[] {
   const items: ProjectItem[] = [];
   if (!fs.existsSync(experimentDir)) { return items; }
 
-  // Special files with labels
-  const specialFiles: { name: string; labelKey: string }[] = [
-    { name: 'claims.json', labelKey: 'projectStructure.analysisClaims' },
-    { name: 'report_context.md', labelKey: 'projectStructure.analysisContext' },
-    { name: 'evidence_index.json', labelKey: 'projectStructure.evidenceGraph' },
+  // Special files with labels and icons
+  const specialFiles: { name: string; labelKey: string; icon: string; iconColor?: string }[] = [
+    { name: 'claims.json', labelKey: 'projectStructure.analysisClaims', icon: 'checklist', iconColor: 'charts.green' },
+    { name: 'report_context.md', labelKey: 'projectStructure.analysisContext', icon: 'note', iconColor: 'charts.blue' },
+    { name: 'evidence_index.json', labelKey: 'projectStructure.evidenceGraph', icon: 'graph', iconColor: 'charts.blue' },
   ];
 
   for (const spec of specialFiles) {
     const fullPath = path.join(experimentDir, spec.name);
     if (!fs.existsSync(fullPath)) { continue; }
-    items.push(new ProjectItem(
+    const item = new ProjectItem(
       localize(spec.labelKey),
       vscode.TreeItemCollapsibleState.None,
       'paperArtifact',
       fullPath
-    ));
+    );
+    item.iconPath = makeThemeIcon(spec.icon, spec.iconColor);
+    items.push(item);
   }
 
   // Generic config/state files
@@ -4069,12 +4181,14 @@ function buildAnalysisExperimentChildren(experimentDir: string): ProjectItem[] {
     try {
       const edaEntries = listDirEntriesSafe(edaDir).filter(e => !shouldHideFsEntry(e));
       if (edaEntries.length > 0) {
-        items.push(new ProjectItem(
+        const edaItem = new ProjectItem(
           localize('projectStructure.analysisEda'),
           vscode.TreeItemCollapsibleState.Collapsed,
           'analysisEda',
           edaDir
-        ));
+        );
+        edaItem.iconPath = makeThemeIcon('graph', 'charts.blue');
+        items.push(edaItem);
       }
     } catch { /* ignore */ }
   }

@@ -5,7 +5,6 @@ import * as vscode from 'vscode';
 import { requestJson } from './httpClient';
 import type {
   ConfigValues,
-  EasyPaperConfigValues,
   ImportedModelOptions,
   ImportedModelDefaults,
 } from '../webview/configPage/types';
@@ -87,7 +86,6 @@ export interface DeviceAuthStarted {
 export interface ImportedWebConfig {
   config: Partial<ConfigValues>;
   claudeConfig: Partial<ClaudeCodeConfigValues>;
-  easyPaperConfig: Partial<EasyPaperConfigValues>;
   modelOptions: ImportedModelOptions;
   defaults: Partial<ImportedModelDefaults>;
   authPath: string;
@@ -292,15 +290,6 @@ export class AgentsocietyWebConfigService {
         sonnetModel: this.pickModel(modelOptions.claudeCode, defaults.claudeCodeSonnet),
         opusModel: this.pickModel(modelOptions.claudeCode, defaults.claudeCodeOpus),
         haikuModel: this.pickModel(modelOptions.claudeCode, defaults.claudeCodeHaiku),
-      },
-      easyPaperConfig: {
-        llmModelName: this.pickModel(modelOptions.openaiCompatible, defaults.simulation),
-        llmApiKey: apiKey,
-        llmBaseUrl: apiBase,
-        vlmEnabled: true,
-        vlmModel: defaults.easyPaperVlm || 'deepseek-v4-flash',
-        vlmApiKey: apiKey,
-        vlmBaseUrl: apiBase,
       },
       modelOptions,
       defaults,

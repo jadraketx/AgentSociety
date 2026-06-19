@@ -422,7 +422,7 @@ class Config:
             # Configure fallback chain: coder -> default
             fallbacks = [{coder_model: [default_model]}]
 
-            logger.debug("Coder router models: %s", _router_model_names(model_list))
+            logger.debug("Coder router models: %s", _router_model_names(model_list))  # nosec: model_list only contains model names, no credentials
             return Router(
                 model_list=model_list,
                 fallbacks=fallbacks,
@@ -447,7 +447,7 @@ class Config:
                 },
             ]
 
-            logger.debug("Default router models: %s", _router_model_names(model_list))
+            logger.debug("Default router models: %s", _router_model_names(model_list))  # nosec: model_list only contains model names, no credentials
             return Router(
                 model_list=model_list,
                 cache_responses=True,

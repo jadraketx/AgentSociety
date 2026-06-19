@@ -1,0 +1,194 @@
+import * as React from 'react';
+import { Space, Typography } from 'antd';
+import type { VscodeThemePalette } from '../theme';
+
+const { Text } = Typography;
+
+export type ChartSeries = {
+  id: string;
+  label: string;
+  color: string;
+  values: number[];
+};
+
+export interface GatewayUsageChartProps {
+  title: string;
+  labels: string[];
+  series: ChartSeries[];
+  palette: VscodeThemePalette;
+  height?: number;
+  valueFormatter?: (n: number) => string;
+}
+
+function smoothPath(points: Array<{ x: number; y: number }>): string {
+  if (points.length === 0) {
+    return '';
+  }
+  if (points.length === 1) {
+    return `M ${points[0].x} ${points[0].y}`;
+  }
+  return points.slice(1).reduce((path, point, index) => {
+    const previous = points[index];
+    const midX = (previous.x + point.x) / 2;
+    return `${path} C ${midX} ${previous.y}, ${midX} ${point.y}, ${point.x} ${point.y}`;
+  }, `M ${points[0].x} ${points[0].y}`);
+}
+
+function niceMax(max: number): number {
+  if (max <= 0) {
+    return 1;
+  }
+  const magnitude = Math.pow(10, Math.floor(Math.log10(max)));
+  const normalized = max / magnitude;
+  const nice = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return nice * magnitude;
+}
+
+export function GatewayUsageChart({
+  title,
+  labels,
+  series,
+  palette,
+  height = 220,
+  valueFormatter = (n) => String(Math.round(n)),
+}: GatewayUsageChartProps) {
+  const chartId = React.useId().replace(/:/g, '');
+  const width = 760;
+  const padL = 56;
+  const padR = 18;
+  const padT = 18;
+  const padB = 42;
+  const innerW = width - padL - padR;
+  const innerH = height - padT - padB;
+  const bucketCount = Math.max(labels.length, 1);
+  const xStep = bucketCount > 1 ? innerW / (bucketCount - 1) : 0;
+  const seriesMax = Math.max(...series.flatMap((item) => item.values), 0);
+  const ymax = niceMax(seriesMax);
+  const yTicks = [0, 0.25, 0.5, 0.75, 1];
+  const labelStep = bucketCount <= 8 ? 1 : Math.ceil(bucketCount / 8);
+
+  return (
+    <div>
+      <div
+        style={{
+          background: palette.codeBlockBackground,
+          borderRadius: 8,
+          padding: '10px 12px 8px',
+          border: `1px solid ${palette.panelBorder}`,
+        }}
+      >
+        <svg
+          viewBox={`0 0 ${width} ${height}`}
+          width="100%"
+          style={{ display: 'block', minHeight: 190, maxHeight: height }}
+          role="img"
+          aria-label={title}
+        >
+          {yTicks.map((tick) => {
+            const y = padT + innerH * (1 - tick);
+            return (
+              <g key={tick}>
+                <line
+                  x1={padL}
+                  y1={y}
+                  x2={width - padR}
+                  y2={y}
+                  stroke={palette.panelBorder}
+                  strokeDasharray={tick === 0 ? undefined : '4 5'}
+                />
+                <text
+                  x={padL - 9}
+                  y={y + 4}
+                  textAnchor="end"
+                  fontSize={11}
+                  fill={palette.descriptionForeground}
+                >
+                  {valueFormatter(ymax * tick)}
+                </text>
+              </g>
+            );
+          })}
+          {labels.map((label, bucketIndex) => {
+            const centerX = bucketCount > 1 ? padL + xStep * bucketIndex : padL + innerW / 2;
+            return (
+              <g key={`${label}-${bucketIndex}`}>
+                {bucketIndex % labelStep === 0 || bucketIndex === labels.length - 1 ? (
+                  <text
+                    x={centerX}
+                    y={height - 14}
+                    textAnchor="middle"
+                    fontSize={11}
+                    fill={palette.descriptionForeground}
+                  >
+                    {label}
+                  </text>
+                ) : null}
+              </g>
+            );
+          })}
+          {series.map((item) => {
+            const points = labels.map((_, index) => ({
+              x: bucketCount > 1 ? padL + xStep * index : padL + innerW / 2,
+              y: padT + innerH * (1 - (item.values[index] ?? 0) / ymax),
+            }));
+            const path = smoothPath(points);
+            const areaPath =
+              points.length > 1
+                ? `${path} L ${points[points.length - 1].x} ${padT + innerH} L ${points[0].x} ${padT + innerH} Z`
+                : '';
+            return (
+              <g key={item.id}>
+                <defs>
+                  <linearGradient id={`${chartId}-${item.id}`} x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor={item.color} stopOpacity="0.16" />
+                    <stop offset="100%" stopColor={item.color} stopOpacity="0" />
+                  </linearGradient>
+                </defs>
+                {areaPath ? <path d={areaPath} fill={`url(#${chartId}-${item.id})`} /> : null}
+                <path
+                  d={path}
+                  fill="none"
+                  stroke={item.color}
+                  strokeWidth={2.2}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+                {points.map((point, index) => (
+                  <circle
+                    key={`${item.id}-${index}`}
+                    cx={point.x}
+                    cy={point.y}
+                    r={labels.length <= 12 ? 3 : 2}
+                    fill={item.color}
+                    stroke={palette.codeBlockBackground}
+                    strokeWidth={1.5}
+                  >
+                    <title>{`${labels[index]} · ${item.label}: ${valueFormatter(item.values[index] ?? 0)}`}</title>
+                  </circle>
+                ))}
+              </g>
+            );
+          })}
+        </svg>
+        <Space size={[14, 4]} wrap>
+          {series.map((item) => (
+            <Space key={item.id} size={5}>
+              <span
+                style={{
+                  width: 9,
+                  height: 9,
+                  borderRadius: 2,
+                  background: item.color,
+                  display: 'inline-block',
+                }}
+              />
+              <Text type="secondary" style={{ fontSize: 11 }}>
+                {item.label} · {valueFormatter(item.values.reduce((sum, value) => sum + value, 0))}
+              </Text>
+            </Space>
+          ))}
+        </Space>
+      </div>
+    </div>
+  );
+}

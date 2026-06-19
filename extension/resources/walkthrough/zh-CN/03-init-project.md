@@ -17,8 +17,13 @@ your-project/
 ├── papers/                 # 文献资料
 │   ├── pdf/               # PDF 原文
 │   └── md/                # Markdown 笔记
+├── paper/                  # 论文工作区（使用 paper-toolkit 时自动创建）
+│   ├── sections/          # 论文章节
+│   ├── reviews/           # 审稿意见（右键可查看结构化 review）
+│   └── compile_runs/      # 编译产物
 ├── experiment/             # 实验配置与结果
 ├── output/                 # 输出文件
+├── .agentsociety/          # 分析 harness 机器状态（使用分析技能时自动创建）
 ├── TOPIC.md               # 研究话题描述
 └── init/
     └── init_config.json   # 项目初始化配置

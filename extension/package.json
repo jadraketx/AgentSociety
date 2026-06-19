@@ -2,7 +2,7 @@
   "name": "ai-social-scientist",
   "displayName": "AI Social Scientist",
   "description": "AI Social Scientist - Next-generation human-AI interaction interface for social science research",
-  "version": "1.5.4",
+  "version": "1.5.5",
   "publisher": "tsinghua-fib-lab",
   "repository": {
     "type": "git",
@@ -131,8 +131,8 @@
           },
           {
             "id": "claudeCode",
-            "title": "连接 Claude Code",
-            "description": "让 Claude Code 读取项目技能，并通过 MCP 连接本地后端，作为默认编码与研究协作入口。",
+            "title": "连接 Claude / Codex",
+            "description": "配置 Claude Code、Codex CLI 与本地 AI Gateway，共享供应商并按工具应用路由。",
             "media": {
               "markdown": "resources/walkthrough/zh-CN/07-claude-code.md"
             },
@@ -429,6 +429,11 @@
           "group": "2_actions"
         },
         {
+          "command": "aiSocialScientist.openTreeFileInEditor",
+          "when": "view == projectStructureView && viewItem =~ /^paperArtifact /",
+          "group": "2_actions"
+        },
+        {
           "command": "aiSocialScientist.openMarkdownInEditor",
           "when": "view == projectStructureView && viewItem =~ /markdown/ && viewItem != 'experiment markdown'",
           "group": "2_actions"
@@ -676,16 +681,19 @@
   "scripts": {
     "vscode:prepublish": "npm run build",
     "build": "npm run compile && npm run build-webview",
+    "rebuild": "npm run clean && npm run build",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "dev": "concurrently -k -n tsc,webview \"npm:watch\" \"npm:watch-webview\"",
+    "clean": "node ./scripts/clean.js",
+    "clean:dry-run": "node ./scripts/clean.js --dry-run",
+    "clean:deep": "node ./scripts/clean.js --deep",
     "clean-webview": "node -e \"const fs=require('fs'); fs.rmSync('out/webview', { recursive: true, force: true }); fs.mkdirSync('out/webview', { recursive: true });\"",
     "build-webview": "npm run clean-webview && NODE_ENV=production NODE_OPTIONS=--max-old-space-size=8192 node ./node_modules/webpack/bin/webpack.js --mode production",
     "watch-webview": "NODE_ENV=development NODE_OPTIONS=--max-old-space-size=4096 webpack --mode development --watch",
     "package": "vsce package -o ai-social-scientist.vsix",
-    "pretest": "npm run compile && npm run lint",
     "lint": "eslint src",
-    "test": "node ./out/test/runTest.js"
+    "test:codex-bridge": "npm run compile && node --test test-codex-responses-bridge.js"
   },
   "devDependencies": {
     "@eslint/js": "^9.0.0",
