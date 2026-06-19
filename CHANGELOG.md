@@ -14,6 +14,45 @@ Git 发版标签：`agentsociety2-v{major}.{minor}.{patch}`（见 `CONTRIBUTING.
 
 ## [Unreleased]
 
+## [2.5.5] - 2026-06-19
+
+- **extension** `1.5.5`
+
+### Added
+
+- **extension**：统一供应商管理面板，所有供应商共享一个列表，无需重复添加。
+- **extension**：供应商卡片使用简洁的开关控制 Claude/Codex 角色激活，支持一键切换主供应商。
+- **extension**：故障转移设置移至路由面板中，打开故障转移后显式选择备选供应商。
+- **extension**：定价面板新增缓存读取/写入价格字段，支持手动刷新远程定价（OpenRouter / LiteLLM）。
+- **extension**：论文工作区树视图全面优化，匹配 paper-toolkit 实际输出文件名（`paper_meta.yaml`、`claim_ledger.json`、`evidence_backlog.json` 等）。
+- **extension**：新增 `PaperArtifactViewer` 专用查看器，根据文件名自动选择展示模式（论文状态、研究包、主张列表、审阅结果、证据图谱等）。
+- **extension**：补充 `projectStructure` 缺失的 i18n 翻译（分析工作区、叙事线、图表-主张映射等）。
+
+### Changed
+
+- **extension**：移除 Claude/Codex 子 Tab，路由开关整合到统一的网关面板中。
+- **extension**：优化 JSON/YAML/CSV 查看器：YAML 新增可折叠树形和搜索，CSV 新增列排序和搜索过滤。
+- **extension**：论文/分析工作区节点图标全面应用语义色彩（紫色 paper、蓝色 analysis、橙色 flame 等）。
+- **extension**：新增 `.tex`、`.bib`、`.cls`、`.bst`、`.cfg`、`.conf`、`.toml` 文件在树视图中的显示支持。
+
+### Removed
+
+- **extension**：移除 EasyPaper 配置页及相关代码（Python 后端已不再使用）。
+- **extension**：移除 `AiCliToolProxySection` 组件（内联到路由面板中）。
+
+### Fixed
+
+- **extension**：修复 `paperArtifact` 文件节点 `resourceUri` 覆盖自定义 `command` 导致专用查看器被绕过的问题。
+- **extension**：修复 `AiCliConfigSection` 中 `t`/`palette`/`providers` 解构导致子组件收到 `undefined` 的运行时错误。
+- **extension**：修复论文工作区文件名与实际 paper-toolkit 输出不匹配导致文件不显示的问题。
+- **extension**：修复配置页编译错误与 ESLint `curly` 警告。
+
+### Security
+
+- 升级依赖修复 26+ 个安全漏洞：`litellm`、`chromadb`、`urllib3`、`cryptography`、`tornado`、`aiohttp`、`starlette`、`python-multipart`、`pyjwt`、`idna`、`pytest`、`ray`、`filelock`、`python-dotenv`、`vite` 等。
+- 修复 `path_security.py` 路径穿越检查顺序问题。
+- 修复 `config.py` 敏感信息日志 CodeQL 告警。
+
 ## [2.5.4] - 2026-06-09
 
 - **agentsociety2** `2.5.4` · **extension** `1.5.4` · 标签 `agentsociety2-v2.5.4`
