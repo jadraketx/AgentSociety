@@ -25,6 +25,7 @@ Write the Agent code.
 
 ## Code Quality
 
+- **Inherit ONLY from `AgentBase` or `PersonAgent`.** Never subclass an existing agent (contrib agent or another custom agent) to reuse behaviour. Read similar agents as **references** and re-implement the methods (`ask`, `step`, `restore`, `to_workspace`, `build_react_messages`, …) yourself in the new file. The validator enforces a direct `AgentBase`/`PersonAgent` base, and subclassing drops inherited contracts (notably env `@tool` interaction setup). Rewrite from scratch.
 - Use async for all required methods (`to_workspace`, `ask`, `step`)
 - State setup goes in `restore`
 - Use current framework skill runtime and LLM role APIs

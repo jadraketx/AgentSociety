@@ -14,7 +14,7 @@ Before writing code:
 Generation rules:
 
 - Keep the class definition in the target file itself.
-- Inherit from `EnvBase`.
+- **Inherit ONLY from `EnvBase`.** Never subclass an existing env module, a contrib module (e.g. `SocialMediaEnv`, `MobilitySpaceEnv`, `PublicGoodsEnv`), or any other concrete env class. Read such modules as **references** and re-implement the methods (`@tool`s, `step()`, state setup) yourself in the new file. Reason: `EnvMeta` only collects `@tool` methods from the class's own namespace and overwrites the registry on each subclass, so any tool you inherit is silently dropped — see `references/pitfalls.md` P5.
 - Preserve `class_name` as the registry key.
 - Include at least one legal `@tool`.
 - Provide `step()`.

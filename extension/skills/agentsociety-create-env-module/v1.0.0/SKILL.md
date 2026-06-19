@@ -67,15 +67,23 @@ If the scale budget is missing, ask a single round of clarifying questions. Pres
 ## Runtime Contract
 - Final generated env code must land in `custom/envs/*.py`.
 - The class must be defined in that file directly and registered by its `class_name`.
+- **Inherit ONLY from `EnvBase`. Never subclass an existing env module, a contrib module (e.g. `SocialMediaEnv`, `MobilitySpaceEnv`), or any other concrete/custom env class.** Copy and rewrite the logic you need from scratch, using those modules as *references* only. This is mandatory — see *No-Inheritance Rule* below.
 - Do not invent a package-style output format for the generated environment.
 - If the environment exposes tools agents must invoke, bundle an agent skill under `custom/envs/<module>_agent_skills/<skill>/SKILL.md`. That `SKILL.md` **must** start with YAML frontmatter declaring `name` + `description`, or agents will never discover it. See `stages/generate.md` → *Bundled Agent Skills*.
 - Prefer validating through `.agentsociety/bin/ags.py create-env-module-validate`, and use run artifacts only when they add review value.
+
+## No-Inheritance Rule (mandatory)
+
+When you create or revise a module, the class **must inherit directly from `EnvBase`** — never from an existing environment class. If a contrib/custom module already does something similar, **read it as a reference and re-implement the methods yourself** in the new file; do **not** write `class MyModule(SomeExistingEnv)`.
+
+**Why this is non-negotiable:** `EnvBase`'s metaclass (`EnvMeta`) discovers `@tool`-decorated methods by walking **only the class's own `namespace`** at class-creation time, and it **overwrites** `_registered_tools` on every subclass. Inherited `@tool` methods are therefore **never registered** on the subclass — every tool the new module was supposed to inherit silently disappears from the registry, and the env is effectively non-functional even though the code "looks fine". Re-declaring a tool with the same name in the subclass does not fix it either; rewrite the body. Full details: `references/pitfalls.md` P5.
 
 Use the Python interpreter from `.env`. See `CLAUDE.md` for setup.
 
 ## Common Mistakes
 | Mistake | Fix |
 |---------|-----|
+| Subclassing an existing env module / contrib class (`class MyEnv(SocialMediaEnv)`) to reuse its tools | Don't. The metaclass only collects `@tool` methods from the class's own namespace and overwrites the registry on subclasses, so all inherited tools silently vanish. Rewrite the methods yourself in the new file, inheriting ONLY from `EnvBase` — see `references/pitfalls.md` P5 |
 | Creating package-style directory output (`__init__.py` + submodules) | Write a single `custom/envs/<module>.py` file |
 | Skipping validation after code generation | Always run `.agentsociety/bin/ags.py create-env-module-validate` before finishing |
 | Forgetting `@tool` decorator on environment methods | Every public method agents can call needs `@tool(readonly=...)` |

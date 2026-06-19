@@ -28,7 +28,7 @@ Run `$PYTHON_PATH .agentsociety/bin/ags.py create-env-module-resolve-sources` if
 ## Output Rules
 
 1. Write a **single file** at `custom/envs/<module_name>.py`
-2. Inherit from `EnvBase`
+2. **Inherit ONLY from `EnvBase`.** Never subclass an existing env module, a contrib module (e.g. `SocialMediaEnv`, `MobilitySpaceEnv`, `PublicGoodsEnv`), or any other concrete env class. Read such modules as **references** and re-implement every method (`@tool`s, `step()`, state setup) in this file yourself. This is mandatory: `EnvMeta` collects `@tool` methods from the class's own namespace only and overwrites the registry on each subclass, so any inherited tool silently disappears (see `references/pitfalls.md` P5).
 3. Preserve `class_name` as the registry key
 4. Include at least one `@tool`-decorated method
 5. Provide `step()` method

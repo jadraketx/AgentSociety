@@ -140,9 +140,75 @@ The agent side has the complementary fix: either rename variables when calling, 
 
 ---
 
+## P5 — Inheritance drops inherited `@tool` methods: inherit ONLY from `EnvBase`
+
+`EnvBase` uses the `EnvMeta` metaclass. At class-creation time it discovers `@tool`-decorated methods by iterating **only the class's own `namespace`** (the methods literally written in that `class` body) — and it **overwrites** `_registered_tools` / `_readonly_tools` / `_tool_kinds` on every subclass rather than merging with the base.
+
+```python
+# agentsociety2/env/base.py
+class EnvMeta(type):
+    def __new__(cls, name, bases, namespace, **kwargs):
+        new_class = super().__new__(cls, name, bases, namespace, **kwargs)
+        registered_tools = {}
+        ...
+        for attr_name, attr_value in namespace.items():          # own namespace ONLY
+            if callable(attr_value) and hasattr(attr_value, "_tool_info"):
+                ...
+        new_class._registered_tools = registered_tools           # OVERWRITES, never merges
+```
+
+### Anti-pattern — subclass an existing module to "reuse" its tools
+
+```python
+from agentsociety2.contrib.env.social_media import SocialMediaEnv
+
+class MySocialMedia(SocialMediaEnv):      # ✗ inherited @tool methods vanish
+    @tool(readonly=False)
+    async def boost(self, agent_id: str, post_id: str) -> dict:
+        ...
+        return {"status": "success"}
+```
+
+`MySocialMedia` will expose **only** `boost`. Every `@tool` inherited from `SocialMediaEnv` (`post`, `repost`, `comment`, `like`, `follow`, `refresh_feed`, …) is **silently dropped** from the registry because none of them are in `MySocialMedia`'s own `namespace`. The class imports cleanly, validation may pass, and agents simply cannot call the inherited tools — the env looks alive but is effectively non-functional.
+
+Re-declaring a tool with the same name in the subclass to "shadow" it does not bring back the others either.
+
+### Right pattern — rewrite from scratch, use the existing module only as a reference
+
+```python
+from agentsociety2.env import EnvBase, tool
+
+# Read agentsociety2.contrib.env.social_media as a REFERENCE, then re-implement
+# every tool the new module needs in THIS class body.
+
+class MySocialMedia(EnvBase):             # ✓ direct EnvBase only
+    def __init__(self, ...):
+        ...
+
+    @tool(readonly=False)
+    async def post(self, agent_id: str, content: str) -> dict:   # re-implemented here
+        ...
+        return {"status": "success"}
+
+    @tool(readonly=False)
+    async def repost(self, agent_id: str, post_id: str) -> dict: # re-implemented here
+        ...
+        return {"status": "success"}
+
+    # ...copy/rewrite every tool you need into this file's class body...
+```
+
+### How to check
+
+1. Confirm the `class` line names `EnvBase` and **no** other env class: `grep -n "^class " custom/envs/<module>.py`.
+2. Confirm every tool the module promises to expose is defined **inside the class body of that file**, not inherited.
+
+---
+
 ## Quick self-audit (before validate)
 
 1. Grep your file for `return True`, `return False`, `return {"success":`. Any hit in a `@tool`-decorated method is a P1 bug.
 2. Read your `description()` / `init_description()` and tool docstrings. Are operations in prose with bold names, or as Python literals?
 3. For every `@tool(readonly=False)` method, identify the write line. Is it idempotent under same-step repeat? If not, add a dedup key or last-write-wins buffer.
 4. If you have two or more write tools, do they share argument names? If yes, rename or document the collision risk.
+5. `grep -n "^class " custom/envs/<module>.py` — the only base class on that line must be `EnvBase`. If it names any other env/contrib class, rewrite the inherited tools into the file yourself (P5).

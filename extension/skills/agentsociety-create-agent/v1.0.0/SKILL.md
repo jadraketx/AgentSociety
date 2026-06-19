@@ -73,6 +73,8 @@ digraph create_agent_flow {
 | `AgentBase` | Simple behavior, games/benchmarks, you manage state yourself |
 | `PersonAgent` | Skills, tool loops, workspace, checkpoint/WAL, heavier runtime |
 
+**Inherit ONLY from `AgentBase` or `PersonAgent`.** Never subclass an existing agent — neither a contrib agent (e.g. `PublicGoodsAgent`) nor another custom agent in `custom/agents/`. If a similar agent already exists, read it as a **reference** and re-implement the methods (`ask`, `step`, `restore`, `to_workspace`, `build_react_messages`, …) yourself in the new file. The validator rejects anything that is not a **direct** `AgentBase`/`PersonAgent` subclass, but more importantly: env `@tool` discovery and the agent's own registration treat each class by its own namespace, so an agent that "inherits to reuse" behaviour silently loses the inherited contract. Rewrite from scratch.
+
 Required and optional methods, LLM/env APIs, config: use **`references/agent-base-interface.md`** as the single detailed source (avoids duplicating it here).
 
 ## Environment and Profile
@@ -159,6 +161,7 @@ For the full human checklist see `stages/validate.md` and `checklists/compatibil
 
 | Mistake | Fix |
 |---------|-----|
+| Subclassing an existing agent (contrib or another custom agent) to reuse behaviour | Don't. The validator requires a **direct** `AgentBase`/`PersonAgent` base, and inherited contracts (e.g. env `@tool` interaction setup) are not carried over reliably through subclassing. Rewrite the methods yourself in the new file, inheriting ONLY from `AgentBase` or `PersonAgent` |
 | Putting runtime state in construction code | Put state setup in `restore(self, workspace_path, service_proxy)` and persist state through `to_workspace` |
 | Reusing `run_react_loop` without overriding `build_react_messages` | The base raises `NotImplementedError`. Always override `build_react_messages` when you call `run_react_loop` |
 | Using intermediate base classes that fail the AST validation rule | Ensure direct inheritance from `AgentBase` or `PersonAgent`, or follow the MRO note in `stages/validate.md` |

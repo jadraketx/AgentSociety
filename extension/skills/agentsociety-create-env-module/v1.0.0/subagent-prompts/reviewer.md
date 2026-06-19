@@ -17,13 +17,13 @@ The orchestrator will provide:
 1. The generated env module file (primary review target)
 2. `checklists/compatibility.md` -- Full compatibility checklist
 3. `references/persistence-patterns.md` -- State persistence patterns (if module has mutable state)
-4. `references/pitfalls.md` -- Four production-class bugs to check against (return shape, instruction style, same-step idempotency, variable-name cache collision)
+4. `references/pitfalls.md` -- Five production-class bugs to check against (return shape, instruction style, same-step idempotency, variable-name cache collision, inheritance drops `@tool`s)
 
 ## Review Dimensions
 
 ### 1. Interface Compliance
 
-- [ ] Class inherits `EnvBase` directly
+- [ ] Class inherits `EnvBase` directly and ONLY from `EnvBase` — the `class` line must name no other env/contrib class (e.g. NOT `class MyEnv(SocialMediaEnv)`). Subclassing an existing env silently drops every inherited `@tool` from the registry — see `references/pitfalls.md` P5. Flag as CRITICAL and require rewriting from scratch.
 - [ ] At least one `@tool`-decorated method exists
 - [ ] `step()` method is present
 - [ ] `__init__` works without required args (`**kwargs` pattern)

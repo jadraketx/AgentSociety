@@ -27,7 +27,7 @@ The orchestrator will provide:
 - [ ] Runtime state is restored from the workspace and persisted through `to_workspace`
 - [ ] Skill and LLM access use the current framework APIs
 - [ ] If `run_react_loop` is reused, `build_react_messages` is overridden
-- [ ] Inheritance is direct from `AgentBase` or `PersonAgent` (no intermediate bases)
+- [ ] Inheritance is direct from `AgentBase` or `PersonAgent` ONLY — the `class` line must name no contrib agent and no other custom agent (no intermediate bases, no `class MyAgent(ExistingAgent)`). Flag as CRITICAL and require a from-scratch rewrite if it subclasses an existing agent.
 
 ### 2. Design Consistency
 

@@ -28,7 +28,7 @@ Before writing code, read these files for reference:
 
 1. Write a **single file** at `custom/agents/<agent_name>.py`
 2. Use **exact class name** from the design (PascalCase)
-3. Inherit directly from `AgentBase` or `PersonAgent` (no intermediate bases)
+3. **Inherit ONLY from `AgentBase` or `PersonAgent` (no intermediate bases, no existing agent subclasses).** Never subclass an existing agent — neither a contrib agent (e.g. `PublicGoodsAgent`) nor another custom agent in `custom/agents/`. Read similar agents in `references/examples.md` as **references** and re-implement the methods yourself in this file. Subclassing to "reuse" behaviour drops inherited contracts (notably env `@tool` interaction setup) and fails the validator.
 4. The three required abstracts must be `async def`: `to_workspace`, `ask`, `step`
 5. Put runtime state setup in `restore`
 6. Use the current `skill_runtime` and configured LLM roles exposed by the framework

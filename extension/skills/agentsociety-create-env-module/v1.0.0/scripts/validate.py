@@ -517,6 +517,29 @@ def build_scan_diagnostic(module_path: str, file_path: Path, cls: type[Any]) -> 
             }
         )
 
+    # Direct-base check: EnvMeta collects @tool methods from the class's own
+    # namespace only and overwrites the registry on every subclass, so an env
+    # that inherits from another env (instead of EnvBase directly) silently
+    # drops every inherited tool. Require EnvBase as a direct base.
+    direct_bases = [b for b in cls.__bases__]
+    if EnvBase not in direct_bases:
+        other_env_bases = [b.__name__ for b in direct_bases if b is not EnvBase]
+        issues.append(
+            {
+                "code": "indirect_env_base",
+                "message": (
+                    f"{cls.__name__} 必须直接继承 EnvBase（当前直接基类: "
+                    f"{', '.join(other_env_bases) or 'none'}）。EnvMeta 元类只收集"
+                    f"类自身 namespace 内的 @tool 方法并在子类上覆盖注册表，因此"
+                    f"继承自其它 env 类会导致基类的 @tool 装饰器不被识别、工具静默"
+                    f"丢失。请参照该类作为参考，在本文件中重新实现所需的 @tool 方法。"
+                ),
+                "severity": "error",
+                "check": "direct_env_base",
+                "details": {"direct_bases": [b.__name__ for b in direct_bases]},
+            }
+        )
+
     issues.extend(static_audit_tool_returns(file_path, cls.__name__))
 
     accepted = not any(issue["severity"] == "error" for issue in issues)
