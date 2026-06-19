@@ -184,7 +184,7 @@ export const ClaudeCodeConfigSection: React.FC<ClaudeCodeConfigSectionProps> = (
           >
             <AutoComplete
               placeholder={t('claudeCodeConfig.selectOrManual')}
-              options={modelOptions.map((model) => ({ value: model }))}
+              options={(modelOptions ?? []).map((model) => ({ value: model }))}
               filterOption={(input, option) =>
                 String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())
               }

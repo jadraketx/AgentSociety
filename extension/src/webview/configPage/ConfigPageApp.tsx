@@ -1459,7 +1459,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
               <Form.Item name="llmModel" label={t('configPage.llm.modelName')}>
                 <AutoComplete
                   placeholder={t('configPage.llm.modelPlaceholder')}
-                  options={modelOptions.openaiCompatible.map((model) => ({ value: model }))}
+                  options={(modelOptions?.openaiCompatible ?? []).map((model) => ({ value: model }))}
                   filterOption={(input, option) =>
                     String(option?.value ?? '').toLowerCase().includes(input.toLowerCase())
                   }
