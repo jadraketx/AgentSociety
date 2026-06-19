@@ -72,7 +72,7 @@ export class PaperArtifactViewer {
       'evidence_graph.json': isZh ? '证据图谱' : 'Evidence graph',
       'run.json': isZh ? '编译记录' : 'Compile run',
     };
-    if (titles[fileName]) return titles[fileName];
+    if (titles[fileName]) {return titles[fileName];}
     if (fileName.startsWith('review_') && fileName.endsWith('.json')) {
       return isZh ? '审阅结果' : 'Review';
     }
@@ -91,16 +91,16 @@ export class PaperArtifactViewer {
       return this.errorHtml(error || 'No data', filePath, isZh);
     }
 
-    if (fileName === 'paper_meta.yaml' || fileName === 'paper_state.yaml') return this.renderPaperState(data, filePath, isZh);
-    if (fileName === 'research_pack.json') return this.renderResearchPack(data, filePath, isZh);
-    if (fileName === 'claim_ledger.json' || fileName === 'claims.json') return this.renderClaims(data, filePath, isZh);
-    if (fileName === 'synthesis_brief.json') return this.renderSynthesisBrief(data, filePath, isZh);
-    if (fileName === 'evidence_index.json' || fileName === 'evidence_graph.json' || fileName === 'evidence_backlog.json') return this.renderEvidenceGraph(data, filePath, isZh);
-    if (fileName === 'figure_argument_map.json') return this.renderFigureArgMap(data, filePath, isZh);
-    if (fileName === 'storyline_map.json') return this.renderStoryline(data, filePath, isZh);
-    if (fileName.startsWith('review_') && (fileName.endsWith('.json') || fileName.endsWith('.yaml'))) return this.renderReview(data, filePath, isZh);
-    if (fileName === 'run.json') return this.renderCompileRun(data, filePath, isZh);
-    if (fileName === 'human_gates.yaml') return this.renderHumanGates(data, filePath, isZh);
+    if (fileName === 'paper_meta.yaml' || fileName === 'paper_state.yaml') {return this.renderPaperState(data, filePath, isZh);}
+    if (fileName === 'research_pack.json') {return this.renderResearchPack(data, filePath, isZh);}
+    if (fileName === 'claim_ledger.json' || fileName === 'claims.json') {return this.renderClaims(data, filePath, isZh);}
+    if (fileName === 'synthesis_brief.json') {return this.renderSynthesisBrief(data, filePath, isZh);}
+    if (fileName === 'evidence_index.json' || fileName === 'evidence_graph.json' || fileName === 'evidence_backlog.json') {return this.renderEvidenceGraph(data, filePath, isZh);}
+    if (fileName === 'figure_argument_map.json') {return this.renderFigureArgMap(data, filePath, isZh);}
+    if (fileName === 'storyline_map.json') {return this.renderStoryline(data, filePath, isZh);}
+    if (fileName.startsWith('review_') && (fileName.endsWith('.json') || fileName.endsWith('.yaml'))) {return this.renderReview(data, filePath, isZh);}
+    if (fileName === 'run.json') {return this.renderCompileRun(data, filePath, isZh);}
+    if (fileName === 'human_gates.yaml') {return this.renderHumanGates(data, filePath, isZh);}
 
     // Fallback: generic JSON tree
     return this.renderGenericJson(data, filePath, isZh);

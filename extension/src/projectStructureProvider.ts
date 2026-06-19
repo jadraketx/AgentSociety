@@ -3892,21 +3892,21 @@ function buildPaperWorkspaceChildren(paperDir: string): ProjectItem[] {
       try {
         const data = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
         const count = Array.isArray(data) ? data.length : (data.items ? data.items.length : 0);
-        if (count > 0) item.description = `${count} items`;
+        if (count > 0) {item.description = `${count} items`;}
       } catch { /* ignore */ }
     }
     if (spec.name === 'claim_ledger.json') {
       try {
         const data = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
         const claims = Array.isArray(data) ? data : (data.claims ?? []);
-        if (claims.length > 0) item.description = `${claims.length} claims`;
+        if (claims.length > 0) {item.description = `${claims.length} claims`;}
       } catch { /* ignore */ }
     }
     if (spec.name === 'refs.bib') {
       try {
         const raw = fs.readFileSync(fullPath, 'utf-8');
         const bibItemCount = (raw.match(/^@\w+\{/gm) || []).length;
-        if (bibItemCount > 0) item.description = `${bibItemCount} entries`;
+        if (bibItemCount > 0) {item.description = `${bibItemCount} entries`;}
       } catch { /* ignore */ }
     }
     items.push(item);
