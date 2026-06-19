@@ -43,13 +43,14 @@ AI Social Scientist 的日常操作都从**左侧活动栏**开始。这里负�
 ├── 📂 papers/            → 文献资料
 │   ├── 📂 pdf/           → PDF 原文
 │   └── 📂 md/            → Markdown 笔记
-├── 📂 paper/             → 论文工作区（sections、reviews 等，右键查看 review 详情）
+├── 📂 paper/             → 论文工作区（章节、图表、表格、编译记录、审阅）
+├── 📂 analysis/          → 分析工作区（假设、实验、EDA、综合归纳）
 ├── 📂 hypothesis_xxx/    → 研究假设
 │   └── 📂 experiment_xxx/ → 实验（点击可回放）
 ├── 📂 custom/skills/     → 已安装的技能
 └── 📂 .agentsociety/     → 分析 harness 状态（自动维护）
 ```
 
-> 💡 右键点击文件可以看到更多操作：复制路径、在文件管理器中打开、格式化 JSON、打开回放、查看证据图等。
+> 💡 点击文件可直接查看：JSON/YAML 可折叠树形查看、CSV 可排序搜索、Markdown 预览、HTML 报告。右键查看更多操作。
 
 [打开侧边栏](command:projectStructureView.focus)

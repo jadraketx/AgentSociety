@@ -55,12 +55,12 @@ AI Social Scientist 是 LLM 驱动的智能自主社会科学研究智能体，�
    启动扩展后，使用命令 **「AI Social Scientist: 打开配置」** 打开统一配置页：
 
    - **默认 LLM**（必填）：API Key / API Base / Model
-   - **高级配置**：专用模型、Python 环境、学术文献检索（MCP）、Claude Code（`~/.claude/settings.json`）
+   - **高级配置**：专用模型（Coder / Embedding）、Python 环境、学术文献检索（MCP）、Claude Code & Codex 网关路由
    - 顶部概览卡片显示后端与各项验证状态；点击「高级配置」可一键验证
 
    配置写入**当前工作区**的 `.env`（常见路径 `agentsociety/.env`）。
 
-   Claude Code 相关配置也可通过 **「AI Social Scientist: Claude Code 配置（配置页）」** 直接打开同一页面的 Claude Tab。
+   Claude Code 与 Codex 网关配置通过 **「AI Social Scientist: Claude Code 配置（配置页）」** 直接打开同一页面的 Claude / Codex 路由面板。
 
    你也可以直接打开帮助页（命令 **「AI Social Scientist: 使用指南」**）查看快速入门。
 
@@ -120,13 +120,22 @@ workspace/
 ### AI CLI Gateway
 
 - 本地代理网关，将 Claude Code / Codex CLI 请求经第三方供应商路由转发
-- 支持共享供应商池：同一供应商可分别应用到 Claude、Codex，OpenAI 兼容 API 可经网关接入 Claude Code
-- 支持 Claude/Codex 独立路由开关、热切换与故障转移
+- **统一供应商管理**：所有供应商共享一个列表，无需重复添加。OpenAI 兼容供应商可同时服务 Claude Code 和 Codex
+- Claude/Codex 独立路由开关，并排显示；支持故障自动转移
 - Codex 网关自动将 `/v1/responses` 转换为 Chat Completions（兼容智谱、DeepSeek 等供应商）
 - 状态栏 `AI Gateway` 显示当前路由状态（Claude / Codex / Claude + Codex）
-- 用量追踪面板：按天展示请求趋势，区分 Claude 与 Codex 来源
-- 模型定价与费用估算（支持缓存读取/写入、自动价格缓存与覆盖中转服务价格）
+- 用量追踪面板：按天展示请求趋势，区分 Claude 与 Codex 来源，支持 7 天 / 30 天 / 全部筛选
+- 模型定价与费用估算：内置 + 远程（OpenRouter / LiteLLM）+ 自定义，缓存读写费用独立计算，自动缓存新模型价格
 - 「重启 Codex」按钮：修改配置后一键重启 Codex 终端
+
+### 文件查看器
+
+- **JSON 查看器**：语法高亮、可折叠树形、搜索、复制
+- **YAML 查看器**：语法高亮、可折叠树形、搜索、复制为 JSON
+- **CSV 查看器**：表头固定、列排序、搜索过滤、复制 CSV
+- **Markdown 预览**：侧边栏点击 `.md` 文件直接预览
+- **HTML 报告**：使用 Live Preview 或默认浏览器打开
+- 论文工作区和分析工作区的文件均支持一键打开对应查看器
 
 ### 技能管理
 

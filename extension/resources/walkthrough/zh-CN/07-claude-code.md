@@ -31,11 +31,11 @@ Claude Code 默认使用 Anthropic 服务。推荐通过插件配置页 **高级
 
 [打开 Claude Code 配置（配置页）](command:aiSocialScientist.openClaudeCodeConfig)
 
-配置页支持：
+配置页提供一个 **统一的供应商管理面板**，所有供应商共享一个列表，无需重复添加：
 
-- **共享供应商池**：供应商只保存一份；在供应商卡片上点击 **应用到 Claude** 或 **应用到 Codex**，即可决定它服务哪个 CLI。OpenAI 兼容 API 可同时应用到 Claude（经网关转换）和 Codex。
-- **Claude Code**：支持 Anthropic 原生供应商，也支持 OpenAI 兼容供应商经本地网关转换为 Anthropic Messages。
-- **Codex CLI**：支持 OpenAI 或第三方供应商（如智谱、DeepSeek）。经本地网关路由时，会自动将 `/v1/responses` 转换为 Chat Completions 协议，兼容仅支持 Chat 协议的供应商。
+- **供应商共享池**：每个供应商只需添加一次。OpenAI 兼容供应商可**同时服务** Claude Code 和 Codex；Anthropic 原生供应商仅服务 Claude Code。
+- **路由开关**：面板顶部提供 Claude Code 和 Codex 各自的代理开关，一目了然。
+- **激活按钮**：每个供应商卡片上显示「设为 Claude 默认」和/或「设为 Codex 默认」，点击即可切换活跃供应商。
 - **Gateway 状态栏**：启用本地路由后，状态栏显示 `AI Gateway: Claude + Codex`（或当前路由的工具）。点击可打开配置页。
 
 你也可以手动编辑 `~/.claude/settings.json`（Mac/Linux）或 `用户目录/.claude/settings.json`（Windows）：
@@ -58,14 +58,14 @@ Claude Code 默认使用 Anthropic 服务。推荐通过插件配置页 **高级
 
 配置页内置 **AI CLI Gateway**，可将 Claude Code 和 Codex CLI 的请求经第三方供应商代理转发：
 
-1. 在 **高级配置 → Claude/Codex 路由** 中添加供应商（填写 Base URL 和 API Key）。
-2. 切换 Claude 和/或 Codex 的 **启用本地代理** 开关。
+1. 在 **高级配置 → Claude / Codex 路由** 中添加供应商（填写 Base URL 和 API Key）。
+2. 在路由面板中切换 Claude Code 和/或 Codex 的 **启用本地代理** 开关。
 3. 网关自动启动，并将上游配置写入 `~/.claude/settings.json` 和 `~/.codex/config.toml`。
-4. 修改供应商或模型后，点击 Codex 标签页中的 **重启 Codex** 使新配置生效。
+4. 修改供应商或模型后，点击供应商编辑器中的 **重启 Codex** 使新配置生效。
 
 官方订阅（Anthropic Pro/Max、ChatGPT）使用 OAuth 直连，**不需要**启用本地网关——保持代理关闭即可。
 
-> 💡 网关还提供用量追踪和费用估算。费用会分别计算输入、输出、缓存读取和缓存写入；OpenAI/Codex 记录会扣除缓存命中的可计费输入。点击配置页中的 **查看日志** 可查看路由详情。
+> 💡 网关自动追踪用量并估算费用，支持内置定价、远程定价（OpenRouter / LiteLLM）和自定义定价。费用会分别计算输入、输出、缓存读取和缓存写入；Codex 记录会扣除缓存命中的可计费输入。点击配置页中的 **查看日志** 可查看路由详情。
 
 ---
 
