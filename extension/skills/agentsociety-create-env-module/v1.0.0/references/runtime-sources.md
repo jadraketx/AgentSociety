@@ -39,6 +39,8 @@ Read these modules before generating or repairing a custom env module:
   Use this when you need a richer reference for replay-table persistence (`_agent_state_columns` / `_env_state_columns` + `_write_*` helpers) and economic interactions.
 - `agentsociety2.contrib.env.mobility_space.environment`
   Use this when you need a complex reference for movement-related state and multi-component environment behavior.
+- `agentsociety2.contrib.env.social_media`
+  Use this when you need a reference for an environment that **bundles an agent skill** (`agent_skills/social-media/SKILL.md` with proper YAML frontmatter) teaching agents how to operate it via `ask_env`.
 
 ## Registration and Workflow Integration
 

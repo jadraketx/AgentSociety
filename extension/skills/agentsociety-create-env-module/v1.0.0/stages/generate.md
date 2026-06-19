@@ -29,6 +29,50 @@ Generation rules:
 - Persist step counters, IDs, queues, maps, or other reconstruction-critical state by writing them to replay tables (declare the columns, write via `_write_*`), not via a dump channel.
 - Do not add placeholder persistence hooks. Either implement the real replay-write path or keep the module intentionally stateless.
 
+## Bundled Agent Skills (recommended for interactive envs)
+
+Agents learn how to operate in a new environment from a bundled skill. `EnvBase`
+auto-discovers skills from a directory next to the module file, so for a
+single-file module `custom/envs/<module>.py` place skills under
+`custom/envs/<module>_agent_skills/`:
+
+```
+custom/envs/
+├─ social_media.py
+└─ social_media_agent_skills/
+   └─ social-media/
+      └─ SKILL.md
+```
+
+Each skill is a subdirectory holding a `SKILL.md`. **Every `SKILL.md` must start
+with a YAML frontmatter block** (delimited by `---`) declaring at least `name`
+and `description`:
+
+```markdown
+---
+name: social-media
+description: Social-media interaction: post / repost / comment / like / follow, refresh the feed, search posts. Reach env tools via ask_env.
+---
+
+# Social Media
+
+Body — injected into the prompt only after the agent activates this skill.
+Teach the ask_env(instruction=..., variables=..., ctx={"id": ...}, readonly=...)
+contract here; keep instruction templates stable so the env router cache hits.
+```
+
+Why this is mandatory: at selection time the model sees **only** the
+`name`/`description` from the frontmatter. A `SKILL.md` without frontmatter is
+silently registered with an empty `description`, so agents never discover or
+select the skill and the environment is effectively unusable through the
+catalog.
+
+Only generate a bundled skill when the environment exposes tools an agent must
+invoke (posting, moving, trading, observing). Stateless envs with self-evident
+tools may skip it. Reference implementations with bundled skills:
+`agentsociety2.contrib.env.mobility_space` and
+`agentsociety2.contrib.env.social_media`.
+
 After writing code, keep lightweight notes only if they help later review:
 
 - If traceability matters, write a concise `generation_input.json` or `generation_summary.md` into the current run directory.

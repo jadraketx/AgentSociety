@@ -68,6 +68,7 @@ If the scale budget is missing, ask a single round of clarifying questions. Pres
 - Final generated env code must land in `custom/envs/*.py`.
 - The class must be defined in that file directly and registered by its `class_name`.
 - Do not invent a package-style output format for the generated environment.
+- If the environment exposes tools agents must invoke, bundle an agent skill under `custom/envs/<module>_agent_skills/<skill>/SKILL.md`. That `SKILL.md` **must** start with YAML frontmatter declaring `name` + `description`, or agents will never discover it. See `stages/generate.md` → *Bundled Agent Skills*.
 - Prefer validating through `.agentsociety/bin/ags.py create-env-module-validate`, and use run artifacts only when they add review value.
 
 Use the Python interpreter from `.env`. See `CLAUDE.md` for setup.
@@ -83,6 +84,7 @@ Use the Python interpreter from `.env`. See `CLAUDE.md` for setup.
 | `init_description` / tool docstrings phrase operations as Python call literals | Use prose with bold function names and parameter descriptions — see `references/pitfalls.md` P2 |
 | `readonly=False` tool not idempotent within one step (counter `+= 1`, list `.append`) | Use last-write-wins, set-based dedup, or explicit dedup-key — see `references/pitfalls.md` P3 |
 | 2+ write tools sharing argument names (`post_id` on both `read_post` and `share_post`) | Rename to distinct argument names or document the agent-side cache-collision mitigation — see `references/pitfalls.md` P4 |
+| Bundled `agent_skills/<skill>/SKILL.md` missing YAML frontmatter or an empty `description` | Start `SKILL.md` with `---` frontmatter declaring `name` + `description`; without it the skill registers empty and agents never select it — see `stages/generate.md` → *Bundled Agent Skills* |
 
 ## Subagent Delegation
 

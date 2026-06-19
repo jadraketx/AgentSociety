@@ -100,6 +100,41 @@ Each entry is a root of skill subdirectories (same layout as `custom/skills`);
 relative paths resolve against the workspace root. The default scan is unchanged
 when omitted. Full details: `references/agent-base-interface.md` → *Skill sources*.
 
+### Skill directory layout and required frontmatter
+
+Each skill is a subdirectory containing a `SKILL.md` file. **`SKILL.md` must
+start with a YAML frontmatter block** delimited by `---` and declare at least
+`name` and `description`:
+
+```
+custom/skills/
+└─ my-skill/
+   └─ SKILL.md
+```
+
+```markdown
+---
+name: my-skill
+description: One-line summary the agent sees in the skill catalog before activation. Keep it specific.
+---
+
+# My Skill
+
+Body — only injected into the prompt AFTER the agent activates this skill.
+```
+
+The `name`/`description` are the **only** catalog fields the model sees at
+selection time. A `SKILL.md` without frontmatter is silently registered with an
+empty `description`, so the agent effectively never discovers or selects it.
+Rules:
+
+- `name`: stable skill id; lowercase kebab-case is conventional.
+- `description`: concise, action-oriented; mention what it does and that env
+  tools are reached via `ask_env` when the skill drives an environment.
+- `script` / `hooks` are optional frontmatter keys.
+- Keep the body's `ask_env` instructions stable (template + `variables`) so env
+  router cache hits across agents.
+
 ## Validation
 
 ```bash
@@ -133,6 +168,7 @@ For the full human checklist see `stages/validate.md` and `checklists/compatibil
 | Phrasing `ask_env` message as a Python call literal (`"tool(arg=val)"`) | Use natural language `"Please call tool_name() using <args> from ctx['variables'] ..."` — see `references/pitfalls.md` P2 |
 | Using `template_mode=True` for `readonly=False` writes without checking idempotency / argument-name collisions | Default to `template_mode=False` for writes; only enable when the env tool is verified idempotent AND argument names don't collide with other writes — see `references/pitfalls.md` P3 |
 | Calling the same write tool more than once per `step()` "to be safe" | Trust the `status` return; retry only on `fail`/`error` — see `references/pitfalls.md` P4 |
+| Shipping a `SKILL.md` without YAML frontmatter (or with empty `description`) | Always start `SKILL.md` with `---` frontmatter declaring `name` + `description`; without it the skill registers with an empty description and is never selected — see *Custom Skills* above |
 
 ## Subagent Delegation
 
