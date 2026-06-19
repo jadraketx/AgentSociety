@@ -36,13 +36,13 @@ def memory_episode_item_schema() -> dict[str, Any]:
             "type": {
                 "type": "string",
                 "enum": episode_types,
-                "default": "observation",
+                "description": "Episode category; consolidation keys on this.",
             },
             "importance": {
                 "type": "number",
                 "minimum": 0.0,
                 "maximum": 1.0,
-                "default": 0.5,
+                "description": "Salience in [0,1]; high values trigger consolidation.",
             },
             "keywords": {
                 "type": "array",
@@ -67,7 +67,7 @@ def memory_episode_item_schema() -> dict[str, Any]:
                 "default": [],
             },
         },
-        "required": ["text"],
+        "required": ["text", "type", "importance"],
         "additionalProperties": False,
     }
 
