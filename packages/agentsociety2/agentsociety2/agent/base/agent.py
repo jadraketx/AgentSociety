@@ -343,6 +343,30 @@ class AgentBase(ABC):
             self._config.get("extra_skill_paths")
         )
 
+        # Re-scan skill sources into the process-global registry on every
+        # restore. Agents are workspace-bound records reconstructed per step
+        # via Ray ``from_workspace``; ``SkillRegistry`` is process-global and
+        # starts empty on a fresh worker (only builtins are pre-scanned). A
+        # reconstructed agent whose AGENT.json was persisted in another process
+        # would otherwise see an incomplete registry: ``set_visible_skills``
+        # (above) resolves persisted tokens against the registry and silently
+        # drops the missing ones, and ``step``'s ``_refresh_visible_skills``
+        # then recomputes from the same incomplete registry — so env/custom
+        # skills (and their lifecycle hooks / activations) are lost until first
+        # use. ``discover_skill_sources`` is idempotent (scans dedupe; default
+        # activation is guarded by ``_default_activated_skills_applied``), so
+        # running it here is cheap after the first scan in a process and keeps
+        # the visible/activated sets consistent with the live registry.
+        if self._env is not None:
+            try:
+                self.discover_skill_sources(self._env)
+            except Exception as exc:  # pragma: no cover - defensive
+                logger.warning(
+                    "Agent %s: skill re-discovery on restore failed: %s",
+                    self.id,
+                    exc,
+                )
+
     # ------------------------------------------------------------------
     # Abstract methods (subclasses must implement these three;
     # create / from_workspace have concrete base implementations above)
@@ -903,23 +927,40 @@ The constructor ``__init__`` is arg-less.
             if added:
                 discovered[f"custom:{path}"] = added
 
+        # Env-provided skills come from two shapes of ``env``:
+        # - in-process router (``RouterBase``): exposes concrete ``env_modules``
+        #   instances, each with a ``skill_dirs()`` method;
+        # - Ray ``EnvRouterProxy``: carries no module instances (they live in the
+        #   actor's process) but exposes ``env_skill_dirs`` —
+        #   ``(module_class_name, skill_dir)`` pairs resolved from the registry
+        #   at proxy construction. Scan both so env skills are discoverable in
+        #   the distributed path too.
+        env_skill_pairs: list[tuple[str, str]] = []
         for module in getattr(env, "env_modules", []) or []:
-            for skills_dir in module.skill_dirs():
-                try:
-                    added = self._skill_registry.scan_env(
-                        skills_dir,
-                        type(module).__name__,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "Agent %s: env skill scan failed at %s: %s",
-                        self.id,
-                        skills_dir,
-                        exc,
-                    )
-                    added = []
-                if added:
-                    discovered[f"env:{type(module).__name__}:{skills_dir}"] = added
+            class_name = type(module).__name__
+            for skills_dir in module.skill_dirs() or []:
+                env_skill_pairs.append((class_name, str(skills_dir)))
+        for class_name, skills_dir_str in getattr(env, "env_skill_dirs", []) or []:
+            env_skill_pairs.append((class_name, str(skills_dir_str)))
+
+        seen_env: set[tuple[str, str]] = set()
+        for class_name, skills_dir_str in env_skill_pairs:
+            if not skills_dir_str or (class_name, skills_dir_str) in seen_env:
+                continue
+            seen_env.add((class_name, skills_dir_str))
+            skills_dir = Path(skills_dir_str)
+            try:
+                added = self._skill_registry.scan_env(skills_dir, class_name)
+            except Exception as exc:
+                logger.warning(
+                    "Agent %s: env skill scan failed at %s: %s",
+                    self.id,
+                    skills_dir,
+                    exc,
+                )
+                added = []
+            if added:
+                discovered[f"env:{class_name}:{skills_dir}"] = added
 
         self._refresh_visible_skills()
         if not self._default_activated_skills_applied:
@@ -1748,6 +1789,15 @@ The constructor ``__init__`` is arg-less.
     def _parse_react_responses(self, response: Any) -> tuple[list[ReactDecision], str]:
         """Parse OpenAI tool calls from one LLM response.
 
+        Some OpenAI-compatible endpoints never emit native ``tool_calls`` and
+        instead render every tool invocation as text in ``message.content``
+        (e.g. ``ask_env(instruction="...", readonly=false)``). To keep agents
+        functional against such models, when there are no native tool calls we
+        fall back to :meth:`_parse_text_tool_calls`, which understands the
+        common textual encodings (Python-kwarg calls, ``name({...})`` JSON
+        calls, Hermes/Qwen ``<tool_call>``/``<tool_input>`` blocks, bare JSON
+        objects, and ``<invoke>`` XML).
+
         Args:
             response: Raw LLM response object.
 
@@ -1761,29 +1811,54 @@ The constructor ``__init__`` is arg-less.
         if message is None:
             return [], "missing response message"
         tool_calls = getattr(message, "tool_calls", None) or []
-        if not tool_calls:
-            content = str(getattr(message, "content", "") or "").strip()
-            if not content:
-                return [], ""
-            return [], "Respond with tool calls only. Free text is not accepted."
-
-        decisions: list[ReactDecision] = []
-        for tool_call in tool_calls:
-            function = getattr(tool_call, "function", None)
-            name = str(getattr(function, "name", "") or "").strip()
-            raw_args = str(getattr(function, "arguments", "") or "{}")
-            try:
-                from agentsociety2.agent.json_utils import jr_parse_from_llm
-
-                parsed_args = jr_parse_from_llm(raw_args)
-            except Exception:
+        if tool_calls:
+            calls: list[tuple[str, dict[str, Any]]] = []
+            for tool_call in tool_calls:
+                function = getattr(tool_call, "function", None)
+                name = str(getattr(function, "name", "") or "").strip()
+                raw_args = str(getattr(function, "arguments", "") or "{}")
                 try:
-                    parsed_args = json.loads(raw_args)
-                except Exception as exc:
-                    return [], f"invalid tool arguments for {name}: {exc}"
-            if not isinstance(parsed_args, Mapping):
-                return [], f"tool arguments for {name} must be an object"
-            args = dict(parsed_args)
+                    from agentsociety2.agent.json_utils import jr_parse_from_llm
+
+                    parsed_args = jr_parse_from_llm(raw_args)
+                except Exception:
+                    try:
+                        parsed_args = json.loads(raw_args)
+                    except Exception as exc:
+                        return [], f"invalid tool arguments for {name}: {exc}"
+                if not isinstance(parsed_args, Mapping):
+                    return [], f"tool arguments for {name} must be an object"
+                calls.append((name, dict(parsed_args)))
+            return self._build_react_decisions(calls)
+
+        # No native tool calls: try parsing tool invocations from the text
+        # content before rejecting the response. Many OpenAI-compatible models
+        # emit calls only as text.
+        content = str(getattr(message, "content", "") or "").strip()
+        if not content:
+            return [], ""
+        text_calls = self._parse_text_tool_calls(content)
+        if text_calls:
+            return self._build_react_decisions(text_calls)
+        return [], "Respond with tool calls only. Free text is not accepted."
+
+    def _build_react_decisions(
+        self, calls: list[tuple[str, dict[str, Any]]]
+    ) -> tuple[list[ReactDecision], str]:
+        """Build ReAct decisions from a list of (name, args) tool calls.
+
+        Shared by the native-tool-call path and the text-parsing fallback so
+        the ``finish`` semantics stay identical: ``finish`` wins and at most
+        one is returned; step-mode ``finish`` may carry only ``memories``.
+
+        Args:
+            calls: Ordered ``(tool_name, args)`` pairs.
+
+        Returns:
+            Tuple of (decisions, error).
+        """
+        decisions: list[ReactDecision] = []
+        for name, args in calls:
             if name == "finish":
                 final = (
                     str(args.get("answer") or "").strip()
@@ -1800,11 +1875,258 @@ The constructor ``__init__`` is arg-less.
                 decisions.append(ReactDecision("", name, args, final))
             else:
                 decisions.append(ReactDecision("", name, args, ""))
-
         finish_decisions = [d for d in decisions if d.action == "finish"]
         if finish_decisions:
             return finish_decisions[:1], ""
         return decisions, ""
+
+    # Keys that may carry the tool name across textual encodings.
+    _TEXT_TOOL_NAME_KEYS = ("name", "function", "tool", "tool_name", "action")
+    # Keys that may carry the tool arguments across textual encodings.
+    _TEXT_TOOL_ARG_KEYS = (
+        "arguments",
+        "parameters",
+        "args",
+        "params",
+        "tool_input",
+        "input",
+        "inputs",
+    )
+
+    def _parse_text_tool_calls(
+        self, content: str
+    ) -> list[tuple[str, dict[str, Any]]]:
+        """Parse tool calls embedded in free-form LLM text content.
+
+        Supports the encodings emitted by OpenAI-compatible models that do not
+        return native ``tool_calls``:
+
+        - Python-kwarg style: ``ask_env(instruction="...", readonly=false)``
+          (the most common shape from these models).
+        - JSON function call: ``finish({"answer": "..."})`` or ``name({...})``.
+        - Hermes / Qwen blocks: ``<tool_call>name</tool_call><tool_input>{...}
+          </tool_input>`` (and the JSON-in-``<tool_call>`` variant).
+        - Bare JSON object: ``{"name"/"tool": ..., "arguments"/...: {...}}``.
+        - XML invoke: ``<invoke name="...">...</invoke>`` (with a
+          ``<parameters>`` JSON body).
+
+        Returns an empty list when no recognizable tool call is found (the
+        caller then treats the content as free text). Parsing is best-effort:
+        malformed fragments are skipped rather than raised.
+
+        Args:
+            content: Raw ``message.content`` text.
+
+        Returns:
+            Ordered ``(tool_name, args)`` pairs (possibly empty).
+        """
+        results: list[tuple[str, dict[str, Any]]] = []
+        # Guard against pathological input dominating the regex passes.
+        if len(content) > 200_000:
+            content = content[:200_000]
+
+        def _clean_name(raw: str) -> str:
+            # Strip XML tags, quotes, backticks and surrounding whitespace.
+            cleaned = re.sub(r"<[^>]+>", "", raw)
+            cleaned = cleaned.strip().strip("`\"' \t\r\n")
+            # Take the leading identifier token (drop trailing junk like "()").
+            m = re.match(r"^([A-Za-z_][\w\-\.]*)", cleaned)
+            return m.group(1) if m else cleaned
+
+        def _coerce_args(value: Any) -> dict[str, Any]:
+            if isinstance(value, Mapping):
+                return dict(value)
+            if isinstance(value, str):
+                value = value.strip()
+                if not value:
+                    return {}
+                try:
+                    from agentsociety2.agent.json_utils import jr_parse_from_llm
+
+                    parsed = jr_parse_from_llm(value)
+                except Exception:
+                    try:
+                        parsed = json.loads(value)
+                    except Exception:
+                        return {}
+                return dict(parsed) if isinstance(parsed, Mapping) else {}
+            return {}
+
+        def _record(name: str, args: Any) -> None:
+            name = _clean_name(name)
+            if name:
+                results.append((name, _coerce_args(args)))
+
+        def _json_loads_lenient(text: str) -> Any:
+            text = text.strip()
+            if not text:
+                return None
+            try:
+                from agentsociety2.agent.json_utils import jr_parse_from_llm
+
+                return jr_parse_from_llm(text)
+            except Exception:
+                try:
+                    return json.loads(text)
+                except Exception:
+                    return None
+
+        def _extract_name_args(obj: Any) -> tuple[str, Any]:
+            """Pull (name, args) from a JSON object using the known key sets."""
+            if not isinstance(obj, Mapping):
+                return "", {}
+            name = ""
+            for key in self._TEXT_TOOL_NAME_KEYS:
+                val = obj.get(key)
+                if isinstance(val, str) and val.strip():
+                    name = val.strip()
+                    break
+            args: Any = {}
+            for key in self._TEXT_TOOL_ARG_KEYS:
+                if key in obj:
+                    args = obj[key]
+                    break
+            return name, args
+
+        def _parse_call_body(body: str) -> dict[str, Any]:
+            """Parse a ``NAME(...)`` argument body.
+
+            Handles two shapes:
+            - Python-kwarg style: ``instruction="...", readonly=false, n=3``;
+            - JSON object: ``{"answer": "..."}`` (possibly with stray code
+              fences / trailing commas).
+            """
+            body = body.strip()
+            if not body:
+                return {}
+            # JSON object form first.
+            if body.startswith("{"):
+                parsed = _json_loads_lenient(body)
+                return dict(parsed) if isinstance(parsed, Mapping) else {}
+            # Python-kwarg form: key=value pairs separated by commas (values may
+            # contain commas inside quotes, so we walk char-by-char).
+            kwargs: dict[str, Any] = {}
+            for key, raw_val in _split_kwargs(body):
+                kwargs[key] = _parse_python_literal(raw_val)
+            return kwargs
+
+        def _split_kwargs(body: str) -> list[tuple[str, str]]:
+            """Split ``k=v, k2=v2`` honoring quotes/braces (no eval)."""
+            pairs: list[tuple[str, str]] = []
+            i, n = 0, len(body)
+            while i < n:
+                # Skip whitespace and stray commas.
+                while i < n and body[i] in " \t\r\n,":
+                    i += 1
+                # Read key.
+                km = re.match(r"([A-Za-z_][\w\-\.]*)\s*=\s*", body[i:])
+                if not km:
+                    break
+                key = km.group(1)
+                i += km.end()
+                # Read value up to the next top-level comma.
+                start = i
+                quote: str | None = None
+                bracket = 0
+                while i < n:
+                    ch = body[i]
+                    if quote:
+                        if ch == "\\":
+                            i += 2
+                            continue
+                        if ch == quote:
+                            quote = None
+                    elif ch in "\"'":
+                        quote = ch
+                    elif ch in "[{(":
+                        bracket += 1
+                    elif ch in "]})":
+                        bracket -= 1
+                    elif ch == "," and bracket <= 0:
+                        break
+                    i += 1
+                pairs.append((key, body[start:i].strip()))
+            return pairs
+
+        def _parse_python_literal(raw: str) -> Any:
+            """Coerce a Python-kwarg value token to a JSON-friendly value."""
+            raw = raw.strip()
+            if not raw:
+                return ""
+            if raw.lower() in ("true", "false"):
+                return raw.lower() == "true"
+            if raw.lower() in ("none", "null"):
+                return None
+            if (raw[0] in "\"'" and raw[-1] == raw[0]) or (
+                len(raw) >= 6 and raw[:3] in ('"""', "'''") and raw[-3:] == raw[:3]
+            ):
+                # Quoted string: use ast.literal_eval for escape fidelity if
+                # available, else strip quotes.
+                try:
+                    import ast
+
+                    return ast.literal_eval(raw)
+                except Exception:
+                    return raw[1:-1]
+            # JSON-ish (dict/list/number/string) — try strict then lenient.
+            parsed = _json_loads_lenient(raw)
+            if parsed is not None:
+                return parsed
+            return raw
+
+        # 1. <tool_call>NAME</tool_call><tool_input>{...}</tool_input>  (Hermes/Qwen)
+        for m in re.finditer(
+            r"<tool_call>\s*(.*?)\s*</tool_call>.*?"
+            r"<tool_input>\s*(.*?)\s*</tool_input>",
+            content,
+            re.DOTALL,
+        ):
+            _record(m.group(1), m.group(2))
+
+        # 2. <tool_call>{...json with name + arguments...}</tool_call> (Qwen JSON variant)
+        if not results:
+            for m in re.finditer(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", content, re.DOTALL):
+                obj = _json_loads_lenient(m.group(1))
+                if obj:
+                    name, args = _extract_name_args(obj)
+                    if name:
+                        _record(name, args)
+
+        # 3. Function-call style: NAME(...) — covers both kwarg and JSON arg forms.
+        #    Matches the outermost parenthesized group (non-greedy, balanced-ish via
+        #    [^()]* fallback for simple bodies; complex nested JSON is handled by
+        #    greedy matching up to the last ')' on the same logical call).
+        if not results:
+            for m in re.finditer(
+                r"([A-Za-z_][\w\-\.]*)\s*\(([^()]*(?:\([^()]*\)[^()]*)*)\)",
+                content,
+            ):
+                body = m.group(2).strip()
+                _record(m.group(1), _parse_call_body(body))
+
+        # 4. Bare JSON object: {"name"/"tool": ..., "arguments"/...: {...}}
+        if not results:
+            for m in re.finditer(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", content):
+                obj = _json_loads_lenient(m.group(0))
+                if obj:
+                    name, args = _extract_name_args(obj)
+                    if name:
+                        _record(name, args)
+
+        # 5. XML invoke: <invoke name="..."> ... <parameters>{...}</parameters> ...
+        if not results:
+            for m in re.finditer(
+                r'<invoke\s+name="([^"]+)">.*?</invoke>',
+                content,
+                re.DOTALL,
+            ):
+                inner = m.group(0)
+                pm = re.search(
+                    r"<parameters>\s*(.*?)\s*</parameters>", inner, re.DOTALL
+                )
+                _record(m.group(1), pm.group(1) if pm else {})
+
+        return results
 
     def build_react_messages(
         self,

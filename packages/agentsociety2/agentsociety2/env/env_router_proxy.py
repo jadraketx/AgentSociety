@@ -15,11 +15,80 @@ from typing import Any
 
 
 class EnvRouterProxy:
-    """Agent/society-facing handle delegating to a Ray env-router actor."""
+    """Agent/society-facing handle delegating to a Ray env-router actor.
 
-    def __init__(self, actor_handle: Any, *, run_dir: Any = None) -> None:
+    Unlike the in-process router, the proxy does NOT hold concrete env-module
+    instances (they live in the actor's process), so it cannot expose
+    ``env_modules``. To keep env-provided skills discoverable from the agent
+    side, the proxy carries ``env_skill_dirs`` — the union of every configured
+    env module's ``skill_dirs()`` resolved from the registry at construction
+    time, each paired with the module's class name (used as the
+    ``env:{ClassName}`` namespace). ``AgentBase.discover_skill_sources`` reads
+    this attribute in addition to ``env_modules``, so env skills are visible
+    regardless of whether the agent sees a real router or this proxy. The
+    attribute is plain JSON-serializable data (``list[(str, str)]``), so the
+    proxy still crosses the Ray boundary cleanly.
+    """
+
+    def __init__(
+        self,
+        actor_handle: Any,
+        *,
+        run_dir: Any = None,
+        env_module_types: list[str] | None = None,
+    ) -> None:
         self._actor = actor_handle
         self.run_dir = run_dir
+        self.env_skill_dirs: list[tuple[str, str]] = _resolve_env_skill_dirs(
+            env_module_types or []
+        )
+
+
+def _resolve_env_skill_dirs(
+    env_module_types: list[str],
+) -> list[tuple[str, str]]:
+    """Collect ``(module_class_name, skill_dir)`` for the given env module types.
+
+    Resolves each type's class from the global registry and reads its
+    ``skill_dirs()``. Failure to resolve a type or read its dirs is logged and
+    skipped — discovery must never crash agent construction over a missing
+    skill source. Duplicate ``(name, dir)`` pairs are removed.
+
+    Args:
+        env_module_types: Registry env-module type keys.
+
+    Returns:
+        Ordered, de-duplicated ``(module_class_name, skill_dir_str)`` pairs.
+    """
+    if not env_module_types:
+        return []
+    try:
+        from agentsociety2.registry import get_registered_env_modules
+    except Exception:  # pragma: no cover - defensive
+        return []
+    type_map = dict(get_registered_env_modules())
+    seen: set[tuple[str, str]] = set()
+    result: list[tuple[str, str]] = []
+    for module_type in env_module_types:
+        env_class = type_map.get(module_type)
+        if env_class is None:
+            continue
+        try:
+            skill_dirs = env_class.skill_dirs()
+        except Exception:
+            continue
+        # ``skill_dirs()`` is a classmethod declared on the ``EnvBase``
+        # metaclass, so ``type(env_class)`` would yield the metaclass name
+        # (``EnvMeta``) — use ``env_class.__name__`` to match the concrete
+        # module class name the in-process path produces via
+        # ``type(module).__name__`` on instances.
+        class_name = env_class.__name__
+        for skills_dir in skill_dirs or []:
+            pair = (class_name, str(skills_dir))
+            if pair[1] and pair not in seen:
+                seen.add(pair)
+                result.append(pair)
+    return result
 
     def set_current_time(self, t: datetime) -> None:
         """Forward the society clock to the actor (fire-and-forget).
