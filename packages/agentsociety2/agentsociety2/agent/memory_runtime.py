@@ -319,12 +319,19 @@ class PersonMemoryRuntime:
             with self._span("memory.extract", operation_type="memory"):
                 memories = self._validate_finish_memories(finish_memories)
         except Exception as exc:
+            # Don't drop the whole step when the model supplied malformed
+            # episodes: fall back to per-item validation, coercing any invalid
+            # item into a minimal valid episode so the durable info the model
+            # did provide still survives. Only truly empty input yields nothing.
             self._logger.warning(
-                "Agent %s: finish-memory validation failed: %s (skipping step)",
+                "Agent %s: finish-memory validation failed (%s); coercing "
+                "individual items as fallback",
                 self.agent_id,
                 exc,
             )
-            return []
+            memories = self._validate_finish_memories_lenient(finish_memories)
+            if not memories:
+                return []
         with self._span("memory.append_episodes", operation_type="memory"):
             written = await asyncio.to_thread(
                 store.append_episodes,
@@ -374,6 +381,63 @@ class PersonMemoryRuntime:
             raise ValueError("finish `memories` must be a list")
         parsed = MemoryExtractionResult.model_validate({"memories": raw})
         return [item.model_dump() for item in parsed.memories]
+
+    def _validate_finish_memories_lenient(
+        self, raw: Any
+    ) -> list[dict[str, Any]]:
+        """Best-effort fallback validation for finish memories.
+
+        Used when strict :meth:`_validate_finish_memories` raises (one bad
+        item poisoned the whole list). Validates each item independently:
+        valid episodes are kept as-is; invalid items are coerced into a
+        minimal valid ``observation`` episode built from whatever text the
+        model provided, tagged ``source=finish_memory_coerced`` so the
+        downgrade is traceable. Items with no usable text are dropped.
+
+        Args:
+            raw: The ``memories`` list from the finish tool arguments.
+
+        Returns:
+            Validated/coerced episode dicts ready for ``store.append_episodes``
+            (possibly empty).
+        """
+        if not isinstance(raw, list):
+            return []
+        from agentsociety2.agent.memory import ExtractedMemoryEpisode
+
+        coerced: list[dict[str, Any]] = []
+        for item in raw:
+            try:
+                episode = ExtractedMemoryEpisode.model_validate(item)
+                coerced.append(episode.model_dump())
+                continue
+            except Exception:
+                pass
+            # Coerce: salvage any text-like field from the raw item.
+            text = ""
+            if isinstance(item, Mapping):
+                for key in ("text", "content", "summary", "description"):
+                    candidate = str(item.get(key) or "").strip()
+                    if candidate:
+                        text = candidate
+                        break
+            elif isinstance(item, str):
+                text = item.strip()
+            if not text:
+                continue
+            try:
+                episode = ExtractedMemoryEpisode.model_validate(
+                    {
+                        "type": "observation",
+                        "importance": 0.4,
+                        "text": text[:1000],
+                        "source": "finish_memory_coerced",
+                    }
+                )
+                coerced.append(episode.model_dump())
+            except Exception:
+                continue
+        return coerced
 
     async def _consolidate_memory_md(
         self,
@@ -468,6 +532,16 @@ class PersonMemoryRuntime:
             content = str(getattr(message, "content", "") or "")
         content = content.strip()
         if not content:
+            # No usable output: keep the existing MEMORY.md. Warn (don't raise)
+            # so this is visible — because the consolidation cursor is only
+            # advanced on a successful write, a model that consistently returns
+            # empty would re-trigger consolidation every step and burn LLM
+            # calls. The caller already bounds this via interval_steps.
+            self._logger.warning(
+                "Agent %s: memory consolidation returned empty content; "
+                "MEMORY.md left unchanged (consolidation may re-trigger).",
+                self.agent_id,
+            )
             return
         await asyncio.to_thread(
             store.write_memory_md, content, step_count=step_count, tick=tick

@@ -1615,6 +1615,11 @@ The constructor ``__init__`` is arg-less.
                         "react.turn": turn,
                     },
                 ) as turn_span:
+                    # Clear the per-turn parse error so a stale message from an
+                    # earlier turn never surfaces as corrective feedback if the
+                    # current turn yields empty decisions for a different reason
+                    # (e.g. an empty-content response that carries no error).
+                    self._last_react_error = ""
                     decisions = await self._call_react_llm(
                         tick=tick,
                         t=t,
@@ -2036,9 +2041,17 @@ The constructor ``__init__`` is arg-less.
         if isinstance(parsed, Mapping):
             for key in self._FREE_TEXT_ANSWER_KEYS:
                 if key in parsed:
-                    value = str(parsed.get(key)).strip()
+                    raw = parsed.get(key)
+                    # Skip null/None payloads — str(None) would yield the
+                    # literal "None", which is never a real answer. Let these
+                    # fall through to the error-feedback path instead.
+                    if raw is None:
+                        continue
+                    value = str(raw).strip()
                     if value:
                         return value
+            return ""
+        if parsed is None:
             return ""
         if isinstance(parsed, (str, int, float, bool)):
             return str(parsed).strip()

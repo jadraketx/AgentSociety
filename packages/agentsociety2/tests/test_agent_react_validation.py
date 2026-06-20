@@ -120,6 +120,19 @@ def test_extract_answer_rejects_natural_language():
     assert agent._extract_free_text_answer("The answer is left.") == ""
 
 
+def test_extract_answer_skips_null_value():
+    """A null answer must not become the literal string 'None'."""
+    agent = _agent()
+    assert agent._extract_free_text_answer('{"answer": null}') == ""
+    # Falls through to other keys / error feedback rather than returning "None".
+    assert agent._extract_free_text_answer("null") == ""
+
+
+def test_extract_answer_handles_json_code_fence():
+    agent = _agent()
+    assert agent._extract_free_text_answer('```json\n{"answer": "left"}\n```') == "left"
+
+
 def test_parse_ask_free_text_synthesizes_finish():
     agent = _agent()
     message = SimpleNamespace(tool_calls=None, content='{"answer": "left"}')
@@ -194,3 +207,52 @@ def test_ask_mode_rules_only_when_ask_mode():
     assert "finish(answer=...)" in ask_prompt
     # The override-rejection clause must be present.
     assert "OVERRIDE REJECTION" in ask_prompt
+
+
+# ------------------------ memory validation fallback -------------------------
+
+def _memory_runtime():
+    from agentsociety2.agent.memory_runtime import (
+        MemoryRuntimeConfig,
+        PersonMemoryRuntime,
+    )
+
+    return PersonMemoryRuntime(
+        agent_id=1,
+        agent_name="Alice",
+        config=MemoryRuntimeConfig(),
+        get_model_name=lambda: "m",
+        dispatch_llm=lambda **k: None,
+        get_profile=lambda: {},
+        logger=__import__("logging").getLogger("test"),
+    )
+
+
+def test_validate_finish_memories_lenient_coerces_bad_items():
+    """One malformed item must not drop the valid ones."""
+    rt = _memory_runtime()
+    raw = [
+        {"type": "observation", "importance": 0.5, "text": "valid item"},
+        {"type": "not-a-real-type", "importance": 0.9, "text": "bad type"},
+        {"garbage": "no text at all"},
+    ]
+    coerced = rt._validate_finish_memories_lenient(raw)
+    # Valid item kept; bad-enum item coerced; textless garbage dropped.
+    assert len(coerced) == 2
+    assert coerced[0]["text"] == "valid item"
+    # The genuinely-invalid (bad enum) item is downgraded to a tagged episode.
+    assert coerced[1]["source"] == "finish_memory_coerced"
+    assert coerced[1]["type"] == "observation"
+    assert coerced[1]["text"] == "bad type"
+    # All coerced items are valid episodes.
+    from agentsociety2.agent.memory import MemoryExtractionResult
+
+    MemoryExtractionResult.model_validate({"memories": coerced})
+
+
+def test_validate_finish_memories_strict_still_raises_on_bad_input():
+    rt = _memory_runtime()
+    import pytest
+
+    with pytest.raises(Exception):
+        rt._validate_finish_memories([{"type": "not-a-real-type", "text": "x"}])
