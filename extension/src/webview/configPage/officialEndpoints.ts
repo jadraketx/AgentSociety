@@ -1,3 +1,14 @@
+/**
+ * Webview-side copy of official endpoint constants and helpers.
+ *
+ * **Why a duplicate?** The webview is bundled by webpack independently of the
+ * extension host (tsconfig.json excludes `src/webview/**`). It cannot import
+ * from `src/aiCli/` or `src/services/`. Keep this file in sync with the
+ * source-of-truth in `src/aiCli/officialEndpoints.ts`.
+ *
+ * @see src/aiCli/officialEndpoints.ts
+ */
+
 export const OFFICIAL_ANTHROPIC_BASE_URL = 'https://api.anthropic.com';
 export const OFFICIAL_OPENAI_BASE_URL = 'https://api.openai.com/v1';
 

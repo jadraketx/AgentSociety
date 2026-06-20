@@ -44,6 +44,13 @@ function niceMax(max: number): number {
   return nice * magnitude;
 }
 
+/**
+ * Pure SVG bar chart with hover-driven crosshair + tooltip.
+ *
+ * On mouse move the container finds the nearest bucket and shows a vertical
+ * line plus a tooltip card listing every series value at that bucket.  This is
+ * much easier to use than hunting for tiny circle datapoints.
+ */
 export function GatewayUsageChart({
   title,
   labels,
@@ -53,6 +60,8 @@ export function GatewayUsageChart({
   valueFormatter = (n) => String(Math.round(n)),
 }: GatewayUsageChartProps) {
   const chartId = React.useId().replace(/:/g, '');
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  const [hoverIndex, setHoverIndex] = React.useState<number | null>(null);
   const width = 760;
   const padL = 56;
   const padR = 18;
@@ -67,15 +76,43 @@ export function GatewayUsageChart({
   const yTicks = [0, 0.25, 0.5, 0.75, 1];
   const labelStep = bucketCount <= 8 ? 1 : Math.ceil(bucketCount / 8);
 
+  const handleMouseMove = React.useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect || bucketCount === 0) return;
+      const ratX = (e.clientX - rect.left) / rect.width;
+      const svgX = ratX * width;
+      const idx = Math.round((svgX - padL) / xStep);
+      if (idx < 0 || idx >= bucketCount) {
+        setHoverIndex(null);
+        return;
+      }
+      setHoverIndex(idx);
+    },
+    [bucketCount, xStep],
+  );
+
+  const handleMouseLeave = React.useCallback(() => setHoverIndex(null), []);
+
+  const lineX =
+    hoverIndex !== null && bucketCount > 1
+      ? padL + xStep * hoverIndex
+      : null;
+
   return (
     <div>
       <div
+        ref={containerRef}
         style={{
+          position: 'relative',
           background: palette.codeBlockBackground,
           borderRadius: 8,
           padding: '10px 12px 8px',
           border: `1px solid ${palette.panelBorder}`,
+          cursor: 'crosshair',
         }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
       >
         <svg
           viewBox={`0 0 ${width} ${height}`}
@@ -162,15 +199,68 @@ export function GatewayUsageChart({
                     fill={item.color}
                     stroke={palette.codeBlockBackground}
                     strokeWidth={1.5}
-                  >
-                    <title>{`${labels[index]} · ${item.label}: ${valueFormatter(item.values[index] ?? 0)}`}</title>
-                  </circle>
+                  />
                 ))}
               </g>
             );
           })}
+          {/* Crosshair */}
+          {lineX !== null ? (
+            <line
+              x1={lineX}
+              x2={lineX}
+              y1={padT}
+              y2={padT + innerH}
+              stroke={palette.editorForeground}
+              strokeWidth={1}
+              strokeDasharray="4 3"
+              opacity={0.55}
+            />
+          ) : null}
         </svg>
-        <Space size={[14, 4]} wrap>
+
+        {/* Tooltip card */}
+        {hoverIndex !== null ? (
+          <div
+            style={{
+              position: 'absolute',
+              top: 8,
+              left: lineX !== null ? `${((lineX - padL) / innerW) * 100}%` : '50%',
+              transform: 'translateX(-50%)',
+              background: palette.editorBackground,
+              border: `1px solid ${palette.panelBorder}`,
+              borderRadius: 6,
+              padding: '6px 10px',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.15)',
+              pointerEvents: 'none',
+              zIndex: 2,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <Text strong style={{ fontSize: 11, display: 'block', marginBottom: 3 }}>
+              {labels[hoverIndex]}
+            </Text>
+            {series.map((item) => (
+              <div key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 1 }}>
+                <span
+                  style={{
+                    width: 7,
+                    height: 7,
+                    borderRadius: 2,
+                    background: item.color,
+                    display: 'inline-block',
+                    flexShrink: 0,
+                  }}
+                />
+                <Text type="secondary" style={{ fontSize: 10 }}>
+                  {item.label}: {valueFormatter(item.values[hoverIndex] ?? 0)}
+                </Text>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
+        <Space size={[14, 4]} wrap style={{ marginTop: 4 }}>
           {series.map((item) => (
             <Space key={item.id} size={5}>
               <span

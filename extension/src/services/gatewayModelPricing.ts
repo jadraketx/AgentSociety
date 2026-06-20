@@ -7,11 +7,6 @@ export type ModelPrice = {
 
 export type ModelPricingMap = Record<string, ModelPrice>;
 
-export type CustomPriceEntry = {
-  modelId: string;
-  price: ModelPrice;
-};
-
 const BUILTIN_PRICING: ModelPricingMap = {
   'claude-sonnet-4-20250514': { inputPerMillion: 3, outputPerMillion: 15, cacheReadPerMillion: 0.3, cacheCreationPerMillion: 3.75 },
   'claude-sonnet-4-5-20250514': { inputPerMillion: 3, outputPerMillion: 15, cacheReadPerMillion: 0.3, cacheCreationPerMillion: 3.75 },
@@ -142,6 +137,8 @@ export function calculateCost(
 }
 
 export function formatCost(cost: number): string {
+  // Note: used by extension host for cost display.
+  // The webview has its own copy in src/webview/configPage/modelPricing.ts.
   if (cost < 0.01) {
     return '<$0.01';
   }

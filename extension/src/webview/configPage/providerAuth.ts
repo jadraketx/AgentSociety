@@ -1,3 +1,13 @@
+/**
+ * Webview-side copy of provider auth helpers.
+ *
+ * **Why a duplicate?** The webview is bundled by webpack independently of the
+ * extension host. It cannot import from `src/aiCli/`. Keep in sync with the
+ * source-of-truth in `src/aiCli/providerAuth.ts`.
+ *
+ * @see src/aiCli/providerAuth.ts
+ */
+
 import {
   inferApiKindFromBaseUrl,
   isOfficialAnthropicBaseUrl,

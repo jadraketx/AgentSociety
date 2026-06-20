@@ -1,3 +1,13 @@
+/**
+ * Webview-side copy of provider presets.
+ *
+ * **Why a duplicate?** The webview is bundled by webpack independently of the
+ * extension host. It cannot import from `src/aiCli/`. Keep in sync with the
+ * source-of-truth in `src/aiCli/providerPresets.ts`.
+ *
+ * @see src/aiCli/providerPresets.ts
+ */
+
 import type { AiCliApiKind } from './officialEndpoints';
 import {
   OFFICIAL_ANTHROPIC_BASE_URL,

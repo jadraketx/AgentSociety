@@ -173,6 +173,13 @@ function filterForwardHeaders(
   return out;
 }
 
+/**
+ * Inject authentication headers for the upstream API.
+ *
+ * For Anthropic-compatible upstreams: adds `x-api-key` + `Authorization: Bearer`.
+ * For OpenAI-compatible upstreams: adds `Authorization: Bearer` only.
+ * The `anthropic-version` header is set to `2023-06-01` if present on the request.
+ */
 function applyUpstreamAuth(
   headers: Record<string, string>,
   apiKey: string,
@@ -197,12 +204,48 @@ function applyUpstreamAuth(
   delete headers['x-upstream-base'];
 }
 
+/**
+ * Local HTTP proxy server that intercepts Claude Code / Codex API requests
+ * and forwards them to configured upstream providers with format translation.
+ *
+ * ## Architecture
+ *
+ * The gateway runs on `127.0.0.1:{port}` and handles two primary request paths:
+ *
+ * - **Anthropic Messages** (`/v1/messages`): May be forwarded directly
+ *   (passthrough) or translated to OpenAI Chat if the upstream provider
+ *   has `codexApiFormat` set.
+ * - **OpenAI Responses** (`/v1/responses`): May be forwarded directly or
+ *   translated to OpenAI Chat via the Codex bridge.
+ *
+ * ## Format Translation
+ *
+ * When the upstream provider's API format differs from the client's request
+ * format, the gateway uses bridges:
+ *
+ * - `proxyAnthropicMessagesViaOpenAiChat()` — Anthropic Messages → OpenAI Chat
+ * - `proxyCodexResponsesViaChat()` — OpenAI Responses → OpenAI Chat
+ *
+ * ## Failover
+ *
+ * When `failoverEnabled` is true, the gateway tries upstream providers in
+ * priority order. Circuit breakers prevent hammering failed providers.
+ * Successful failover updates the active provider.
+ *
+ * @see AiCliGatewayManager for provider lifecycle management
+ * @see anthropicOpenAiBridge for Anthropic↔OpenAI format translation
+ * @see codexResponsesBridge for Codex Responses↔Chat format translation
+ */
 export class AiCliGateway {
   private server: http.Server | null = null;
   private port: number | null = null;
+  /** Active upstream for Anthropic/Claude routes. */
   private upstream: AiCliGatewayUpstream | null = null;
+  /** Active upstream for OpenAI/Codex routes. */
   private openaiUpstream: AiCliGatewayUpstream | null = null;
+  /** All Anthropic-format upstreams (active + failover candidates). */
   private upstreams: AiCliGatewayUpstream[] = [];
+  /** All OpenAI-format upstreams (active + failover candidates). */
   private openaiUpstreams: AiCliGatewayUpstream[] = [];
   private failoverEnabled = false;
   private readonly circuit = new Map<string, CircuitBreakerState>();
@@ -943,6 +986,18 @@ export class AiCliGateway {
     };
   }
 
+  /**
+   * Proxy an OpenAI Responses request through an OpenAI Chat-compatible upstream.
+   *
+   * Translates the Responses-format request to OpenAI Chat Completions,
+   * forwards it, and translates the SSE stream back to Responses format.
+   *
+   * This is used when the active Codex provider has `codexApiFormat='openai_chat'`
+   * (all third-party OpenAI-compatible providers).
+   *
+   * @see CodexChatStreamTranslator for SSE stream translation
+   * @see translateResponsesRequestToChat for request translation
+   */
   private async proxyCodexResponsesViaChat(
     clientReq: IncomingMessage,
     clientRes: ServerResponse,
@@ -1123,6 +1178,18 @@ export class AiCliGateway {
     });
   }
 
+  /**
+   * Proxy an Anthropic Messages request through an OpenAI Chat-compatible upstream.
+   *
+   * Translates the Anthropic-format request body to OpenAI Chat Completions,
+   * forwards it to the upstream, and translates the SSE stream back to
+   * Anthropic Messages format.
+   *
+   * This is used when the active Claude provider has `apiKind='openai'`.
+   *
+   * @see OpenAiChatToAnthropicStreamTranslator for SSE stream translation
+   * @see translateAnthropicMessagesToOpenAiChat for request translation
+   */
   private async proxyAnthropicMessagesViaOpenAiChat(
     clientReq: IncomingMessage,
     clientRes: ServerResponse,

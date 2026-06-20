@@ -989,6 +989,7 @@
 		"usagePricingComplete": "全部请求已匹配定价",
 		"usagePricingCoverage": "已定价 {{priced}} / {{total}} 次请求",
 		"usageCostIncludesCache": "费用估算会分别计算输入、输出、缓存读取和缓存写入；Codex/OpenAI 兼容记录会从可计费输入中扣除缓存命中后再计算缓存读取费用。",
+		"usageRangeToday": "今天",
 		"usageRange7d": "7 天",
 		"usageRange30d": "30 天",
 		"usageRangeAll": "全部",
