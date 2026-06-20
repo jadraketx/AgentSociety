@@ -13,7 +13,10 @@ _ARTIFACT_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*\.md$")
 def _validated_user_path(path_str: str, *, field: str) -> Path:
     if not path_str or "\0" in path_str:
         raise HTTPException(status_code=400, detail=f"Invalid {field}")
-    candidate = Path(path_str).expanduser().resolve()
+    stripped = path_str.strip()
+    if not stripped or "\0" in stripped:
+        raise HTTPException(status_code=400, detail=f"Invalid {field}")
+    candidate = Path(stripped).expanduser().resolve()
     if ".." in candidate.parts:
         raise HTTPException(status_code=400, detail=f"Invalid {field}")
     return candidate

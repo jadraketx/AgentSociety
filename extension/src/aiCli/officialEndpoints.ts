@@ -8,11 +8,18 @@ function normalizeBaseUrl(baseUrl: string): string {
 }
 
 export function inferApiKindFromBaseUrl(baseUrl: string): AiCliApiKind {
-  const host = baseUrl.trim().toLowerCase();
+  let host: string;
+  try {
+    const url = new URL(baseUrl.trim());
+    host = url.hostname.toLowerCase();
+  } catch {
+    host = baseUrl.trim().toLowerCase();
+  }
   if (
-    host.includes('api.openai.com') ||
-    host.includes('openai.com/v1') ||
-    (host.includes('openai.com') && !host.includes('openrouter'))
+    host === 'api.openai.com' ||
+    host.endsWith('.api.openai.com') ||
+    host === 'openai.com' ||
+    host.endsWith('.openai.com')
   ) {
     return 'openai';
   }
@@ -31,11 +38,13 @@ export function isOfficialAnthropicBaseUrl(baseUrl: string): boolean {
 }
 
 export function isOfficialOpenAiBaseUrl(baseUrl: string): boolean {
-  const normalized = normalizeBaseUrl(baseUrl);
-  return (
-    normalized === OFFICIAL_OPENAI_BASE_URL ||
-    normalized === 'https://api.openai.com'
-  );
+  let host: string;
+  try {
+    host = new URL(baseUrl).hostname.toLowerCase();
+  } catch {
+    host = baseUrl.trim().toLowerCase();
+  }
+  return host === 'api.openai.com';
 }
 
 export function resolveProviderBaseUrl(baseUrl: string, apiKind: AiCliApiKind): string {
