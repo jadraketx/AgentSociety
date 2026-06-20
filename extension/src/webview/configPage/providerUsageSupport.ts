@@ -1,6 +1,16 @@
 import { isOfficialOpenAiBaseUrl } from './officialEndpoints';
 import type { AiCliAuthMode } from './providerAuth';
 
+const KNOWN_PROVIDER_HOSTS = [
+  'bigmodel.cn',
+  'open.bigmodel.cn',
+  'deepseek.com',
+  'api.deepseek.com',
+  'openrouter.ai',
+  'siliconflow.cn',
+  'api.siliconflow.cn',
+];
+
 export function supportsProviderUsageQuery(
   baseUrl: string,
   options?: { authMode?: AiCliAuthMode; apiKind?: 'anthropic' | 'openai' }
@@ -12,11 +22,13 @@ export function supportsProviderUsageQuery(
   ) {
     return true;
   }
-  const host = baseUrl.toLowerCase();
-  return (
-    host.includes('bigmodel.cn') ||
-    host.includes('deepseek.com') ||
-    host.includes('openrouter.ai') ||
-    host.includes('siliconflow.cn')
+  let host: string;
+  try {
+    host = new URL(baseUrl).hostname.toLowerCase();
+  } catch {
+    host = baseUrl.toLowerCase();
+  }
+  return KNOWN_PROVIDER_HOSTS.some(
+    (h) => host === h || host.endsWith('.' + h)
   );
 }

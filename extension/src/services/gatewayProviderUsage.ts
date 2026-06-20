@@ -63,18 +63,27 @@ function authHeader(apiKey: string): Record<string, string> {
   return { Authorization: `Bearer ${token}` };
 }
 
+function isHostnameOrSuffix(host: string, domain: string): boolean {
+  return host === domain || host.endsWith('.' + domain);
+}
+
 function detectTemplate(baseUrl: string): string | null {
-  const host = baseUrl.toLowerCase();
-  if (host.includes('open.bigmodel.cn') || host.includes('bigmodel.cn')) {
+  let host: string;
+  try {
+    host = new URL(baseUrl).hostname.toLowerCase();
+  } catch {
+    host = baseUrl.toLowerCase();
+  }
+  if (isHostnameOrSuffix(host, 'open.bigmodel.cn') || isHostnameOrSuffix(host, 'bigmodel.cn')) {
     return 'zhipu';
   }
-  if (host.includes('deepseek.com')) {
+  if (isHostnameOrSuffix(host, 'api.deepseek.com') || isHostnameOrSuffix(host, 'deepseek.com')) {
     return 'deepseek';
   }
-  if (host.includes('openrouter.ai')) {
+  if (isHostnameOrSuffix(host, 'openrouter.ai')) {
     return 'openrouter';
   }
-  if (host.includes('siliconflow.cn')) {
+  if (isHostnameOrSuffix(host, 'api.siliconflow.cn') || isHostnameOrSuffix(host, 'siliconflow.cn')) {
     return 'siliconflow';
   }
   return null;

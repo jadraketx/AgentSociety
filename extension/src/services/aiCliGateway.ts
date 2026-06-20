@@ -180,6 +180,24 @@ function filterForwardHeaders(
  * For OpenAI-compatible upstreams: adds `Authorization: Bearer` only.
  * The `anthropic-version` header is set to `2023-06-01` if present on the request.
  */
+function isOpenAiHostname(hostname: string): boolean {
+  return (
+    hostname === 'api.openai.com' ||
+    hostname.endsWith('.api.openai.com') ||
+    hostname === 'openai.com' ||
+    hostname.endsWith('.openai.com')
+  );
+}
+
+function isAnthropicHostname(hostname: string): boolean {
+  return (
+    hostname === 'api.anthropic.com' ||
+    hostname.endsWith('.api.anthropic.com') ||
+    hostname === 'anthropic.com' ||
+    hostname.endsWith('.anthropic.com')
+  );
+}
+
 function applyUpstreamAuth(
   headers: Record<string, string>,
   apiKey: string,
@@ -190,11 +208,16 @@ function applyUpstreamAuth(
     return;
   }
   headers.authorization = `Bearer ${token}`;
-  const upstreamBase = upstreamBaseUrl.toLowerCase();
-  const isOpenAiUpstream = upstreamBase.includes('openai.com');
+  let upstreamHost: string;
+  try {
+    upstreamHost = new URL(upstreamBaseUrl).hostname.toLowerCase();
+  } catch {
+    upstreamHost = upstreamBaseUrl.toLowerCase();
+  }
+  const isOpenAiUpstream = isOpenAiHostname(upstreamHost);
   if (
     !isOpenAiUpstream &&
-    (upstreamBase.includes('anthropic') || headers['anthropic-version'] !== undefined)
+    (isAnthropicHostname(upstreamHost) || headers['anthropic-version'] !== undefined)
   ) {
     if (!headers['anthropic-version']) {
       headers['anthropic-version'] = '2023-06-01';
