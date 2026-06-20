@@ -119,14 +119,16 @@ workspace/
 
 ### AI CLI Gateway
 
-- 本地代理网关，将 Claude Code / Codex CLI 请求经第三方供应商路由转发
-- **统一供应商管理**：所有供应商共享一个列表，无需重复添加。OpenAI 兼容供应商可同时服务 Claude Code 和 Codex
-- Claude/Codex 独立路由开关，并排显示；支持故障自动转移
-- Codex 网关自动将 `/v1/responses` 转换为 Chat Completions（兼容智谱、DeepSeek 等供应商）
-- 状态栏 `AI Gateway` 显示当前路由状态（Claude / Codex / Claude + Codex）
-- 用量追踪面板：按天展示请求趋势，区分 Claude 与 Codex 来源，支持 7 天 / 30 天 / 全部筛选
-- 模型定价与费用估算：内置 + 远程（OpenRouter / LiteLLM）+ 自定义，缓存读写费用独立计算，自动缓存新模型价格
-- 「重启 Codex」按钮：修改配置后一键重启 Codex 终端
+本地代理网关，将 Claude Code / Codex CLI 请求经第三方供应商路由转发。
+
+**核心能力**：
+- **多供应商管理**：统一管理 Anthropic 和 OpenAI 兼容供应商，支持 Claude Code 和 Codex 双路由
+- **格式转换**：自动将 Anthropic Messages 请求转换为 OpenAI Chat Completions（支持 thinking/reasoning 和 tool_use），将 Codex Responses 请求转换为 Chat Completions
+- **模型映射**：自动将 Claude 角色模型名（sonnet/opus/haiku/fable）映射为供应商模型名，剥离 `[1M]` 等本地标记
+- **故障转移**：支持多供应商优先级排序和断路器保护，失败后自动切换
+- **用量追踪**：按天展示请求趋势，区分 Claude 与 Codex 来源，支持 7/30/全部 天筛选
+- **成本估算**：内置 + 远程 + 自定义模型定价，缓存读写费用独立计算
+- **状态栏集成**：实时显示 Gateway 路由状态，支持一键重启 Codex
 
 ### 文件查看器
 
@@ -186,20 +188,42 @@ Claude Code 的 API Key / Base URL / 模型映射在配置页 **高级 → Claud
 ```
 extension/
 ├── src/
-│   ├── extension.ts              # 主入口
-│   ├── projectStructureProvider.ts # 树视图
-│   ├── evidenceGraphViewer.ts     # 证据图查看器
-│   ├── paperArtifactViewer.ts     # 论文产物查看器
-│   ├── configPageViewProvider.ts  # 配置页 Webview
-│   ├── apiClient.ts              # API 客户端
+│   ├── extension.ts              # 扩展入口
+│   ├── configPageViewProvider.ts  # 配置页 Webview 宿主
+│   ├── projectStructureProvider.ts # 项目树视图
 │   ├── services/                 # 服务层
-│   │   ├── aiCliGateway.ts       # AI CLI Gateway 核心
-│   │   ├── aiCliGatewayManager.ts # Gateway 生命周期管理
-│   │   └── codexResponsesBridge.ts # Codex 响应协议桥接
-│   └── webview/                  # React 组件
-│       └── configPage/           # 配置页 UI
-├── scripts/                      # 构建/清理脚本
-├── skills/                       # Claude Code Skills
+│   │   ├── aiCliGateway.ts       # HTTP 代理核心（路由、格式转换、上游转发）
+│   │   ├── aiCliGatewayManager.ts # 供应商生命周期、用量追踪、故障转移
+│   │   ├── anthropicOpenAiBridge.ts # Anthropic Messages ↔ OpenAI Chat 格式转换
+│   │   ├── codexResponsesBridge.ts # Codex Responses ↔ OpenAI Chat 格式转换
+│   │   ├── anthropicModelMapping.ts # Claude 角色模型名 → 供应商模型名映射
+│   │   ├── codexModelMapping.ts   # Codex 模型名 → 供应商模型名映射
+│   │   ├── gatewayFailover.ts     # 故障转移：断路器、优先级排序
+│   │   ├── gatewayUsageTracker.ts # Token 用量提取与聚合
+│   │   ├── gatewayModelPricing.ts # 模型定价与成本计算
+│   │   ├── gatewayRemotePricing.ts # 远程定价数据拉取与缓存
+│   │   ├── gatewayProviderUsage.ts # 供应商配额查询（按供应商适配）
+│   │   ├── claudeCodeSettings.ts  # ~/.claude/settings.json 读写
+│   │   ├── claudeCodeModels.ts    # 模型列表拉取
+│   │   ├── codexSettings.ts       # Codex 配置读写
+│   │   ├── codexApiFormat.ts      # OpenAI API 格式检测
+│   │   ├── backendService.ts      # 后端服务管理
+│   │   └── llmValidator.ts        # LLM 连通性验证
+│   ├── aiCli/                     # 供应商基础类型与工具（source of truth）
+│   │   ├── officialEndpoints.ts   # 官方端点常量、apiKind 推断
+│   │   ├── providerAuth.ts        # 认证模式判定
+│   │   └── providerPresets.ts     # 内置供应商预设
+│   └── webview/                   # Webview UI（独立 webpack 打包）
+│       └── configPage/            # 配置页 React 组件
+│           ├── AiCliProviderEditor.tsx   # 供应商添加/编辑表单
+│           ├── AiCliProviderGroup.tsx    # 供应商列表与路由开关
+│           ├── AiCliConfigSection.tsx    # 配置页主区域
+│           ├── GatewayUsagePanel.tsx     # 用量统计面板
+│           ├── GatewayUsageChart.tsx     # 用量趋势图表
+│           ├── ClaudeModelSelect.tsx     # 模型选择器
+│           └── officialEndpoints.ts      # aiCli/ 的 webview 副本
+├── test-codex-responses-bridge.js # 格式转换与模型映射单元测试
+├── scripts/                      # 构建与清理脚本
 └── package.json
 ```
 

@@ -26,13 +26,23 @@ DEVELOPMENT.md
 TODO.md
 DEBUG_STEPS.md
 
-# 开发/调试脚本
+# 开发/调试脚本与单元测试
 test-extension.js
 test-http-client.js
+test-codex-responses-bridge.js
 
 # 构建产物中的测试与 source map
 out/test/**
 out/**/*.map
+
+# 未引用的 walkthrough 图片（已从 walkthrough md 中移除引用但仍存在）
+resources/walkthrough/images/agent-skill-management-full.png
+resources/walkthrough/images/claude-settings-json.png
+resources/walkthrough/images/claude-skill-management-full.png
+resources/walkthrough/images/gif/configure-code-server-login.gif
+resources/walkthrough/images/gif/install-chinese-language-pack.gif
+resources/walkthrough/images/gif/prepare-claude-settings.gif
+resources/walkthrough/images/gif/switch-vscode-language.gif
 
 # 运行期杂项
 *.log
@@ -47,5 +57,6 @@ yarn-error.log*
 node_modules/**
 !node_modules/js-yaml/
 !node_modules/js-yaml/index.js
+!node_modules/js-yaml/package.json
 !node_modules/js-yaml/lib/
 !node_modules/js-yaml/lib/**

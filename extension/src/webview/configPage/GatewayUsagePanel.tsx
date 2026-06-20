@@ -49,7 +49,7 @@ function metricTone(color: string): React.CSSProperties {
 
 type TrendMetric = 'requests' | 'tokens' | 'cost';
 type UsageAppFilter = 'all' | 'claude' | 'codex';
-type UsageRangeFilter = '7d' | '30d' | 'all';
+type UsageRangeFilter = 'today' | '7d' | '30d';
 
 function emptyStats(): UsageModelStats {
   return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, requests: 0 };
@@ -194,8 +194,9 @@ export function GatewayUsagePanel({
   const [rangeFilter, setRangeFilter] = React.useState<UsageRangeFilter>('7d');
   const autoCachedPricingRef = React.useRef('');
   const rangeRecords = React.useMemo(() => {
-    if (rangeFilter === 'all') {
-      return records;
+    if (rangeFilter === 'today') {
+      const today = new Date().toISOString().slice(0, 10);
+      return records.filter((r) => r.ts.slice(0, 10) === today);
     }
     const days = rangeFilter === '7d' ? 7 : 30;
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
@@ -518,9 +519,9 @@ export function GatewayUsagePanel({
             value={rangeFilter}
             onChange={(value) => setRangeFilter(value as UsageRangeFilter)}
             options={[
+              { label: t('claudeCodeConfig.usageRangeToday'), value: 'today' },
               { label: t('claudeCodeConfig.usageRange7d'), value: '7d' },
               { label: t('claudeCodeConfig.usageRange30d'), value: '30d' },
-              { label: t('claudeCodeConfig.usageRangeAll'), value: 'all' },
             ]}
           />
           <Button size="small" icon={<SettingOutlined />} onClick={openPricing}>

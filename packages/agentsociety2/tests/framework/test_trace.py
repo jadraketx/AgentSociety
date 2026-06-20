@@ -49,8 +49,10 @@ def test_sharded_append_sink_shards_by_trace_prefix(tmp_path):
 
 def test_sharded_append_sink_caps_large_values_below_pipe_buf(tmp_path):
     pipe_buf = os.pathconf("/", os.pathconf_names["PC_PIPE_BUF"])
+    value_cap = max(256, pipe_buf // 2 - 256)
     sink = ShardedAppendSink(tmp_path)
-    sink.append_record({"trace_id": "00" + "0" * 30, "attr": {"msg": "Z" * 60000}})
+    original_len = 60000
+    sink.append_record({"trace_id": "00" + "0" * 30, "attr": {"msg": "Z" * original_len}})
     sink.close()
 
     line = (tmp_path / "trace_00.jsonl").read_text()
@@ -58,7 +60,8 @@ def test_sharded_append_sink_caps_large_values_below_pipe_buf(tmp_path):
     rec = json.loads(line)
     capped = rec["attr"]["msg"]
     assert capped.startswith("Z")
-    assert "+58208B" in capped  # truncation marker kept
+    expected_truncated = original_len - value_cap
+    assert f"+{expected_truncated}B" in capped  # truncation marker kept
 
 
 def test_trace_proxy_and_build_local_sink(tmp_path):

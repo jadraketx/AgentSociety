@@ -119,6 +119,20 @@ function resolveReasoningEffort(body: JsonObject): string | undefined {
   return undefined;
 }
 
+/**
+ * Translate an Anthropic Messages API request to an OpenAI Chat Completions request.
+ *
+ * Converts:
+ * - `system` (string/array) → `messages[0].role: "system"`
+ * - `messages[]` → `messages[]` (tool_result → tool role, tool_use → tool_calls)
+ * - `tools[]` → `tools[].function` format
+ * - `tool_choice` → OpenAI-compatible format
+ * - `thinking` → `reasoning_effort` (for o1/GPT-5+ models)
+ * - `max_tokens` → `max_tokens` or `max_completion_tokens` (for o1 series)
+ * - Strips `x-anthropic-billing-header` prefix from system prompts
+ *
+ * @see OpenAiChatToAnthropicStreamTranslator for the reverse (response → Anthropic) translation
+ */
 export function translateAnthropicMessagesToOpenAiChat(
   body: JsonObject,
   model: string
@@ -266,6 +280,21 @@ export function translateOpenAiChatToAnthropicMessage(body: JsonObject, fallback
   const choice = Array.isArray(body.choices) && isObject(body.choices[0]) ? body.choices[0] : {};
   const message = isObject(choice.message) ? choice.message : {};
   const content: JsonObject[] = [];
+  // Thinking / reasoning content (non-streaming: full text in reasoning_content)
+  const reasoningContent = typeof message.reasoning_content === 'string' ? message.reasoning_content : '';
+  if (reasoningContent) {
+    content.push({ type: 'thinking', thinking: reasoningContent });
+  }
+  // Also check thinking_blocks (provider-specific field)
+  const thinkingBlocks = Array.isArray(message.thinking_blocks) ? message.thinking_blocks.filter(isObject) : [];
+  if (!reasoningContent && thinkingBlocks.length > 0) {
+    const combinedThinking = thinkingBlocks
+      .map((block) => typeof block.thinking === 'string' ? block.thinking : '')
+      .join('');
+    if (combinedThinking) {
+      content.push({ type: 'thinking', thinking: combinedThinking });
+    }
+  }
   if (typeof message.content === 'string' && message.content) {
     content.push({ type: 'text', text: message.content });
   }
@@ -303,16 +332,69 @@ export function formatAnthropicSseEvent(event: string, data: JsonObject): string
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
 }
 
+/**
+ * Translates an OpenAI Chat Completions SSE stream into Anthropic Messages SSE stream.
+ *
+ * ## Supported conversions
+ *
+ * | OpenAI Chat delta field | Anthropic Messages SSE event |
+ * |-------------------------|-----------------------------|
+ * | `delta.reasoning_content` | `content_block_start/delta/stop` (type: thinking) |
+ * | `delta.content`          | `content_block_start/delta/stop` (type: text) |
+ * | `delta.tool_calls[]`     | `content_block_start/delta/stop` (type: tool_use) |
+ * | `choice.finish_reason`   | `message_delta` + `message_stop` |
+ *
+ * ## Content block ordering & indexing
+ *
+ * Blocks are emitted in the order they appear in the upstream stream
+ * (typically thinking → text → tool_use, but the translator makes no
+ * assumption about order). Each block is assigned a sequential `index`
+ * the first time it opens, and that exact index is reused for every
+ * subsequent delta/stop on that block — there is no shared mutable
+ * "current index" that could drift. This keeps multi-block responses
+ * (e.g. reasoning + several tool calls + text) correct even when block
+ * types interleave.
+ *
+ * ## Usage
+ *
+ * ```typescript
+ * const translator = new OpenAiChatToAnthropicStreamTranslator('glm-5.1');
+ * // For each SSE chunk from the upstream:
+ * const events = translator.acceptChunk(chunk);
+ * events.forEach(event => clientRes.write(event));
+ * ```
+ */
 export class OpenAiChatToAnthropicStreamTranslator {
   private messageStarted = false;
+  private thinkingStarted = false;
   private textStarted = false;
-  private textIndex = 0;
+  /**
+   * Block index assigned to the thinking block, or null until it starts.
+   *
+   * Index management: each content block (thinking / text / each tool_use)
+   * records the exact `index` it was opened with, so the matching
+   * `content_block_delta` / `content_block_stop` events always reference the
+   * right block regardless of the order in which block types appear or
+   * interleave in the upstream stream. We never rely on a single mutable
+   * counter that "happens to" point at the open block.
+   */
+  private thinkingIndex: number | null = null;
+  private textIndex: number | null = null;
+  /** Maps OpenAI tool_calls index → Anthropic content block index. */
+  private toolUseIndexMap = new Map<number, number>();
+  private nextBlockIndex = 0;
   private latestUsage: JsonObject | null = null;
   private messageId = `msg_${Date.now()}`;
   private model: string;
+  private hasToolUse = false;
 
   constructor(model: string) {
     this.model = model;
+  }
+
+  /** Allocate the next sequential content block index. */
+  private allocIndex(): number {
+    return this.nextBlockIndex++;
   }
 
   acceptChunk(chunk: JsonObject): string[] {
@@ -344,9 +426,43 @@ export class OpenAiChatToAnthropicStreamTranslator {
     }
     const choice = Array.isArray(chunk.choices) && isObject(chunk.choices[0]) ? chunk.choices[0] : {};
     const delta = isObject(choice.delta) ? choice.delta : {};
+
+    // --- Thinking / reasoning content ---
+    // OpenAI-compatible providers (e.g. deepseek) send reasoning in delta.reasoning_content
+    // or delta.thinking_blocks. Translate to Anthropic thinking content blocks.
+    const reasoningText =
+      typeof delta.reasoning_content === 'string' ? delta.reasoning_content : '';
+    if (reasoningText) {
+      if (!this.thinkingStarted) {
+        this.thinkingStarted = true;
+        this.thinkingIndex = this.allocIndex();
+        events.push(formatAnthropicSseEvent('content_block_start', {
+          type: 'content_block_start',
+          index: this.thinkingIndex,
+          content_block: { type: 'thinking', thinking: '' },
+        }));
+      }
+      events.push(formatAnthropicSseEvent('content_block_delta', {
+        type: 'content_block_delta',
+        index: this.thinkingIndex,
+        delta: { type: 'thinking_delta', thinking: reasoningText },
+      }));
+    }
+
+    // --- Text content ---
     if (typeof delta.content === 'string' && delta.content) {
+      // Close thinking block if it was open and we're transitioning to text
+      if (this.thinkingStarted) {
+        events.push(formatAnthropicSseEvent('content_block_stop', {
+          type: 'content_block_stop',
+          index: this.thinkingIndex,
+        }));
+        this.thinkingStarted = false;
+        this.thinkingIndex = null;
+      }
       if (!this.textStarted) {
         this.textStarted = true;
+        this.textIndex = this.allocIndex();
         events.push(formatAnthropicSseEvent('content_block_start', {
           type: 'content_block_start',
           index: this.textIndex,
@@ -359,16 +475,100 @@ export class OpenAiChatToAnthropicStreamTranslator {
         delta: { type: 'text_delta', text: delta.content },
       }));
     }
+
+    // --- Tool calls ---
+    // OpenAI format: delta.tool_calls is an array where each entry has index, id, function.name, function.arguments
+    const toolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls.filter(isObject) : [];
+    if (toolCalls.length > 0) {
+      this.hasToolUse = true;
+      // Close text block if transitioning from text to tool_use
+      if (this.textStarted) {
+        events.push(formatAnthropicSseEvent('content_block_stop', {
+          type: 'content_block_stop',
+          index: this.textIndex,
+        }));
+        this.textStarted = false;
+        this.textIndex = null;
+      }
+      // Close thinking block if transitioning from thinking to tool_use
+      if (this.thinkingStarted) {
+        events.push(formatAnthropicSseEvent('content_block_stop', {
+          type: 'content_block_stop',
+          index: this.thinkingIndex,
+        }));
+        this.thinkingStarted = false;
+        this.thinkingIndex = null;
+      }
+      for (const tc of toolCalls) {
+        const tcIndex = typeof tc.index === 'number' ? tc.index : 0;
+        // First chunk for this tool call: contains id and name
+        if (!this.toolUseIndexMap.has(tcIndex)) {
+          const blockIndex = this.allocIndex();
+          this.toolUseIndexMap.set(tcIndex, blockIndex);
+          const tcId = typeof tc.id === 'string' ? tc.id : `toolu_${tcIndex}`;
+          const fn = isObject(tc.function) ? tc.function : {};
+          const fnName = typeof fn.name === 'string' ? fn.name : 'tool';
+          events.push(formatAnthropicSseEvent('content_block_start', {
+            type: 'content_block_start',
+            index: blockIndex,
+            content_block: {
+              type: 'tool_use',
+              id: tcId,
+              name: fnName,
+              input: {},
+            },
+          }));
+          // Stream any partial arguments that arrive in the first chunk.
+          // Anthropic's input_json_delta carries the JSON arguments piece by piece.
+          const fnArgs = typeof fn.arguments === 'string' ? fn.arguments : '';
+          if (fnArgs) {
+            events.push(formatAnthropicSseEvent('content_block_delta', {
+              type: 'content_block_delta',
+              index: blockIndex,
+              delta: { type: 'input_json_delta', partial_json: fnArgs },
+            }));
+          }
+        } else {
+          // Subsequent chunks: streaming arguments
+          const blockIndex = this.toolUseIndexMap.get(tcIndex)!;
+          const fn = isObject(tc.function) ? tc.function : {};
+          const fnArgs = typeof fn.arguments === 'string' ? fn.arguments : '';
+          if (fnArgs) {
+            events.push(formatAnthropicSseEvent('content_block_delta', {
+              type: 'content_block_delta',
+              index: blockIndex,
+              delta: { type: 'input_json_delta', partial_json: fnArgs },
+            }));
+          }
+        }
+      }
+    }
+
+    // --- Finish ---
     if (choice.finish_reason) {
+      // Close any still-open blocks using their own recorded index.
+      if (this.thinkingStarted) {
+        events.push(formatAnthropicSseEvent('content_block_stop', {
+          type: 'content_block_stop',
+          index: this.thinkingIndex,
+        }));
+      }
       if (this.textStarted) {
         events.push(formatAnthropicSseEvent('content_block_stop', {
           type: 'content_block_stop',
           index: this.textIndex,
         }));
       }
+      // Close all tool_use blocks
+      for (const [, blockIndex] of this.toolUseIndexMap) {
+        events.push(formatAnthropicSseEvent('content_block_stop', {
+          type: 'content_block_stop',
+          index: blockIndex,
+        }));
+      }
       events.push(formatAnthropicSseEvent('message_delta', {
         type: 'message_delta',
-        delta: { stop_reason: mapFinishReason(choice.finish_reason, false), stop_sequence: null },
+        delta: { stop_reason: mapFinishReason(choice.finish_reason, this.hasToolUse), stop_sequence: null },
         usage: this.latestUsage ?? { input_tokens: 0, output_tokens: 0 },
       }));
       events.push(formatAnthropicSseEvent('message_stop', { type: 'message_stop' }));

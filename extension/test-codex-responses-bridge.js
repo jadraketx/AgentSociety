@@ -9,6 +9,8 @@ const {
 const {
   translateResponsesRequestToChat,
   translateChatCompletionToResponses,
+  CodexChatStreamTranslator,
+  formatResponsesSseEvent,
 } = require('./out/services/codexResponsesBridge');
 const { buildOpenAiModelsUrl } = require('./out/services/claudeCodeModels');
 const { resolveCodexChatModel } = require('./out/services/codexModelMapping');
@@ -20,6 +22,7 @@ const {
 const {
   translateAnthropicMessagesToOpenAiChat,
   translateOpenAiChatToAnthropicMessage,
+  OpenAiChatToAnthropicStreamTranslator,
 } = require('./out/services/anthropicOpenAiBridge');
 const {
   normalizePricingModelId,
@@ -227,4 +230,153 @@ test('translateChatCompletionToResponses builds response shell', () => {
   assert.equal(response.status, 'completed');
   assert.equal(response.model, 'glm-4.7');
   assert.ok(Array.isArray(response.output));
+});
+
+// --- Stream translator: multi-block index correctness ---------------------
+// These cover reasoning + text + tool_use in the same response, where the
+// old implementation mis-indexed deltas (text/tool deltas pointed at the
+// wrong block).
+
+// Parse the raw SSE strings a translator emits into a flat list of events.
+function parseSseEvents(rawStrings) {
+  const events = [];
+  for (const raw of rawStrings) {
+    for (const block of raw.split(/\n\n/)) {
+      const evtLine = block.split(/\r?\n/).find((l) => l.startsWith('event:'));
+      const dataLine = block.split(/\r?\n/).find((l) => l.startsWith('data:'));
+      if (!dataLine) continue;
+      events.push({
+        type: evtLine ? evtLine.slice(6).trim() : null,
+        data: JSON.parse(dataLine.slice(5).trim()),
+      });
+    }
+  }
+  return events;
+}
+
+test('OpenAiChatToAnthropicStreamTranslator indexes thinking+text+tool_use correctly', () => {
+  const t = new OpenAiChatToAnthropicStreamTranslator('glm-5.1');
+  const raw = [];
+  // chunk 1: reasoning
+  raw.push(...t.acceptChunk({
+    id: 'msg_1', model: 'glm-5.1',
+    choices: [{ index: 0, delta: { reasoning_content: 'think' } }],
+  }));
+  // chunk 2: text (closes thinking at index 0, opens text at index 1)
+  raw.push(...t.acceptChunk({
+    choices: [{ index: 0, delta: { content: 'hello' } }],
+  }));
+  // chunk 3: tool_call (closes text at index 1, opens tool_use at index 2)
+  raw.push(...t.acceptChunk({
+    choices: [{
+      index: 0,
+      delta: { tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'Bash', arguments: '{"a":1}' } }] },
+    }],
+  }));
+  // chunk 4: finish
+  raw.push(...t.acceptChunk({
+    choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
+  }));
+
+  const events = parseSseEvents(raw);
+  const byType = {};
+  for (const e of events) (byType[e.type] ??= []).push(e.data);
+
+  // thinking block opened and stopped at index 0
+  assert.equal(byType['content_block_start'][0].index, 0);
+  assert.equal(byType['content_block_start'][0].content_block.type, 'thinking');
+  assert.equal(byType['content_block_delta'].filter((d) => d.delta.type === 'thinking_delta')[0].index, 0);
+
+  // text block opened at index 1, delta also at 1 (NOT hardcoded 0)
+  const textStart = byType['content_block_start'].find((d) => d.content_block.type === 'text');
+  assert.equal(textStart.index, 1);
+  assert.equal(byType['content_block_delta'].filter((d) => d.delta.type === 'text_delta')[0].index, 1);
+
+  // tool_use block opened at index 2, its input_json_delta also at 2
+  const toolStart = byType['content_block_start'].find((d) => d.content_block.type === 'tool_use');
+  assert.equal(toolStart.index, 2);
+  assert.equal(byType['content_block_delta'].filter((d) => d.delta.type === 'input_json_delta')[0].index, 2);
+
+  // three content_block_stop events, one per block, with distinct indices 0,1,2
+  const stopIndices = byType['content_block_stop'].map((d) => d.index).sort((a, b) => a - b);
+  assert.deepEqual(stopIndices, [0, 1, 2]);
+
+  // tool_use reflected in stop_reason
+  assert.equal(byType['message_delta'][0].delta.stop_reason, 'tool_use');
+});
+
+test('OpenAiChatToAnthropicStreamTranslator handles two sequential tool_calls', () => {
+  const t = new OpenAiChatToAnthropicStreamTranslator('glm-5.1');
+  const raw = [];
+  raw.push(...t.acceptChunk({
+    choices: [{
+      index: 0,
+      delta: { tool_calls: [{ index: 0, id: 'c1', type: 'function', function: { name: 'A', arguments: '{"x":1}' } }] },
+    }],
+  }));
+  raw.push(...t.acceptChunk({
+    choices: [{
+      index: 0,
+      delta: { tool_calls: [{ index: 1, id: 'c2', type: 'function', function: { name: 'B', arguments: '{"y":2}' } }] },
+    }],
+  }));
+  raw.push(...t.acceptChunk({ choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }] }));
+
+  const events = parseSseEvents(raw);
+  const toolStarts = events
+    .filter((e) => e.type === 'content_block_start' && e.data.content_block.type === 'tool_use')
+    .map((e) => e.data.index);
+  // two tool_use blocks at indices 0 and 1 (no text/thinking before them)
+  assert.deepEqual(toolStarts, [0, 1]);
+  // both stopped
+  assert.equal(events.filter((e) => e.type === 'content_block_stop').length, 2);
+});
+
+test('CodexChatStreamTranslator assigns correct output_index for reasoning+tool+text', () => {
+  const t = new CodexChatStreamTranslator({ model: 'glm-4.7', input: [], stream: true });
+  // Build SSE lines exactly as an OpenAI Chat upstream would send them.
+  const line = (payload) => `data: ${JSON.stringify(payload)}`;
+  const raw = [];
+  raw.push(...t.consumeChatSseLine(line({
+    id: 'chatcmpl-1', model: 'glm-4.7',
+    choices: [{ index: 0, delta: { reasoning_content: 'reason' } }],
+  })));
+  // tool call arrives BEFORE text
+  raw.push(...t.consumeChatSseLine(line({
+    choices: [{
+      index: 0,
+      delta: { tool_calls: [{ index: 0, id: 'call_9', type: 'function', function: { name: 'Bash', arguments: '{"c":3}' } }] },
+    }],
+  })));
+  // text arrives AFTER the tool call
+  raw.push(...t.consumeChatSseLine(line({
+    choices: [{ index: 0, delta: { content: 'done' } }],
+  })));
+
+  const indicesByType = {};
+  for (const evt of raw) {
+    const oi = evt.output_index;
+    if (oi === undefined) continue;
+    const key = evt.type;
+    (indicesByType[key] ??= new Set()).add(oi);
+  }
+
+  // reasoning_text.delta must use the reasoning item's index (consistent within the type)
+  assert.equal(indicesByType['response.reasoning_text.delta'].size, 1);
+  // function_call_arguments.delta must use the tool item's index
+  assert.equal(indicesByType['response.function_call_arguments.delta'].size, 1);
+  // output_text.delta must NOT be hardcoded to a wrong index; it equals the message item's index
+  // and differs from the reasoning/tool indices.
+  const textIdx = [...indicesByType['response.output_text.delta']][0];
+  const reasonIdx = [...indicesByType['response.reasoning_text.delta']][0];
+  const toolIdx = [...indicesByType['response.function_call_arguments.delta']][0];
+  assert.notEqual(textIdx, reasonIdx, 'text output_index must not collide with reasoning');
+  assert.notEqual(textIdx, toolIdx, 'text output_index must not collide with tool_call');
+
+  // completionEvent should surface all three output items
+  const completion = t.completionEvent();
+  const types = completion.response.output.map((o) => o.type);
+  assert.ok(types.includes('reasoning'));
+  assert.ok(types.includes('function_call'));
+  assert.ok(types.includes('message'));
 });

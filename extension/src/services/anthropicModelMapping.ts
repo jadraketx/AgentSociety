@@ -11,6 +11,22 @@ export function stripOneMContextMarker(model: string): string {
   return trimmed.slice(0, -ONE_M_CONTEXT_MARKER.length).trimEnd();
 }
 
+/**
+ * Map a Claude Code model name to the upstream provider's model name.
+ *
+ * Claude Code sends model names like `claude-sonnet-4-6-20250514`.
+ * Third-party providers don't understand these names, so we map them:
+ *
+ * | Claude Code sends    | Resolves to                  |
+ * |----------------------|------------------------------|
+ * | `claude-sonnet-*`    | `upstream.sonnetModel`       |
+ * | `claude-opus-*`      | `upstream.opusModel`         |
+ * | `claude-haiku-*`     | `upstream.haikuModel`        |
+ * | `claude-fable-*`     | `upstream.opusModel` (fallback) |
+ * | anything else        | `upstream.model` (default)   |
+ *
+ * The `[1M]` context marker suffix is stripped before mapping.
+ */
 export function resolveAnthropicGatewayModel(
   requestedModel: unknown,
   upstream: Pick<

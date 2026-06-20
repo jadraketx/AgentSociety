@@ -135,6 +135,16 @@ export function buildResponseShell(request: JsonObject, ids: {
   };
 }
 
+/**
+ * Translate an OpenAI Responses API request to an OpenAI Chat Completions request.
+ *
+ * Converts:
+ * - `instructions` → `messages[0].role: "system"`
+ * - `input[]` → `messages[]` (function_call_output → tool role, others → user/assistant)
+ * - `tools[]` → `tools[].function` format
+ * - `max_output_tokens` → `max_tokens`
+ * - `stream` → `stream` + `stream_options: { include_usage: true }`
+ */
 export function translateResponsesRequestToChat(
   request: JsonObject,
   upstreamModel?: string
@@ -324,6 +334,37 @@ export function translateChatCompletionToResponses(
 
 export type ResponsesSseEvent = JsonObject;
 
+/**
+ * Translates an OpenAI Chat Completions SSE stream into OpenAI Responses SSE stream.
+ *
+ * ## Supported conversions
+ *
+ * | OpenAI Chat delta field | Responses SSE event |
+ * |-------------------------|---------------------|
+ * | `delta.reasoning_content` | `response.output_item.added` (reasoning) + `response.reasoning_text.delta` |
+ * | `delta.content`          | `response.output_item.added` (message) + `response.content_part.added` + `response.output_text.delta` |
+ * | `delta.tool_calls[]`     | `response.output_item.added` (function_call) + `response.function_call_arguments.delta` |
+ *
+ * ## Usage
+ *
+ * ```typescript
+ * const translator = new CodexChatStreamTranslator(originalRequest);
+ * clientRes.write(translator.initialEvents().map(formatResponsesSseEvent).join(''));
+ * // For each SSE line from the upstream:
+ * const events = translator.consumeChatSseLine(line);
+ * events.forEach(e => clientRes.write(formatResponsesSseEvent(e)));
+ * // On stream end:
+ * clientRes.write(formatResponsesSseEvent(translator.completionEvent()));
+ * ```
+ *
+ * ## Output indexing
+ *
+ * Each output item (reasoning / message / each function_call) is assigned a
+ * sequential `output_index` the first time it appears, and that index is
+ * recorded and reused for every subsequent delta on that item. This keeps
+ * the indices correct regardless of the order reasoning, text and tool
+ * calls arrive in.
+ */
 export class CodexChatStreamTranslator {
   private seq = 1;
   private readonly responseId = newId('resp');
@@ -336,6 +377,15 @@ export class CodexChatStreamTranslator {
   private messageStarted = false;
   private reasoningStarted = false;
   private completed = false;
+  /** Output index assigned to the message (text) item, once it starts. */
+  private messageOutputIndex: number | null = null;
+  /** Output index assigned to the reasoning item, once it starts. */
+  private reasoningOutputIndex: number | null = null;
+  /** Tracks active tool_call deltas: maps OpenAI tool_calls index → { id, name, arguments } */
+  private toolCallStates = new Map<number, { id: string; name: string; arguments: string }>();
+  /** Tracks emitted tool call items: maps OpenAI tool_calls index → output_index. */
+  private toolCallOutputIndices = new Map<number, number>();
+  private nextOutputIndex = 0;
 
   constructor(request: JsonObject) {
     this.request = request;
@@ -352,6 +402,10 @@ export class CodexChatStreamTranslator {
       { type: 'response.created', response: shell, sequence_number: this.seq++ },
       { type: 'response.in_progress', response: shell, sequence_number: this.seq++ },
     ];
+  }
+
+  private allocOutputIndex(): number {
+    return this.nextOutputIndex++;
   }
 
   consumeChatSseLine(line: string): ResponsesSseEvent[] {
@@ -386,9 +440,10 @@ export class CodexChatStreamTranslator {
       if (computed.delta) {
         if (!this.reasoningStarted) {
           this.reasoningStarted = true;
+          this.reasoningOutputIndex = this.allocOutputIndex();
           events.push({
             type: 'response.output_item.added',
-            output_index: 0,
+            output_index: this.reasoningOutputIndex,
             item: {
               id: newId('rs'),
               type: 'reasoning',
@@ -402,11 +457,72 @@ export class CodexChatStreamTranslator {
         events.push({
           type: 'response.reasoning_text.delta',
           item_id: this.messageId,
-          output_index: 0,
+          output_index: this.reasoningOutputIndex ?? 0,
           content_index: 0,
           delta: computed.delta,
           sequence_number: this.seq++,
         });
+      }
+    }
+
+    // --- Tool calls ---
+    const toolCalls = Array.isArray(delta.tool_calls) ? delta.tool_calls.filter(
+      (tc): tc is JsonObject => Boolean(tc) && typeof tc === 'object'
+    ) : [];
+    if (toolCalls.length > 0) {
+      for (const tc of toolCalls) {
+        const tcIndex = typeof tc.index === 'number' ? tc.index : 0;
+        let state = this.toolCallStates.get(tcIndex);
+        const fn = tc.function && typeof tc.function === 'object'
+          ? (tc.function as JsonObject)
+          : {};
+
+        if (!state) {
+          // First chunk: contains id + name
+          const callId = String(tc.id ?? fn.id ?? newId('call'));
+          const fnName = String(fn.name ?? '');
+          state = { id: callId, name: fnName, arguments: '' };
+          this.toolCallStates.set(tcIndex, state);
+          const outputIndex = this.allocOutputIndex();
+          this.toolCallOutputIndices.set(tcIndex, outputIndex);
+          events.push({
+            type: 'response.output_item.added',
+            output_index: outputIndex,
+            item: {
+              id: callId,
+              type: 'function_call',
+              call_id: callId,
+              name: fnName,
+              arguments: '',
+            },
+            sequence_number: this.seq++,
+          });
+          const fnArgs = typeof fn.arguments === 'string' ? fn.arguments : '';
+          if (fnArgs) {
+            state.arguments = fnArgs;
+            events.push({
+              type: 'response.function_call_arguments.delta',
+              item_id: callId,
+              output_index: outputIndex,
+              delta: fnArgs,
+              sequence_number: this.seq++,
+            });
+          }
+        } else {
+          // Subsequent chunks: streaming arguments
+          const outputIndex = this.toolCallOutputIndices.get(tcIndex)!;
+          const fnArgs = typeof fn.arguments === 'string' ? fn.arguments : '';
+          if (fnArgs) {
+            state.arguments += fnArgs;
+            events.push({
+              type: 'response.function_call_arguments.delta',
+              item_id: state.id,
+              output_index: outputIndex,
+              delta: fnArgs,
+              sequence_number: this.seq++,
+            });
+          }
+        }
       }
     }
 
@@ -416,9 +532,10 @@ export class CodexChatStreamTranslator {
       if (computed.delta) {
         if (!this.messageStarted) {
           this.messageStarted = true;
+          this.messageOutputIndex = this.allocOutputIndex();
           events.push({
             type: 'response.output_item.added',
-            output_index: this.reasoningStarted ? 1 : 0,
+            output_index: this.messageOutputIndex,
             item: {
               id: this.messageId,
               type: 'message',
@@ -431,7 +548,7 @@ export class CodexChatStreamTranslator {
           events.push({
             type: 'response.content_part.added',
             item_id: this.messageId,
-            output_index: this.reasoningStarted ? 1 : 0,
+            output_index: this.messageOutputIndex,
             content_index: 0,
             part: { type: 'output_text', annotations: [] },
             sequence_number: this.seq++,
@@ -440,7 +557,7 @@ export class CodexChatStreamTranslator {
         events.push({
           type: 'response.output_text.delta',
           item_id: this.messageId,
-          output_index: this.reasoningStarted ? 1 : 0,
+          output_index: this.messageOutputIndex ?? 0,
           content_index: 0,
           delta: computed.delta,
           sequence_number: this.seq++,
@@ -460,6 +577,17 @@ export class CodexChatStreamTranslator {
         status: 'completed',
         content: [{ type: 'reasoning_text', text: this.allReasoningText }],
         summary: [],
+      });
+    }
+    // Emit tool_call items before text
+    const sortedToolCallEntries = [...this.toolCallStates.entries()].sort(([a], [b]) => a - b);
+    for (const [, state] of sortedToolCallEntries) {
+      output.push({
+        id: state.id,
+        type: 'function_call',
+        call_id: state.id,
+        name: state.name,
+        arguments: state.arguments,
       });
     }
     if (this.allOutputText) {

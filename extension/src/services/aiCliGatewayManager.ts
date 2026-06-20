@@ -1,5 +1,4 @@
 import * as fs from 'fs';
-import * as path from 'path';
 import * as vscode from 'vscode';
 import type { ClaudeCodeConfigValues } from '../webview/configPage/claudeCodeTypes';
 import {
@@ -38,7 +37,6 @@ import {
 } from './gatewayUsageTracker';
 import {
   type ModelPricingMap,
-  type CustomPriceEntry,
   getBuiltinPricing,
 } from './gatewayModelPricing';
 import {
@@ -111,9 +109,6 @@ export type AiCliProviderAvailabilityResult = {
   models: number;
   error?: string;
 };
-
-/** @deprecated use AiCliProviderAvailabilityResult */
-export type AiCliProviderSpeedtestResult = AiCliProviderAvailabilityResult;
 
 export class AiCliGatewayManager {
   private readonly gateway = new AiCliGateway();
@@ -499,11 +494,6 @@ export class AiCliGatewayManager {
     return this.getProviders().find((p) => p.activeCodex && p.apiKind === 'openai');
   }
 
-  /** @deprecated use getActiveClaudeProvider */
-  getActiveProvider(): AiCliProviderConfig | undefined {
-    return this.getActiveClaudeProvider();
-  }
-
   claudeConfigForUi(): ClaudeCodeConfigValues {
     const active = this.getActiveClaudeProvider();
     if (active) {
@@ -719,15 +709,6 @@ export class AiCliGatewayManager {
       return { ok: true, models: result.models.length };
     }
     return { ok: false, models: 0, error: result.error };
-  }
-
-  /** @deprecated use checkProviderAvailability */
-  async speedtestProvider(
-    baseUrl: string,
-    apiKey: string,
-    apiKind: AiCliApiKind = 'anthropic'
-  ): Promise<AiCliProviderAvailabilityResult> {
-    return this.checkProviderAvailability(baseUrl, apiKey, apiKind);
   }
 
   getProviders(): AiCliProviderConfig[] {

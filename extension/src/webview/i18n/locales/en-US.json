@@ -989,6 +989,7 @@
 		"usagePricingComplete": "Pricing matched for all requests",
 		"usagePricingCoverage": "Pricing matched {{priced}} / {{total}} requests",
 		"usageCostIncludesCache": "Cost estimates price input, output, cache reads, and cache writes separately. Codex/OpenAI-compatible records subtract cache hits from billable input before pricing cache reads.",
+		"usageRangeToday": "Today",
 		"usageRange7d": "7d",
 		"usageRange30d": "30d",
 		"usageRangeAll": "All",
