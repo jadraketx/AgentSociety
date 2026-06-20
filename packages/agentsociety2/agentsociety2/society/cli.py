@@ -452,7 +452,11 @@ class ExperimentRunner:
                 replay_proxy,
                 trace_proxy,
             )
-            env_router = EnvRouterProxy(env_actor, run_dir=self.run_dir.resolve())
+            env_router = EnvRouterProxy(
+                env_actor,
+                run_dir=self.run_dir.resolve(),
+                env_module_types=env_module_types,
+            )
             self._env_router = env_router
 
             # Compose the agent ServiceProxy with serializable LLM clients plus
