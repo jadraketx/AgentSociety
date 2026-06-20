@@ -1,8 +1,5 @@
 name: CodeQL
 
-# Replaces GitHub default CodeQL for this repo (disable "Default setup" in
-# Settings → Code security → Code scanning to avoid duplicate runs).
-
 permissions:
   actions: read
   contents: read

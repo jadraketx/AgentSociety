@@ -11,6 +11,9 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/ci.yml"
+    paths-ignore:
+      - "packages/agentsociety2/docs/**"
+      - "packages/agentsociety2/docs_v1/**"
   pull_request:
     branches: [main, develop]
     paths:
@@ -18,6 +21,9 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/ci.yml"
+    paths-ignore:
+      - "packages/agentsociety2/docs/**"
+      - "packages/agentsociety2/docs_v1/**"
 
 concurrency:
   group: ci-${{ github.ref }}
