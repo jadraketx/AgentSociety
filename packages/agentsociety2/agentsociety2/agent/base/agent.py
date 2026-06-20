@@ -87,6 +87,45 @@ def _brief_memories_summary(memories: Any) -> str:
     return text[:160]
 
 
+def _synthesize_step_fallback_episode(
+    *,
+    step_count: int,
+    t: datetime,
+    observations: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Build one rule-based memory episode when the model never recorded one.
+
+    Used at the end of ``run_react_loop`` (step mode) when no valid
+    ``finish(memories=...)`` was produced, so the agent still carries a
+    cross-step memory derived from this step's observations. The episode is
+    tagged ``source=step_result_fallback`` so it can be distinguished from
+    LLM-produced memories.
+
+    :param step_count: Current agent step count.
+    :param t: Current simulation time.
+    :param observations: ReAct observations collected this step.
+    :returns: One validated episode dict.
+    """
+    parts: list[str] = []
+    for obs in observations:
+        action = str(obs.get("action") or "").strip()
+        text = str(obs.get("observation") or "").strip()
+        if not text:
+            continue
+        prefix = f"{action}: " if action and action != "(invalid)" else ""
+        parts.append(prefix + text[:200])
+    summary = " | ".join(parts[:5]) if parts else "no notable events recorded"
+    text = f"Step {step_count} ({t.isoformat()}): {summary}"[:1000]
+    return {
+        "type": "observation",
+        "importance": 0.4,
+        "keywords": [],
+        "text": text,
+        "source": "step_result_fallback",
+        "refs": [],
+    }
+
+
 class AgentBase(ABC):
     """Abstract base class for all agents.
 
@@ -129,6 +168,14 @@ class AgentBase(ABC):
         # finish; consumed by step() -> memory_runtime.after_step. None when the
         # loop finished without a finish tool call or in ask mode.
         self._last_finish_memories: list[dict[str, Any]] | None = None
+        # Ask-mode scratch: the most recent free-text answer the model emitted
+        # without wrapping it in a finish(answer=...) tool call. Used as the
+        # end-of-loop fallback answer when the model never self-corrects.
+        self._last_raw_answer_text: str = ""
+        # Most recent ReAct parse/validation error surfaced from the LLM call;
+        # read by run_react_loop to push corrective feedback on a no-decision
+        # turn so the model can retry instead of silently ending as "done".
+        self._last_react_error: str = ""
 
         # Workspace / trace placeholders.
         self._workspace_root: Path | None = None
@@ -1547,6 +1594,8 @@ The constructor ``__init__`` is arg-less.
         # Reset inline finish memories for this loop invocation; set below when
         # a step-mode `finish` carrying `memories` is observed.
         self._last_finish_memories = None
+        self._last_raw_answer_text = ""
+        self._last_react_error = ""
         with self.trace_span(
             "react.loop",
             attributes={
@@ -1582,14 +1631,6 @@ The constructor ``__init__`` is arg-less.
                             "react.tool_count": len(decisions),
                         }
                     )
-                    if not decisions:
-                        loop_span.attributes.update(
-                            {
-                                "react.end_reason": "finish",
-                                "output.summary": {"final": "done"},
-                            }
-                        )
-                        return "done"
 
                     finish_d = next(
                         (d for d in decisions if d.action == "finish"), None
@@ -1618,6 +1659,28 @@ The constructor ``__init__`` is arg-less.
                         )
                         return final
 
+                    if not decisions:
+                        # No valid tool call this turn (parse/validation failed
+                        # even after the within-turn retry). Instead of silently
+                        # ending as "done" — which drops the ask answer / step
+                        # memory — push the error back as an observation so the
+                        # model can self-correct on a later turn. The loop is
+                        # still bounded by _max_react_turns; if the model never
+                        # recovers we synthesize a fallback below.
+                        feedback = (
+                            self._last_react_error or "No valid tool call was produced."
+                        )
+                        observations.append(
+                            {
+                                "turn": turn,
+                                "action": "(invalid)",
+                                "ok": False,
+                                "observation": feedback,
+                                "data": {"error": feedback},
+                            }
+                        )
+                        continue
+
                     for decision in decisions:
                         result = await self._execute_react_tool(
                             decision,
@@ -1643,14 +1706,30 @@ The constructor ``__init__`` is arg-less.
                         obs["ok"] for obs in observations if obs.get("turn") == turn
                     )
 
-            summary = "max_react_turns_reached"
+            # Loop exhausted without a valid finish. Fall back to a rule-based
+            # result so the agent always carries forward *something*: a step
+            # memory synthesized from the turn observations (step mode), or the
+            # last free-text answer the model emitted (ask mode).
+            if readonly:
+                final = self._synthesize_ask_fallback()
+                loop_span.attributes.update(
+                    {
+                        "react.end_reason": "ask_fallback",
+                        "output.summary": {"final": final},
+                    }
+                )
+                return final
+            self._last_finish_memories = self._synthesize_step_fallback_memory(
+                tick=tick, t=t, observations=observations
+            )
+            final = _brief_memories_summary(self._last_finish_memories) or "done"
             loop_span.attributes.update(
                 {
-                    "react.end_reason": summary,
-                    "output.summary": {"turns": self._max_react_turns},
+                    "react.end_reason": "step_memory_fallback",
+                    "output.summary": {"final": final},
                 }
             )
-            return summary
+            return final
 
     async def _call_react_llm(
         self,
@@ -1712,8 +1791,9 @@ The constructor ``__init__`` is arg-less.
             },
         ) as span:
             response = await self._complete_react_once(messages, readonly=readonly)
-            decisions, error = self._parse_react_responses(response)
+            decisions, error = self._parse_react_responses(response, readonly=readonly)
             if error:
+                self._last_react_error = error
                 retry_messages = [
                     *messages,
                     {
@@ -1733,8 +1813,11 @@ The constructor ``__init__`` is arg-less.
                     retry_messages,
                     readonly=readonly,
                 )
-                decisions, error = self._parse_react_responses(response)
+                decisions, error = self._parse_react_responses(
+                    response, readonly=readonly
+                )
             if error:
+                self._last_react_error = error
                 span.attributes["schema.error"] = error
                 logger.warning("Agent %s: invalid ReAct decision: %s", self.id, error)
         return decisions
@@ -1786,7 +1869,49 @@ The constructor ``__init__`` is arg-less.
         """
         return {}
 
-    def _parse_react_responses(self, response: Any) -> tuple[list[ReactDecision], str]:
+    def _synthesize_step_fallback_memory(
+        self,
+        *,
+        tick: int,
+        t: datetime,
+        observations: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Synthesize a one-item memory list when no valid finish was produced.
+
+        Wraps :func:`_synthesize_step_fallback_episode` so ``run_react_loop``
+        can populate ``self._last_finish_memories`` (consumed by
+        ``step() -> memory_runtime.after_step``) even when the model never
+        emitted an acceptable ``finish(memories=...)``.
+
+        :param tick: Current simulation tick (unused, kept for symmetry).
+        :param t: Current simulation time.
+        :param observations: ReAct observations collected this step.
+        :returns: A one-element list with the fallback episode.
+        """
+        del tick  # step_count is the meaningful counter here.
+        return [
+            _synthesize_step_fallback_episode(
+                step_count=self._step_count,
+                t=t,
+                observations=observations,
+            )
+        ]
+
+    def _synthesize_ask_fallback(self) -> str:
+        """Return a last-resort ask-mode answer when no valid finish happened.
+
+        Prefers the most recent free-text answer the model emitted (stashed in
+        ``self._last_raw_answer_text`` during response parsing); falls back to
+        ``"done"`` only when the model produced no usable text at all.
+
+        :returns: The fallback answer string.
+        """
+        text = (self._last_raw_answer_text or "").strip()
+        return text or "done"
+
+    def _parse_react_responses(
+        self, response: Any, *, readonly: bool = False
+    ) -> tuple[list[ReactDecision], str]:
         """Parse OpenAI tool calls from one LLM response.
 
         Some OpenAI-compatible endpoints never emit native ``tool_calls`` and
@@ -1798,8 +1923,17 @@ The constructor ``__init__`` is arg-less.
         calls, Hermes/Qwen ``<tool_call>``/``<tool_input>`` blocks, bare JSON
         objects, and ``<invoke>`` XML).
 
+        In ask mode (``readonly=True``), when the model returns a free-text
+        answer with no recognizable tool call, we first try a conservative
+        answer extraction (a JSON object with an ``answer``-ish key, or a bare
+        JSON scalar) and synthesize a ``finish(answer=...)``; anything we
+        cannot confidently match is rejected with an error so the loop feeds
+        the failure back to the model and retries (the primary correction
+        mechanism). The raw free text is stashed for the end-of-loop fallback.
+
         Args:
             response: Raw LLM response object.
+            readonly: Whether the loop is in readonly (ask) mode.
 
         Returns:
             Tuple of (decisions, error).  When ``error`` is non-empty the
@@ -1829,7 +1963,7 @@ The constructor ``__init__`` is arg-less.
                 if not isinstance(parsed_args, Mapping):
                     return [], f"tool arguments for {name} must be an object"
                 calls.append((name, dict(parsed_args)))
-            return self._build_react_decisions(calls)
+            return self._build_react_decisions(calls, readonly=readonly)
 
         # No native tool calls: try parsing tool invocations from the text
         # content before rejecting the response. Many OpenAI-compatible models
@@ -1837,22 +1971,99 @@ The constructor ``__init__`` is arg-less.
         content = str(getattr(message, "content", "") or "").strip()
         if not content:
             return [], ""
+        if readonly:
+            # Stash the raw free text so run_react_loop can fall back to it if
+            # the model never produces a valid finish(answer=...) tool call.
+            self._last_raw_answer_text = content
         text_calls = self._parse_text_tool_calls(content)
         if text_calls:
-            return self._build_react_decisions(text_calls)
+            return self._build_react_decisions(text_calls, readonly=readonly)
+        # Ask mode: attempt a conservative answer extraction from free text
+        # before giving up. This recovers obvious cases (e.g. {"answer": ...});
+        # everything else falls through to an error so the loop corrects the
+        # model via feedback.
+        if readonly:
+            answer = self._extract_free_text_answer(content)
+            if answer:
+                return self._build_react_decisions(
+                    [("finish", {"answer": answer})], readonly=readonly
+                )
+            return (
+                [],
+                "In ask mode you must deliver your answer through the `finish` "
+                "tool with a non-empty `answer` argument. Free-text answers are "
+                "not accepted. Re-issue your complete answer as a single "
+                "finish(answer=...) tool call.",
+            )
         return [], "Respond with tool calls only. Free text is not accepted."
 
+    # Keys whose JSON value may carry a direct answer in ask-mode free text.
+    _FREE_TEXT_ANSWER_KEYS = ("answer", "final", "result", "response", "value")
+
+    def _extract_free_text_answer(self, content: str) -> str:
+        """Conservatively extract an ask-mode answer from free-form text.
+
+        Only confidently-shaped payloads are matched, so that everything
+        ambiguous is left to the error-feedback path:
+
+        - A JSON object with an ``answer``-ish key (e.g. ``{"answer": "left"}``).
+        - A bare JSON scalar (string / number / boolean).
+
+        Natural-language answers (e.g. "The answer is left") are intentionally
+        NOT matched here — those are corrected via retry feedback instead.
+
+        Args:
+            content: Raw ``message.content`` text.
+
+        Returns:
+            The extracted answer string, or ``""`` when nothing confident
+            matches.
+        """
+        from agentsociety2.agent.json_utils import jr_parse_from_llm
+
+        text = content.strip().strip("`")
+        # Strip a leading "json" code-fence marker if present.
+        if text.lower().startswith("json"):
+            text = text[4:].lstrip()
+        parsed: Any = None
+        try:
+            parsed = jr_parse_from_llm(text)
+        except Exception:
+            try:
+                parsed = json.loads(text)
+            except Exception:
+                parsed = None
+        if isinstance(parsed, Mapping):
+            for key in self._FREE_TEXT_ANSWER_KEYS:
+                if key in parsed:
+                    value = str(parsed.get(key)).strip()
+                    if value:
+                        return value
+            return ""
+        if isinstance(parsed, (str, int, float, bool)):
+            return str(parsed).strip()
+        return ""
+
     def _build_react_decisions(
-        self, calls: list[tuple[str, dict[str, Any]]]
+        self,
+        calls: list[tuple[str, dict[str, Any]]],
+        *,
+        readonly: bool = False,
     ) -> tuple[list[ReactDecision], str]:
         """Build ReAct decisions from a list of (name, args) tool calls.
 
         Shared by the native-tool-call path and the text-parsing fallback so
         the ``finish`` semantics stay identical: ``finish`` wins and at most
-        one is returned; step-mode ``finish`` may carry only ``memories``.
+        one is returned. The ``finish`` payload is validated per mode and a
+        rejected ``finish`` returns an error so the caller retries:
+
+        - ask / readonly mode: ``finish`` must carry a non-empty ``answer``;
+        - step mode: ``finish`` must carry a ``memories`` list with at least
+          one item (an empty list is invalid — memory generation happens here).
 
         Args:
             calls: Ordered ``(tool_name, args)`` pairs.
+            readonly: Whether the loop is in readonly (ask) mode.
 
         Returns:
             Tuple of (decisions, error).
@@ -1860,19 +2071,28 @@ The constructor ``__init__`` is arg-less.
         decisions: list[ReactDecision] = []
         for name, args in calls:
             if name == "finish":
-                final = (
-                    str(args.get("answer") or "").strip()
-                    or str(args.get("final") or "").strip()
-                )
-                # Step-mode finish carries only `memories` (no answer/final);
-                # ask-mode finish carries `answer`. Reject only when neither is
-                # present.
-                if not final and "memories" not in args:
-                    return (
-                        [],
-                        "finish requires `answer` (ask mode) or `memories` (step mode)",
-                    )
-                decisions.append(ReactDecision("", name, args, final))
+                if readonly:
+                    answer = str(args.get("answer") or "").strip()
+                    if not answer:
+                        return (
+                            [],
+                            "In ask mode `finish` requires a non-empty `answer` "
+                            "with your complete answer to the question. Re-issue "
+                            "your answer as a single finish(answer=...) tool call.",
+                        )
+                    decisions.append(ReactDecision("", name, args, answer))
+                else:
+                    memories = args.get("memories")
+                    if not isinstance(memories, list) or not memories:
+                        return (
+                            [],
+                            "`finish` requires `memories` with at least one "
+                            "memory item from this step (an empty list is not "
+                            "accepted). Record at least one episode (key "
+                            "decision/event/observation/intention) and call "
+                            "finish again.",
+                        )
+                    decisions.append(ReactDecision("", name, args, ""))
             else:
                 decisions.append(ReactDecision("", name, args, ""))
         finish_decisions = [d for d in decisions if d.action == "finish"]
@@ -1893,9 +2113,7 @@ The constructor ``__init__`` is arg-less.
         "inputs",
     )
 
-    def _parse_text_tool_calls(
-        self, content: str
-    ) -> list[tuple[str, dict[str, Any]]]:
+    def _parse_text_tool_calls(self, content: str) -> list[tuple[str, dict[str, Any]]]:
         """Parse tool calls embedded in free-form LLM text content.
 
         Supports the encodings emitted by OpenAI-compatible models that do not
@@ -2085,7 +2303,9 @@ The constructor ``__init__`` is arg-less.
 
         # 2. <tool_call>{...json with name + arguments...}</tool_call> (Qwen JSON variant)
         if not results:
-            for m in re.finditer(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", content, re.DOTALL):
+            for m in re.finditer(
+                r"<tool_call>\s*(\{.*?\})\s*</tool_call>", content, re.DOTALL
+            ):
                 obj = _json_loads_lenient(m.group(1))
                 if obj:
                     name, args = _extract_name_args(obj)

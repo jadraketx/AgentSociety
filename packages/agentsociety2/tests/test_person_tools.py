@@ -45,6 +45,12 @@ def test_finish_step_requires_memories_only():
     assert params["additionalProperties"] is False
 
 
+def test_finish_step_memories_min_items_one():
+    """An empty memories list is invalid; the schema must enforce minItems=1."""
+    memories = _params(finish_step_tool_schema())["properties"]["memories"]
+    assert memories["minItems"] == 1
+
+
 def test_finish_ask_requires_answer_only():
     params = _params(finish_ask_tool_schema())
     assert params["required"] == ["answer"]

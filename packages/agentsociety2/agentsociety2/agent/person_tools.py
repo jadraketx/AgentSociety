@@ -86,9 +86,11 @@ def finish_ask_tool_schema() -> dict[str, Any]:
         "function": {
             "name": "finish",
             "description": (
-                "End this external question and return your complete answer. "
-                "Put the full answer (including any requested JSON/choice, copied "
-                "verbatim) in `answer`."
+                "End this external question and return your complete answer. This "
+                "is the ONLY accepted way to deliver an answer — never write the "
+                "answer as free assistant text and never reply with bare words "
+                'like "done". Put the full answer (including any requested '
+                "JSON/choice, copied verbatim) in a non-empty `answer`."
             ),
             "parameters": {
                 "type": "object",
@@ -125,17 +127,23 @@ def finish_step_tool_schema() -> dict[str, Any]:
                 "End this simulation step by recording the durable memory points "
                 "worth keeping from this step in `memories` (key decisions, "
                 "events, observations, intentions). Memory generation happens "
-                "here — there is no separate memory pass — so always fill "
-                "`memories`; use an empty list only when nothing notable happened."
+                "here — there is no separate memory pass — so `memories` MUST "
+                "contain at least one item. An empty list is invalid and will be "
+                "rejected; if nothing notable happened, still record one brief "
+                "observation episode summarizing the step."
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "memories": {
                         "type": "array",
+                        "minItems": 1,
                         "maxItems": 8,
                         "items": memory_episode_item_schema(),
-                        "description": "Durable memory points extracted from this step.",
+                        "description": (
+                            "Durable memory points extracted from this step. "
+                            "Must be non-empty (at least one episode)."
+                        ),
                     },
                 },
                 "required": ["memories"],
