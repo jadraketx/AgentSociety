@@ -3,13 +3,18 @@ Implicit Association Test (IAT) Experiment Environment
 Environment for Implicit Association Test experiment based on AgentSociety2
 """
 import asyncio
+import json
 from datetime import datetime
 from typing import ClassVar, Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
 from agentsociety2.env import EnvBase, tool
+from agentsociety2.env.base import dump_int_map, load_int_map
 from agentsociety2.storage import ColumnDef
+from agentsociety2.storage.workspace_state import atomic_write_text
+
+_STATE_REL = "state/ENV_STATE.json"
 
 
 # Response models for tool functions
@@ -226,6 +231,38 @@ class ImplicitAssociationTestEnv(EnvBase):
 
         self._lock = asyncio.Lock()
         self._step_counter: int = 0
+
+    async def to_workspace(self, workspace_path=None) -> None:
+        """写入 ``state/ENV_STATE.json``（原子写）。"""
+        if workspace_path is not None:
+            self._bind_workspace(workspace_path)
+        if self._workspace_root is None:
+            raise RuntimeError("Env module workspace is not bound")
+        atomic_write_text(
+            self._workspace_root / _STATE_REL,
+            json.dumps(
+                {
+                    "trial_progress": dump_int_map(self._trial_progress),
+                    "responses": dump_int_map(self._responses),
+                    "step_counter": self._step_counter,
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+        )
+
+    async def restore(self, workspace_path) -> bool:
+        """从 ``state/ENV_STATE.json`` 恢复。``trials`` 是构造配置，不存盘。"""
+        self._bind_workspace(workspace_path)
+        state_path = self._workspace_root / _STATE_REL
+        if not state_path.is_file():
+            return False
+        d = json.loads(state_path.read_text(encoding="utf-8"))
+        self._trial_progress = {aid: int(v) for aid, v in load_int_map(d.get("trial_progress")).items()}
+        self._responses = {aid: list(v) for aid, v in load_int_map(d.get("responses")).items()}
+        self._step_counter = int(d.get("step_counter", 0))
+        return True
 
     @classmethod
     def init_description(cls) -> str:

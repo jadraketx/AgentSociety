@@ -20,7 +20,7 @@ from agentsociety2.agent.memory import (
     MemoryConsolidationConfig,
     MemoryExtractionResult,
 )
-from agentsociety2.agent.person_prompt import dump_json, xml_block
+from agentsociety2.agent.person_prompt import xml_block
 
 
 MEMORY_CONSOLIDATION_SYSTEM_PROMPT = """
@@ -253,7 +253,7 @@ class PersonMemoryRuntime:
             )
         if action == "memory_recent":
             data = {"episodes": store.recent(limit=int(args.get("limit") or 8))}
-            return True, dump_json(data, indent=2), data
+            return True, json.dumps(data, ensure_ascii=False, indent=2, default=str), data
         if action == "memory_search":
             data = {
                 "episodes": store.search(
@@ -261,7 +261,7 @@ class PersonMemoryRuntime:
                     limit=int(args.get("limit") or 20),
                 )
             }
-            return True, dump_json(data, indent=2), data
+            return True, json.dumps(data, ensure_ascii=False, indent=2, default=str), data
         if action == "memory_range":
             start_step = args.get("start_step")
             end_step = args.get("end_step")
@@ -278,12 +278,12 @@ class PersonMemoryRuntime:
                     limit=int(args.get("limit") or 50),
                 )
             }
-            return True, dump_json(data, indent=2), data
+            return True, json.dumps(data, ensure_ascii=False, indent=2, default=str), data
         if action == "memory_read":
             ids = args.get("ids")
             id_list = [str(item) for item in ids] if isinstance(ids, list) else []
             data = {"episodes": store.read_ids(id_list)}
-            return True, dump_json(data, indent=2), data
+            return True, json.dumps(data, ensure_ascii=False, indent=2, default=str), data
         return False, f"unknown action: {action}", {"action": action}
 
     async def after_step(
@@ -510,7 +510,7 @@ class PersonMemoryRuntime:
                 "role": "user",
                 "content": xml_block(
                     "memory_consolidation_input",
-                    dump_json(payload, indent=2),
+                    json.dumps(payload, ensure_ascii=False, indent=2, default=str),
                 ),
             },
         ]

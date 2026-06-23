@@ -7,9 +7,14 @@ from agentsociety2.env import (
     EnvBase,
     tool,
 )
+from agentsociety2.env.base import load_int_map
 from agentsociety2.logger import get_logger
 from agentsociety2.storage import ColumnDef
+from agentsociety2.storage.workspace_state import atomic_write_text
 from pydantic import BaseModel, Field
+
+# 本模块自选的 workspace 布局：<workspace_root>/state/ENV_STATE.json。
+_STATE_REL = "state/ENV_STATE.json"
 
 
 class EconomyPerson(BaseModel):
@@ -132,6 +137,70 @@ class EconomySpace(EnvBase):
         """GOVERNMENT: The tax brackets of the government"""
         self._lock = asyncio.Lock()
         self._step_counter: int = 0
+
+    async def to_workspace(self, workspace_path=None) -> None:
+        """写入 ``state/ENV_STATE.json``（原子写）。
+
+        嵌套 pydantic（``EconomyPerson``/``TaxBracket``）用 model_dump；
+        ``_last_run_datetime`` 用 isoformat；``_lock`` 不存盘。
+        """
+        if workspace_path is not None:
+            self._bind_workspace(workspace_path)
+        if self._workspace_root is None:
+            raise RuntimeError("Env module workspace is not bound")
+        atomic_write_text(
+            self._workspace_root / _STATE_REL,
+            json.dumps(
+                {
+                    "persons": {
+                        str(pid): p.model_dump(mode="json")
+                        for pid, p in self._persons.items()
+                    },
+                    "bank_interest_rate": self._bank_interest_rate,
+                    "last_run_datetime": (
+                        self._last_run_datetime.isoformat()
+                        if self._last_run_datetime is not None
+                        else None
+                    ),
+                    "gov_tax_brackets": [
+                        b.model_dump(mode="json") for b in self._gov_tax_brackets
+                    ],
+                    "step_counter": self._step_counter,
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+        )
+
+    async def restore(self, workspace_path) -> bool:
+        """从 ``state/ENV_STATE.json`` 恢复。
+
+        晚于 ``init()``（会重置 ``_last_run_datetime``）执行；仅在 checkpoint 含
+        ``last_run_datetime`` 时覆盖，缺失则保留 init() 的 start_datetime
+        （绝不注入墙钟，避免日切判断错乱）。``_lock`` 由 ``__init__`` 重建。
+        """
+        self._bind_workspace(workspace_path)
+        state_path = self._workspace_root / _STATE_REL
+        if not state_path.is_file():
+            return False
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self._persons = {
+            pid: EconomyPerson.model_validate(p)
+            for pid, p in load_int_map(state.get("persons")).items()
+        }
+        self._bank_interest_rate = float(
+            state.get("bank_interest_rate", self._bank_interest_rate)
+        )
+        last_run = state.get("last_run_datetime")
+        if last_run:
+            self._last_run_datetime = datetime.fromisoformat(last_run)
+        self._gov_tax_brackets = [
+            TaxBracket.model_validate(b)
+            for b in state.get("gov_tax_brackets", [])
+        ]
+        self._step_counter = int(state.get("step_counter", 0))
+        return True
 
     @classmethod
     def init_description(cls) -> str:

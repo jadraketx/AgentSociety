@@ -8,7 +8,7 @@ Agent Skills API 路由
 因此本路由**没有** enable/disable/reload/remove 端点（v2 模型无此概念）。
 
 关联文件：
-- @packages/agentsociety2/agentsociety2/agent/base/registry.py - Skill 注册表
+- @packages/agentsociety2/agentsociety2/agent/base/skill_registry.py - Skill 注册表
 - @extension/src/apiClient.ts - VSCode 扩展 API 客户端
 - @frontend/src/pages/Skills/index.tsx - Web 前端 Skill 管理页
 

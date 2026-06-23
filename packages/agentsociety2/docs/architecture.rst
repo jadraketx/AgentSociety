@@ -21,6 +21,14 @@ AgentSociety 2 将智能体状态放在独立 workspace 中，执行时再由 Ra
 ``ServiceProxy`` 句柄。Ray worker 收到任务后在本地调用 ``from_workspace``，运行 ``step``，再调用
 ``to_workspace`` 持久化结果。智能体对象本身不会在 Ray object store 中来回传递。
 
+环境模块使用一套对称的持久化契约：``EnvBase.to_workspace()`` 负责写出动态状态，
+``restore()`` 负责恢复。每个模块可以选择自己的状态格式，通常把文件放在
+``<workspace_root>/state/ENV_STATE.json``。路由会在每步结束时调用 ``to_workspaces()``；
+使用 ``--resume`` 时，actor 的 ``init()`` 会通过 ``from_workspaces()`` 重建各模块。恢复发生在
+模块 ``init()`` 之后，因此 checkpoint 中的状态会覆盖初始化时的重置。``AgentSociety`` 自身的状态
+写入 ``SOCIETY.json`` 和 ``SOCIETY_STEP.json``。详见 :doc:`env_modules` 与 :doc:`cli` 的
+resume 说明。
+
 ``AgentSociety`` 在每个 tick 中执行以下流程：
 
 1. 将智能体 id 切成若干批。

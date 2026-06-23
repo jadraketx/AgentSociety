@@ -37,6 +37,8 @@ AgentSociety 2
 
 * **回放与分析**: append-only JSONL replay、``_schema.json`` catalog 与 DuckDB 读侧，用于实验跟踪和分析。
 
+* **中断恢复**: agent、env 和 society 三层状态都会原子持久化，CLI ``--resume`` 可从中断处继续运行实验（见 :doc:`cli`）。
+
 * **研究技能**: 内置文献检索、假设生成、实验设计、论文撰写等 LLM 原生工作流。
 
 * **REST API**: 基于 FastAPI 的独立后端服务，支持外部集成。

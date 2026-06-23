@@ -16,6 +16,7 @@ there is no Ray-in-Ray (D8).
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 # Module-level cache for the Ray actor class, keyed by max_concurrency. ``import
@@ -91,6 +92,12 @@ def get_env_router_actor_class(max_concurrency: int = 1) -> Any:
             )
             if run_dir is not None:
                 self._router.run_dir = run_dir
+                # 模块状态只存在于本 actor 进程，故在此绑定各模块到
+                # ``<run_dir>/env/<module_type>``，供 RouterBase.init 恢复、
+                # society 每步 to_workspace。
+                self._router.bind_env_workspaces(
+                    Path(run_dir) / "env", env_module_types
+                )
             # Shared replay proxy: when set, env modules and agents append to
             # the same replay directory through process-local ReplaySink objects.
             self._replay_proxy = replay_proxy
@@ -105,10 +112,19 @@ def get_env_router_actor_class(max_concurrency: int = 1) -> Any:
                 if sink is not None:
                     self._router.set_trace_sink(sink)
 
-        async def init(self, start_datetime: datetime) -> None:
+        async def init(self, start_datetime: datetime) -> bool:
             if self._replay_proxy is not None:
                 self._router.set_replay_writer(self._replay_proxy)
-            await self._router.init(start_datetime)
+            # RouterBase.init 会先跑各模块 init() 再恢复 checkpoint（resume）。
+            return await self._router.init(start_datetime)
+
+        async def to_workspaces(self) -> None:
+            """把各 env 模块状态写入 workspace（每步）。"""
+            await self._router.to_workspaces()
+
+        async def from_workspaces(self) -> bool:
+            """从 workspace 恢复 env 模块状态（resume）。"""
+            return await self._router.from_workspaces()
 
         def set_current_time(self, t: datetime) -> None:
             self._router.set_current_time(t)

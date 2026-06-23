@@ -1687,12 +1687,14 @@ class CodeGenRouter(RouterBase):
             return context.early_return
         return context.results, context.final_answer
 
-    async def init(self, start_datetime: datetime):
+    async def init(self, start_datetime: datetime) -> bool:
         """
         Initialize the router with the start datetime and generate code using LLM.
         从本地缓存数据库加载当前 env 类型的缓存集，构建 FAISS 索引。
+
+        :returns: 是否有 env 模块恢复了 checkpoint（透传自 ``RouterBase.init``）。
         """
-        await super().init(start_datetime)
+        restored = await super().init(start_datetime)
 
         # 在async上下文中初始化锁
         get_logger().debug("Initialized instruction log lock")
@@ -1723,6 +1725,7 @@ class CodeGenRouter(RouterBase):
                 else:
                     raise ValueError("Failed to generate statistics code")
             self._llm_code_generated = True
+        return restored
 
     async def step(self, tick: int, t: datetime):
         """Run forward one step for all simulation modules."""

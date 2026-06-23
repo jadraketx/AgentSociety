@@ -1,14 +1,82 @@
 # Persistence Patterns
 
-Use this reference when the custom environment is stateful. The goal is to make
-replay data explicit instead of leaving it implicit in the code.
+Use this reference when the custom environment is stateful. There are **two
+independent** persistence channels — do not confuse them:
 
-State persistence is **replay-only**: declare snapshot columns, let the framework
-auto-register the replay tables, and write rows via the `_write_*` helpers. If your
-module needs in-memory state, it is reconstructed from the constructor kwargs +
-replay data on each run.
+- **Replay persistence** (analysis): declare snapshot columns, let the framework
+  auto-register append-only replay tables, write rows via the `_write_*` helpers.
+  Consumed by replay/analysis tooling. The rest of this file (below) covers replay.
+- **Workspace persistence** (resume): override `to_workspace()` / `restore()` to write
+  the module's dynamic state to `state/ENV_STATE.json` so a crashed/interrupted run can
+  continue via CLI `--resume`. Covered in the **Workspace Persistence** section below.
 
-## The Persistence API on `EnvBase`
+Replay is append-only and queryable; workspace is the latest-state overwrite used only
+to restart. A module that carries in-memory state and wants `--resume` support MUST do
+both: replay snapshots (for analysis) **and** workspace `to_workspace`/`restore` (for
+resume).
+
+## Workspace Persistence (for `--resume`)
+
+`EnvBase` provides a free-form persistence contract — the module chooses its own state
+format, filename, and directory layout (the convention is `<workspace_root>/state/ENV_STATE.json`).
+
+| Member | Purpose |
+|--------|---------|
+| `_bind_workspace(workspace_path)` | Bind the module to a workspace dir (idempotent); called automatically by `to_workspace`/`restore`. |
+| `async to_workspace(workspace_path=None)` | **Override**: write dynamic state (atomic write recommended). Called every step by the framework. |
+| `async restore(workspace_path) -> bool` | **Override**: read state back; return `True` if loaded, `False` if no checkpoint. Called during `--resume`, AFTER `__init__`/`init()` (so it overrides any reset). |
+| `classmethod async from_workspace(workspace_path, **init_kwargs)` | Convenience: `cls(**init_kwargs)` then `restore`. Used by the actor on resume. |
+
+Convention + example (mirror `simple_social_space` / `economy_space` / `prisoners_dilemma`):
+
+```python
+import json
+from agentsociety2.storage.workspace_state import atomic_write_text
+
+_STATE_REL = "state/ENV_STATE.json"
+
+async def to_workspace(self, workspace_path=None) -> None:
+    if workspace_path is not None:
+        self._bind_workspace(workspace_path)
+    if self._workspace_root is None:
+        raise RuntimeError("Env module workspace is not bound")
+    atomic_write_text(
+        self._workspace_root / _STATE_REL,
+        json.dumps(
+            {"mailboxes": {...}, "next_id": self._next_id, "step_counter": self._step_counter},
+            ensure_ascii=False, indent=2, default=str,
+        ),
+    )
+
+async def restore(self, workspace_path) -> bool:
+    self._bind_workspace(workspace_path)
+    state_path = self._workspace_root / _STATE_REL
+    if not state_path.is_file():
+        return False
+    d = json.loads(state_path.read_text(encoding="utf-8"))
+    self._mailboxes = {...}              # rebuild from d
+    self._step_counter = int(d.get("step_counter", 0))
+    return True
+```
+
+Workspace persistence rules:
+
+- **JSON keys are strings**: `dict[int, ...]` → store `str(k)`, restore `int(k)` (or use
+  `agentsociety2.env.base.dump_int_map` / `load_int_map`).
+- **pydantic** → `model_dump(mode="json")` / `model_validate`. **datetime** →
+  `isoformat` / `fromisoformat`. **set** → `sorted(list)`. **enum** → `.value` and
+  reconstruct. **defaultdict/deque** → store as plain list/dict, restore the wrapper type.
+- **Do NOT persist** `asyncio.Lock`, external subprocesses, open handles, or pre-trained
+  model weights — rebuild them in `__init__`/`init()` (e.g. `MobilitySpace`'s routing
+  server, `SocialMediaSpace`'s recommender loaded from `recommendation_model_path`).
+- Constructor kwargs (config) live in `SOCIETY.json`'s `env_kwargs` and are re-supplied
+  to `__init__` on resume — do not duplicate them in `ENV_STATE.json`.
+- A module without dynamic state may leave `to_workspace`/`restore` as the no-op defaults
+  (it then does not survive `--resume`, but will not crash).
+
+## Replay Persistence (analysis snapshots)
+
+The Persistence API on `EnvBase`
 
 `agentsociety2.env.base.EnvBase` owns:
 

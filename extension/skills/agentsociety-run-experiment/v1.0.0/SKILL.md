@@ -65,6 +65,7 @@ digraph run_experiment_flow {
 | `--steps` | No | `init/steps.yaml` | Override steps path |
 | `--run-id` | No | `run` | Run directory name |
 | `--json` | No | `false` | JSON output (status, list) |
+| `--resume` | No | `false` | Resume an interrupted run from `run_dir/SOCIETY.json` + `SOCIETY_STEP.json` (restores society clock/step-count + env module state, skips completed `run` steps; `ask`/`intervene`/`questionnaire` re-execute) |
 
 ## Start Experiment
 
@@ -128,6 +129,24 @@ $PYTHON_PATH -m agentsociety2.society.cli \
 | `run/stderr.log` | Standard error |
 | `run/pid.json` | Process ID and final status (auto-created, retained after completion) |
 | `run/artifacts/` | Step execution artifacts |
+| `run/SOCIETY.json` | Society checkpoint (agent specs, env module types+kwargs, steps_hash) — written once at init, used by `--resume` |
+| `run/SOCIETY_STEP.json` | Per-step society state (clock, step_count, completed_step_count) — written every step, used by `--resume` |
+| `run/env/<module_type>/state/ENV_STATE.json` | Each env module's dynamic-state checkpoint — written every step, used by `--resume` |
+
+## Resume Interrupted Run
+
+If an experiment is interrupted (crash, `stop`, OOM), append `--resume` to continue from the last
+completed step:
+
+```bash
+$PYTHON_PATH .agentsociety/bin/ags.py run-experiment start --hypothesis-id 1 --experiment-id 1 --resume
+```
+
+Resume reads `SOCIETY.json` + `SOCIETY_STEP.json` to restore the society clock/step-count and each env
+module's `ENV_STATE.json` (via `EnvBase.restore`), then skips already-completed `run` steps. Only env
+modules that implement `to_workspace`/`restore` survive a restart (see the
+`agentsociety-create-env-module` skill). If `steps.yaml` changed since the checkpoint, a drift warning is
+logged. Works with both `--foreground` and background modes.
 
 ## Monitoring
 

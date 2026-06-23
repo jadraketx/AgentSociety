@@ -6,6 +6,7 @@
 
 import argparse
 import asyncio
+import hashlib
 import json
 import os
 import sys
@@ -324,6 +325,7 @@ class ExperimentRunner:
         experiment_id: Optional[str] = None,
         replay_disable: bool = False,
         batch_size: Optional[int] = None,
+        resume: bool = False,
     ):
         """
         运行实验
@@ -334,6 +336,8 @@ class ExperimentRunner:
         :param replay_disable: 为 True 时构造一个禁用的 ``ReplayProxy``（无 replay JSONL 写）。
         :param batch_size: 每个 ``step_agent_batch`` Ray Task 处理的 agent 数；
             ``None`` 时回落 ``Config.BATCH_SIZE``（环境变量 ``AGENTSOCIETY_BATCH_SIZE``，缺省 256）。
+        :param resume: 为 True 时从 ``run_dir/SOCIETY.json`` 恢复 env 模块状态与 society
+            时钟/步数，跳过已完成的 ``RunStep``（Ask/Intervene/Questionnaire 会重跑）。
         """
         try:
             # 验证环境变量（必须在任何操作之前）
@@ -368,6 +372,71 @@ class ExperimentRunner:
 
             start_t = datetime.fromisoformat(steps_config.start_t)
             steps = steps_config.steps
+
+            # steps.yaml 的 hash：写入 SOCIETY.json，resume 时比对以检测漂移。
+            steps_hash = hashlib.sha256(steps_path.read_bytes()).hexdigest()
+
+            # ── Resume：从 run_dir/SOCIETY.json + SOCIETY_STEP.json 续跑。 ──────
+            # resume 时以持久化的 env_module_types/env_kwargs/时钟/步数为准
+            # （而非 config 文件，避免配置漂移污染续跑）。
+            society_json = (
+                self.run_dir / "SOCIETY.json" if self.run_dir is not None else None
+            )
+            resume_meta: Optional[dict] = None
+            completed_step_count = 0  # 已完成的前置顶层 step 数（含 Ask/Intervene）
+            sim_step_cursor = 0  # 已完成的仿真 tick 数（用于 RunStep 部分跳过）
+            if resume:
+                if society_json is None or not society_json.exists():
+                    raise SystemExit(
+                        "--resume requested but no SOCIETY.json found in run_dir "
+                        f"(looked for {society_json})"
+                    )
+                try:
+                    resume_meta, step_meta = AgentSociety._read_checkpoint(self.run_dir)
+                except (FileNotFoundError, ValueError) as exc:
+                    raise SystemExit(f"--resume failed: {exc}") from exc
+                env_module_types = list(resume_meta.get("env_module_types", []))
+                env_kwargs = dict(resume_meta.get("env_kwargs", {}))
+                if step_meta.get("current_time"):
+                    start_t = datetime.fromisoformat(str(step_meta["current_time"]))
+                sim_step_cursor = int(step_meta.get("step_count", 0))
+                completed_step_count = int(step_meta.get("completed_step_count", 0))
+                # steps.yaml 漂移检测：编辑过 steps 会让位置型游标错位。
+                ckpt_hash = resume_meta.get("steps_hash")
+                if ckpt_hash and ckpt_hash != steps_hash:
+                    logger.warning(
+                        "steps.yaml has changed since the checkpoint was written "
+                        "(hash %s -> %s). Resume step-skip may be inaccurate; "
+                        "verify the steps file matches the original run.",
+                        str(ckpt_hash)[:12],
+                        steps_hash[:12],
+                    )
+                logger.info(
+                    "Resuming from %s: %d top-level step(s) done, %d sim tick(s) "
+                    "(time=%s)",
+                    society_json,
+                    completed_step_count,
+                    sim_step_cursor,
+                    start_t.isoformat(),
+                )
+                self._update_pid_file(
+                    "running",
+                    resumed=True,
+                    resumed_from_step=completed_step_count,
+                )
+            elif society_json is not None and society_json.exists():
+                logger.warning(
+                    "%s already exists (a prior run). Pass --resume to continue it; "
+                    "running fresh will overwrite agent/env state.",
+                    society_json,
+                )
+
+            # env workspace 按 module_type 建目录，重复类型会冲突，提前拒绝。
+            if len(set(env_module_types)) != len(env_module_types):
+                raise ValueError(
+                    f"Duplicate env module types in config: {env_module_types}. "
+                    "Each env module maps to run_dir/env/<module_type>/."
+                )
 
             # 扫描并注册自定义模块（在创建环境模块之前）
             workspace_path = self.run_dir.resolve()
@@ -470,37 +539,76 @@ class ExperimentRunner:
                 replay=replay_proxy,
             )
 
-            logger.info(f"Building {len(agent_args)} agent specs (record-based)...")
-            agent_specs, agent_class_name = self._build_agent_specs(agent_args)
-
-            logger.info(
-                "Creating AgentSociety instance (record-based, no agent objects)..."
-            )
-            self.society = AgentSociety(
-                agent_specs=agent_specs,
-                agent_class_name=agent_class_name,
-                env_router=env_router,
-                start_t=start_t,
-                run_dir=self.run_dir,
-                service_proxy=service_proxy,
-                batch_size=(
-                    int(batch_size)
-                    if batch_size is not None
-                    else int(Config.BATCH_SIZE)
-                ),
-                enable_replay=not replay_disable,
-            )
+            if resume_meta is not None:
+                logger.info(
+                    "Resuming AgentSociety from %s (agent workspaces reused, "
+                    "env modules restored by the actor)",
+                    society_json,
+                )
+                # from_workspace 读 SOCIETY.json 还原 society；env 由 actor 恢复。
+                self.society = await AgentSociety.from_workspace(
+                    self.run_dir,
+                    env_router=env_router,
+                    service_proxy=service_proxy,
+                )
+            else:
+                logger.info(
+                    f"Building {len(agent_args)} agent specs (record-based)..."
+                )
+                agent_specs, agent_class_name = self._build_agent_specs(agent_args)
+                logger.info(
+                    "Creating AgentSociety instance (record-based, no agent objects)..."
+                )
+                self.society = AgentSociety(
+                    agent_specs=agent_specs,
+                    agent_class_name=agent_class_name,
+                    env_router=env_router,
+                    start_t=start_t,
+                    run_dir=self.run_dir,
+                    service_proxy=service_proxy,
+                    batch_size=(
+                        int(batch_size)
+                        if batch_size is not None
+                        else int(Config.BATCH_SIZE)
+                    ),
+                    enable_replay=not replay_disable,
+                    env_module_types=env_module_types,
+                    env_kwargs=env_kwargs,
+                )
+            # fresh 路径记录 steps_hash（resume 路径已由 from_workspace 从 checkpoint 还原）。
+            self.society._steps_hash = steps_hash
 
             await self.society.init()
             logger.info("AgentSociety initialized")
 
             # 执行步骤
             logger.info(f"Executing {len(steps)} steps...")
+            # resume 游标：
+            # - completed_step_count：上一轮已完成的「顶层 step」数（含 Ask/Intervene/
+            #   Questionnaire）。idx < 它的步骤整段跳过，避免重跑已执行的 Ask 产生
+            #   错位的 artifact。
+            # - sim_step_cursor：上一轮已完成的仿真 tick 数。仅 RunStep 推进，
+            #   用于跳过部分完成的 RunStep。
 
             for step_idx, step in enumerate(steps):
                 if self._should_terminate:
                     logger.info("Termination requested, stopping execution")
                     break
+
+                # 记录「正在执行第 step_idx 个顶层 step」——崩溃时持久化的
+                # completed_step_count 即此值，resume 据此跳过已执行的前置步。
+                self.society._completed_step_count = step_idx
+
+                # resume：整段跳过上一轮已完成的前置 step（任何类型）。
+                if step_idx < completed_step_count:
+                    if isinstance(step, RunStep):
+                        sim_step_cursor = max(0, sim_step_cursor - step.num_steps)
+                    logger.info(
+                        "Skipping step %d (%s) — already completed before resume",
+                        step_idx,
+                        type(step).__name__,
+                    )
+                    continue
 
                 step_type = step.type
 
@@ -509,8 +617,19 @@ class ExperimentRunner:
 
                 try:
                     if isinstance(step, RunStep):
+                        # resume：本 RunStep 可能已部分完成，用仿真 tick 游标算剩余。
+                        remaining = step.num_steps - sim_step_cursor
+                        sim_step_cursor = max(0, sim_step_cursor - step.num_steps)
+                        if remaining <= 0:
+                            logger.info(
+                                "Skipping RunStep %d (%d steps already completed)",
+                                step_idx,
+                                step.num_steps,
+                            )
+                            continue
+
                         logger.info(
-                            f"Running {step.num_steps} steps with tick={step.tick}"
+                            f"Running {remaining}/{step.num_steps} steps with tick={step.tick}"
                         )
 
                         # 创建定期更新进度的任务
@@ -525,7 +644,7 @@ class ExperimentRunner:
                         )
                         try:
                             await self.society.run(
-                                num_steps=step.num_steps, tick=step.tick
+                                num_steps=remaining, tick=step.tick
                             )
                         finally:
                             progress_task.cancel()
@@ -624,6 +743,9 @@ class ExperimentRunner:
 
                     # 更新进度到 pid.json（步骤完成）
                     self._update_progress()
+                    # 标记该顶层 step 已完成并持久化——确保后续崩溃 resume 时
+                    # 不会重跑已完成的 Ask/Intervene/Questionnaire。
+                    self.society.mark_step_completed(step_idx)
 
                 except Exception as e:
                     logger.error(
@@ -710,6 +832,16 @@ def main():
             "them. Default: AGENTSOCIETY_BATCH_SIZE env var, or 256."
         ),
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help=(
+            "Resume an interrupted run from run_dir/SOCIETY.json. Env module "
+            "state and the society clock/step-count are restored; already-"
+            "completed RunSteps are skipped. Ask/Intervene/Questionnaire steps "
+            "re-execute (low cost; artifacts get fresh timestamps)."
+        ),
+    )
 
     args = parser.parse_args()
 
@@ -743,6 +875,7 @@ def main():
                 experiment_id=args.experiment_id,
                 replay_disable=args.replay_disable,
                 batch_size=args.batch_size,
+                resume=args.resume,
             )
         )
     except KeyboardInterrupt:

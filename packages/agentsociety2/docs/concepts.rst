@@ -15,6 +15,12 @@ AgentSociety 2 围绕三个主要组件构建：
 智能体不直接持有 env / LLM / trace / replay 等运行时对象，而是经一个 ``ServiceProxy`` 容器接收共享
 服务句柄；环境路由跑在专用 Ray actor 里。详见 :doc:`architecture`。
 
+**中断恢复**：agent、env 模块和 society 三层都会把恢复所需的状态原子写入 workspace。agent 使用
+``AGENT.json``，env 模块通常使用 ``state/ENV_STATE.json``，society 使用不可变的
+``SOCIETY.json`` 和每步更新的 ``SOCIETY_STEP.json``。CLI 的 ``--resume`` 可以从中断处继续运行
+实验（详见 :doc:`cli`）。这一机制与 replay 相互独立；replay 是面向分析的 append-only 时序数据
+（见 :doc:`storage`）。
+
 .. graphviz::
 
    digraph agentsociety2 {

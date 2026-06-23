@@ -18,4 +18,5 @@ The generated env module must satisfy the repository contract:
 - If the module exposes replay-worthy per-agent state, `_agent_state_columns` and `_write_agent_state()` / `_write_agent_state_batch()` usage are present and aligned
 - If the module exposes replay-worthy global state, `_env_state_columns` and `_write_env_state()` usage are present and aligned
 - If the module has mutable in-memory state, it is reconstructable from constructor kwargs + replay data
+- If the module should survive an interrupted run (`--resume`), `to_workspace()` and `restore()` are implemented and write the dynamic state to `state/ENV_STATE.json` (see `references/persistence-patterns.md` → Workspace Persistence). `asyncio.Lock` / external handles / model weights are NOT serialized (rebuilt in `__init__`/`init()`).
 - `CodeGenRouter` can mount the module without error (router smoke test)

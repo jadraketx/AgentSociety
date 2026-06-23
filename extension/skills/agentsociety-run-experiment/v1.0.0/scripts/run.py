@@ -187,6 +187,11 @@ Examples:
         type=Path,
         help="Path to steps.yaml (default: init/steps.yaml)",
     )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume an interrupted run from run_dir/SOCIETY.json + SOCIETY_STEP.json",
+    )
 
     args = parser.parse_args()
 
@@ -286,6 +291,8 @@ Examples:
             "--log-level",
             "INFO",
         ]
+        if args.resume:
+            cli_command.append("--resume")
 
         if args.foreground:
             try:
@@ -294,6 +301,7 @@ Examples:
                     config_path=init_config_path,
                     steps_path=steps_path,
                     experiment_id=experiment_key,
+                    resume=args.resume,
                 )
 
                 print("\n✓ Experiment completed successfully!")

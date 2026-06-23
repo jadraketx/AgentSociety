@@ -132,6 +132,16 @@ AgentSociety 2 支持创建和注册自定义智能体和环境模块，
            """Environment step"""
            self.t = t
 
+       async def to_workspace(self, workspace_path=None) -> None:
+           """把动态状态写入 workspace；覆盖此方法可支持 resume，详见 :doc:`env_modules`。"""
+           if workspace_path is not None:
+               self._bind_workspace(workspace_path)
+
+       async def restore(self, workspace_path) -> bool:
+           """从 workspace 恢复动态状态；resume 时调用，默认返回 False。"""
+           self._bind_workspace(workspace_path)
+           return False
+
 现实兼容约束
 ~~~~~~~~~~~~~~~~~~~
 
@@ -145,6 +155,9 @@ AgentSociety 2 支持创建和注册自定义智能体和环境模块，
 * 默认应支持无参实例化 ``cls()``
 * 若模块需要观察能力，应提供 ``@tool(readonly=True, kind='observe')`` 观察工具
 * 建议提供信息完整的 ``mcp_description()`` ；未覆盖时会显示基类默认描述
+* 若模块带动态内存态且希望支持中断续跑，应覆盖 ``to_workspace`` 和 ``restore``。使用
+  ``--resume`` 时，模块应能从 ``state/ENV_STATE.json`` 恢复状态（见 :doc:`env_modules` 的
+  「状态持久化与 resume」）。
 
 .. note::
 

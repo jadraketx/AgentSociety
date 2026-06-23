@@ -10,14 +10,19 @@ Supports 7 specific event types:
 - other: Any other activities not covered above
 """
 
+import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Literal, Optional
 
 from agentsociety2.env import EnvBase, tool
+from agentsociety2.env.base import dump_int_map, load_int_map
 from agentsociety2.logger import get_logger
 from agentsociety2.storage import ColumnDef
+from agentsociety2.storage.workspace_state import atomic_write_text
 from pydantic import BaseModel, ConfigDict, Field
+
+_STATE_REL = "state/ENV_STATE.json"
 
 # Valid event types for person behavior tracking
 VALID_EVENT_TYPES = Literal[
@@ -221,6 +226,50 @@ class EventSpace(EnvBase):
         self._recent_stopped_events: Dict[int, CurrentEvent] = {}
         """Last event stopped at the current env clock, used to absorb same-tick restarts."""
         self._step_counter: int = 0
+
+    async def to_workspace(self, workspace_path=None) -> None:
+        """写入 ``state/ENV_STATE.json``（原子写）。CurrentEvent(pydantic) 用 model_dump。"""
+        if workspace_path is not None:
+            self._bind_workspace(workspace_path)
+        if self._workspace_root is None:
+            raise RuntimeError("Env module workspace is not bound")
+        atomic_write_text(
+            self._workspace_root / _STATE_REL,
+            json.dumps(
+                {
+                    "agent_events": {
+                        k: e.model_dump(mode="json")
+                        for k, e in dump_int_map(self._agent_events).items()
+                    },
+                    "recent_stopped_events": {
+                        k: e.model_dump(mode="json")
+                        for k, e in dump_int_map(self._recent_stopped_events).items()
+                    },
+                    "step_counter": self._step_counter,
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+        )
+
+    async def restore(self, workspace_path) -> bool:
+        """从 ``state/ENV_STATE.json`` 恢复。"""
+        self._bind_workspace(workspace_path)
+        state_path = self._workspace_root / _STATE_REL
+        if not state_path.is_file():
+            return False
+        d = json.loads(state_path.read_text(encoding="utf-8"))
+        self._agent_events = {
+            pid: CurrentEvent.model_validate(e)
+            for pid, e in load_int_map(d.get("agent_events")).items()
+        }
+        self._recent_stopped_events = {
+            pid: CurrentEvent.model_validate(e)
+            for pid, e in load_int_map(d.get("recent_stopped_events")).items()
+        }
+        self._step_counter = int(d.get("step_counter", 0))
+        return True
 
     # ---- Skill Discovery ----
 
