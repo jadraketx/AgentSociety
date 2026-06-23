@@ -215,6 +215,8 @@ class RouterBase(ABC):
         self.max_llm_call_retry = max(max_llm_call_retry, 1)
         self._replay_writer = replay_writer
         self.run_dir: Path | None = None  # 由 cli.py 设置
+        # 各 env 模块 workspace 的根（``<run_dir>/env``）。
+        self._env_workspace_root: Path | None = None
         if replay_writer is not None:
             for env_module in env_modules:
                 env_module.set_replay_writer(replay_writer)
@@ -357,14 +359,19 @@ class RouterBase(ABC):
         """
         raise NotImplementedError
 
-    async def init(self, start_datetime: datetime):
+    async def init(self, start_datetime: datetime) -> bool:
         """初始化路由器与环境模块。
 
         :param start_datetime: 仿真起始时间。
+        :returns: 是否有 env 模块恢复了 checkpoint（即 resume）。
         """
         self.t = start_datetime
         for env_module in self.env_modules:
             await env_module.init(start_datetime)
+        # restore 必须在 ``init()`` 之后：部分模块的 ``init()`` 会重置状态
+        # （如 PrisonersDilemmaEnv 清空 round_history），后置才能让 checkpoint 覆盖。
+        # fresh 启动时无快照，``restore()`` 返回 False。
+        return await self.from_workspaces()
 
     async def step(self, tick: int, t: datetime):
         """推进环境模块一个仿真步。
@@ -379,6 +386,71 @@ class RouterBase(ABC):
         """关闭路由器（关闭所有环境模块）。"""
         for env_module in self.env_modules:
             await env_module.close()
+
+    # ==================== workspace 持久化（无状态 resume） ====================
+
+    def bind_env_workspaces(self, root: Path, module_types: list[str]) -> None:
+        """把每个 env 模块绑定到 root/module_type（幂等）。
+
+        ``module_types`` 与 ``env_modules`` 按位置对应，同时作为目录键
+        （与 ``env_kwargs`` 对齐，避免同类多实例冲突）。
+        """
+        self._env_workspace_root = Path(root)
+        self._env_workspace_root.mkdir(parents=True, exist_ok=True)
+        for module, module_type in zip(self.env_modules, module_types):
+            ws = self._env_workspace_root / module_type
+            module._bind_workspace(ws)
+
+    async def from_workspaces(self) -> bool:
+        """恢复各已绑定模块的状态（存在快照时）。
+
+        任一模块恢复失败不会中断其它模块，但会以 ERROR 级汇总告警——否则会出现
+        「部分模块 fresh、部分模块 checkpoint」的静默不一致状态。
+
+        :returns: 是否有任一模块加载了快照（即 resume）。
+        """
+        any_restored = False
+        failed: list[str] = []
+        for module in self.env_modules:
+            if module._workspace_root is None:
+                continue
+            try:
+                restored = await module.restore(module._workspace_root)
+            except Exception as exc:  # noqa: BLE001 - 单模块失败不中断整体 resume
+                get_logger().error(
+                    "Env module %s restore failed (will start fresh): %s",
+                    module.name,
+                    exc,
+                )
+                failed.append(module.name)
+                restored = False
+            any_restored = any_restored or restored
+        if failed:
+            get_logger().error(
+                "Partial env resume: %d module(s) failed to restore and start "
+                "fresh while others resumed from checkpoint — env state may be "
+                "inconsistent: %s",
+                len(failed),
+                failed,
+            )
+        return any_restored
+
+    async def to_workspaces(self) -> None:
+        """把每个模块的动态状态写入其 workspace。
+
+        用 ``return_exceptions=True`` 收集结果，单个模块落盘失败不会让本步其它
+        模块的持久化全部丢失（否则一次序列化异常会导致整步 checkpoint 落后）。
+        """
+        if self._env_workspace_root is None:
+            return
+        results = await asyncio.gather(
+            *[m.to_workspace() for m in self.env_modules], return_exceptions=True
+        )
+        for module, result in zip(self.env_modules, results):
+            if isinstance(result, BaseException):
+                get_logger().error(
+                    "Env module %s to_workspace failed: %s", module.name, result
+                )
 
     def get_tool_call_history(self) -> List[Dict[str, Any]]:
         """汇总所有环境模块的工具调用历史（按时间排序）。

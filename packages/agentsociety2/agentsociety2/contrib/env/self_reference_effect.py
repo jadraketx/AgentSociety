@@ -3,6 +3,7 @@ Self-Reference Effect (SRE) Experiment Environment
 Environment for Self-Reference Effect experiment based on AgentSociety2
 """
 import asyncio
+import json
 from datetime import datetime
 from enum import Enum
 from typing import Any, ClassVar, Dict, List, Optional
@@ -10,7 +11,11 @@ from typing import Any, ClassVar, Dict, List, Optional
 from pydantic import BaseModel, Field
 
 from agentsociety2.env import EnvBase, tool
+from agentsociety2.env.base import dump_int_map, load_int_map
 from agentsociety2.storage import ColumnDef
+from agentsociety2.storage.workspace_state import atomic_write_text
+
+_STATE_REL = "state/ENV_STATE.json"
 
 
 # Identity types
@@ -116,6 +121,42 @@ class SelfReferenceEffectEnv(EnvBase):
         
         self._lock = asyncio.Lock()
         self._step_counter: int = 0
+
+    async def to_workspace(self, workspace_path=None) -> None:
+        """写入 ``state/ENV_STATE.json``（原子写）。"""
+        if workspace_path is not None:
+            self._bind_workspace(workspace_path)
+        if self._workspace_root is None:
+            raise RuntimeError("Env module workspace is not bound")
+        atomic_write_text(
+            self._workspace_root / _STATE_REL,
+            json.dumps(
+                {
+                    "encoding_ratings": dump_int_map(self._encoding_ratings),
+                    "recognition_judgments": dump_int_map(self._recognition_judgments),
+                    "step_counter": self._step_counter,
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+        )
+
+    async def restore(self, workspace_path) -> bool:
+        """从 ``state/ENV_STATE.json`` 恢复。"""
+        self._bind_workspace(workspace_path)
+        state_path = self._workspace_root / _STATE_REL
+        if not state_path.is_file():
+            return False
+        d = json.loads(state_path.read_text(encoding="utf-8"))
+        self._encoding_ratings = {
+            aid: list(v) for aid, v in load_int_map(d.get("encoding_ratings")).items()
+        }
+        self._recognition_judgments = {
+            aid: list(v) for aid, v in load_int_map(d.get("recognition_judgments")).items()
+        }
+        self._step_counter = int(d.get("step_counter", 0))
+        return True
 
     def _generate_default_encoding_traits(self) -> List[Dict[str, Any]]:
         """Generate default trait list for encoding phase"""

@@ -6,10 +6,9 @@ English: Centralizes prompt fragments and message construction for PersonAgent.
 
 from __future__ import annotations
 
+import json
 from html import escape as _xml_escape
 from typing import Any
-
-from agentsociety2.agent.base.workspace import dump_json  # noqa: F401 (re-export)
 
 
 PREAMBLE_TEMPLATE = """<identity>
@@ -343,29 +342,42 @@ def build_react_messages(
     dynamic_sections.append(
         xml_block(
             "recent_observations",
-            dump_json(observations[-8:], indent=2),
+            json.dumps(observations[-8:], ensure_ascii=False, indent=2, default=str),
         ),
     )
     if memory_context is not None:
         dynamic_sections.append(
-            xml_block("memory_context", dump_json(memory_context, indent=2))
+            xml_block(
+                "memory_context",
+                json.dumps(memory_context, ensure_ascii=False, indent=2, default=str),
+            )
         )
     if todo_context is not None:
         dynamic_sections.append(
-            xml_block("todo_context", dump_json(todo_context, indent=2))
+            xml_block(
+                "todo_context",
+                json.dumps(todo_context, ensure_ascii=False, indent=2, default=str),
+            )
         )
-    dynamic_sections.append(xml_block("agent", dump_json(agent_json, indent=2)))
+    dynamic_sections.append(
+        xml_block(
+            "agent",
+            json.dumps(agent_json, ensure_ascii=False, indent=2, default=str),
+        )
+    )
     if question is not None:
         dynamic_sections.append(
             xml_block(
                 "question",
-                dump_json(
+                json.dumps(
                     {
                         "message": question,
                         "readonly": readonly,
                         "mode": "external_ask",
                     },
+                    ensure_ascii=False,
                     indent=2,
+                    default=str,
                 ),
             )
         )

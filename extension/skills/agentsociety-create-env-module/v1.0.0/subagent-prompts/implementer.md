@@ -40,12 +40,20 @@ Run `$PYTHON_PATH .agentsociety/bin/ags.py create-env-module-resolve-sources` if
 
 ### Persistence Rules (only if module has mutable state)
 
+**Replay persistence (analysis):**
 - Declare `_agent_state_columns` / `_env_state_columns` for replay tables
 - Write via `_write_agent_state()` / `_write_agent_state_batch()` / `_write_env_state()`
 - Maintain internal step counter (`self._tick` / `self._step_index`), increment once per `step()` call
 - Do NOT use the `tick` parameter as step-index for replay tables
-- In-memory state must be reconstructable from constructor kwargs + replay data.
 - Do NOT add placeholder persistence hooks -- implement real replay-write paths or keep stateless
+
+**Workspace persistence (resume via `--resume`):**
+- If the module has dynamic in-memory state AND should survive an interrupted run, override both `to_workspace()` and `restore()`
+- Write state to `state/ENV_STATE.json` using `atomic_write_text` from `agentsociety2.storage.workspace_state`
+- `to_workspace`: serialize all dynamic fields (counters, queues, maps, pending actions) with `json.dumps(..., ensure_ascii=False, indent=2, default=str)`. Pydantic → `model_dump(mode="json")`, datetime → isoformat, set → sorted(list), enum → `.value`, `dict[int,...]` keys → `str()` (JSON keys must be strings)
+- `restore`: read from `_workspace_root / "state/ENV_STATE.json"`; return `True` on success, `False` if file missing; `_lock` is recreated by `__init__`, do NOT deserialize from disk
+- Do NOT serialize `asyncio.Lock`, external subprocesses, open handles, or pre-trained model weights — rebuild them in `__init__`/`init()`
+- Stateless modules may leave these as no-ops (base `EnvBase` defaults)
 
 ## Validation
 

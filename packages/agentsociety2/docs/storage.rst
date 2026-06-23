@@ -9,6 +9,11 @@ AgentSociety 2 的新实验把结果写入两个位置：
 * **本地工作目录**： ``<run_dir>/artifacts/``、``<run_dir>/agents/agent_<id>/``、
   ``<run_dir>/pid.json`` 等文件，存放 ``ask`` / ``intervene`` 产物、agent workspace
   与运行时元信息。
+* **Workspace checkpoint（用于 resume）**：各 env 模块把动态状态写入
+  ``<run_dir>/env/<module>/state/ENV_STATE.json``，society 把初始化时的不可变全量写入
+  ``<run_dir>/SOCIETY.json``，并把每步标量写入 ``<run_dir>/SOCIETY_STEP.json``。这些文件都是
+  原子 JSON 写入，仅供 ``--resume`` 使用，不进入 replay catalog。**Replay 面向分析，是
+  append-only 的时序数据；workspace 面向恢复，会覆写最新状态**。
 
 读取结果有三条路径：
 

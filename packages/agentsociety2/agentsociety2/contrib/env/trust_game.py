@@ -3,6 +3,7 @@ Trust Game Environment
 Environment for Trust Game based on AgentSociety2
 """
 import asyncio
+import json
 import logging
 from datetime import datetime
 from typing import ClassVar, Dict, List, Optional
@@ -11,6 +12,9 @@ from pydantic import BaseModel, Field
 
 from agentsociety2.env import EnvBase, tool
 from agentsociety2.storage import ColumnDef
+from agentsociety2.storage.workspace_state import atomic_write_text
+
+_STATE_REL = "state/ENV_STATE.json"
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +100,44 @@ class TrustGameEnv(EnvBase):
         
         self._lock = asyncio.Lock()
         self._step_counter: int = 0
+
+    async def to_workspace(self, workspace_path=None) -> None:
+        """写入 ``state/ENV_STATE.json``（原子写）。"""
+        if workspace_path is not None:
+            self._bind_workspace(workspace_path)
+        if self._workspace_root is None:
+            raise RuntimeError("Env module workspace is not bound")
+        atomic_write_text(
+            self._workspace_root / _STATE_REL,
+            json.dumps(
+                {
+                    "round_number": self.round_number,
+                    "round_history": list(self.round_history),
+                    "partner_mapping": dict(self.partner_mapping),
+                    "pending_investments": dict(self._pending_investments),
+                    "pending_returns": dict(self._pending_returns),
+                    "step_counter": self._step_counter,
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+        )
+
+    async def restore(self, workspace_path) -> bool:
+        """从 ``state/ENV_STATE.json`` 恢复（含已算出的 partner_mapping）。"""
+        self._bind_workspace(workspace_path)
+        state_path = self._workspace_root / _STATE_REL
+        if not state_path.is_file():
+            return False
+        d = json.loads(state_path.read_text(encoding="utf-8"))
+        self.round_number = int(d.get("round_number", 0))
+        self.round_history = list(d.get("round_history", []))
+        self.partner_mapping = dict(d.get("partner_mapping", {}))
+        self._pending_investments = dict(d.get("pending_investments", {}))
+        self._pending_returns = dict(d.get("pending_returns", {}))
+        self._step_counter = int(d.get("step_counter", 0))
+        return True
 
     @classmethod
     def init_description(cls) -> str:

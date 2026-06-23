@@ -20,8 +20,10 @@ from agentsociety2.env import (
     EnvBase,
     tool,
 )
+from agentsociety2.env.base import dump_int_map, load_int_map
 from agentsociety2.logger import get_logger
 from agentsociety2.storage import ColumnDef
+from agentsociety2.storage.workspace_state import atomic_write_text
 from pycityproto.city.geo.v2 import geo_pb2 as geo_pb2
 from pycityproto.city.map.v2 import map_pb2 as map_pb2
 from pycityproto.city.trip.v2.trip_pb2 import TripMode
@@ -1139,5 +1141,78 @@ class MobilitySpace(EnvBase):
 
         self.t = t
         self._step_counter += 1
+
+    # ==================== workspace 持久化（无状态 resume） ====================
+    #
+    # 本模块自选布局：<workspace_root>/state/ENV_STATE.json。持久化动态状态
+    # （persons 位置、轨迹、已访问 AOI、step 计数）；``_map`` / routing server
+    # 属静态/可重建（由 ``__init__`` 从 file_path 重建 map、由 ``init()`` 重启
+    # routing 进程），不存盘。
+
+    _STATE_REL = "state/ENV_STATE.json"
+
+    async def to_workspace(self, workspace_path=None) -> None:
+        """写入 ``state/ENV_STATE.json``（原子写）。
+
+        pydantic ``MobilityPerson`` 用 model_dump；轨迹 tuple → list、visited
+        AOI set → list 以便 JSON；``_map`` 与 routing 进程不存盘（可重建）。
+        """
+        if workspace_path is not None:
+            self._bind_workspace(workspace_path)
+        if self._workspace_root is None:
+            raise RuntimeError("Env module workspace is not bound")
+        atomic_write_text(
+            self._workspace_root / self._STATE_REL,
+            json.dumps(
+                {
+                    "persons": {
+                        str(pid): p.model_dump(mode="json")
+                        for pid, p in self._persons.items()
+                    },
+                    "person_trajectories": dump_int_map(
+                        {
+                            pid: [list(xy) for xy in traj]
+                            for pid, traj in self._person_trajectories.items()
+                        }
+                    ),
+                    "person_visited_aois": dump_int_map(
+                        {
+                            pid: sorted(aois)
+                            for pid, aois in self._person_visited_aois.items()
+                        }
+                    ),
+                    "step_counter": self._step_counter,
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+        )
+
+    async def restore(self, workspace_path) -> bool:
+        """从 ``state/ENV_STATE.json`` 恢复。
+
+        晚于 ``__init__``（重建 map）与 ``init()``（重启 routing）执行，覆盖
+        persons / 轨迹 / 已访问 AOI / step 计数。
+        """
+        self._bind_workspace(workspace_path)
+        state_path = self._workspace_root / self._STATE_REL
+        if not state_path.is_file():
+            return False
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        self._persons = {
+            pid: MobilityPerson.model_validate(p)
+            for pid, p in load_int_map(state.get("persons")).items()
+        }
+        self._person_trajectories = {
+            pid: [tuple(xy) for xy in traj]
+            for pid, traj in load_int_map(state.get("person_trajectories")).items()
+        }
+        self._person_visited_aois = {
+            pid: set(aois)
+            for pid, aois in load_int_map(state.get("person_visited_aois")).items()
+        }
+        self._step_counter = int(state.get("step_counter", 0))
+        return True
 
     # ==================== Replay Data Methods ====================

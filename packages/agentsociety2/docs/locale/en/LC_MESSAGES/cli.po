@@ -7,7 +7,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: AgentSociety 2 2.6.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-18 22:50+0800\n"
+"POT-Creation-Date: 2026-06-23 12:38+0800\n"
 "PO-Revision-Date: 2026-03-20 00:00+0800\n"
 "Last-Translator: AgentSociety Team\n"
 "Language: en\n"
@@ -68,7 +68,7 @@ msgstr "Required Arguments"
 msgid "参数"
 msgstr "Parameter"
 
-#: ../../cli.rst:31 ../../cli.rst:45 ../../cli.rst:179
+#: ../../cli.rst:31 ../../cli.rst:45 ../../cli.rst:220
 msgid "说明"
 msgstr "Description"
 
@@ -141,9 +141,8 @@ msgid "日志文件路径（**后台运行必需**）"
 msgstr "Log file path (**required for background execution**)"
 
 #: ../../cli.rst:58
-#, fuzzy
 msgid "``--batch-size`` <INT>"
-msgstr "``--log-file`` <PATH>"
+msgstr "``--batch-size`` <INT>"
 
 #: ../../cli.rst:59
 msgid "``AGENTSOCIETY_BATCH_SIZE`` 或 256"
@@ -157,7 +156,7 @@ msgstr ""
 msgid "``--replay-disable``"
 msgstr ""
 
-#: ../../cli.rst:62
+#: ../../cli.rst:62 ../../cli.rst:65
 msgid "false"
 msgstr ""
 
@@ -165,159 +164,275 @@ msgstr ""
 msgid "禁用回放写入（百万级 agent 场景适用）"
 msgstr ""
 
+#: ../../cli.rst:64
+msgid "``--resume``"
+msgstr "``--resume``"
+
 #: ../../cli.rst:66
+msgid ""
+"从 ``run_dir/SOCIETY.json`` 和 ``SOCIETY_STEP.json`` 恢复中断的实验。CLI 会恢复 "
+"society 的时钟、步数和各 env 模块状态，并跳过已经完成的 ``RunStep``。``Ask``、 ``Intervene`` 和 "
+"``Questionnaire`` 会重新执行，产物时间戳也会随之更新；如果 ``steps.yaml`` 与 checkpoint "
+"不一致，CLI 会给出告警。"
+msgstr ""
+"Resume an interrupted experiment from ``run_dir/SOCIETY.json`` and "
+"``SOCIETY_STEP.json``. The CLI restores the society clock, step counts, "
+"and env-module state, then skips completed ``RunStep`` entries. ``Ask``, "
+"``Intervene``, and ``Questionnaire`` run again, so their artifact "
+"timestamps are updated. If ``steps.yaml`` does not match the checkpoint, "
+"the CLI emits a warning."
+
+#: ../../cli.rst:72
 msgid "运行实验"
 msgstr "Running Experiments"
 
-#: ../../cli.rst:69
+#: ../../cli.rst:75
 msgid "前台运行（调试模式）"
 msgstr "Foreground Execution (Debug Mode)"
 
-#: ../../cli.rst:79
+#: ../../cli.rst:85
 msgid "日志输出到控制台。"
 msgstr "Log output to the console."
 
-#: ../../cli.rst:82
+#: ../../cli.rst:88
 msgid "后台运行（生产模式）"
 msgstr "Background Execution (Production Mode)"
 
-#: ../../cli.rst:84
+#: ../../cli.rst:90
 msgid "**重要**: 后台运行时必须指定 ``--log-file`` 以捕获日志。"
 msgstr ""
 "**Important**: When running in background, you must specify ``--log-"
 "file`` to capture logs."
 
-#: ../../cli.rst:97
+#: ../../cli.rst:103
 msgid "检查实验状态"
 msgstr "Checking Experiment Status"
 
-#: ../../cli.rst:108
+#: ../../cli.rst:114
 msgid "停止实验"
 msgstr "Stopping Experiments"
 
-#: ../../cli.rst:119
+#: ../../cli.rst:125
+msgid "恢复中断的实验"
+msgstr "Resuming Interrupted Experiments"
+
+#: ../../cli.rst:127
+msgid "实验会在每步结束时原子地写出 checkpoint。即使进程在写入过程中崩溃，已有 checkpoint 也不会被破坏："
+msgstr ""
+"The experiment writes checkpoints atomically at the end of each step. "
+"Even if the process crashes during a write, the existing checkpoint is "
+"not corrupted:"
+
+#: ../../cli.rst:129
+msgid ""
+"``run_dir/SOCIETY.json`` —— 初始化时写一次，保存不可变的全量配置，例如 ``agent_specs``、 env "
+"模块类型和 kwargs、``batch_size``、``steps_hash``。"
+msgstr ""
+"``run_dir/SOCIETY.json`` -- written once during initialization. It "
+"stores immutable full-run configuration such as ``agent_specs``, env "
+"module types and kwargs, ``batch_size``, and ``steps_hash``."
+
+#: ../../cli.rst:131
+msgid "``run_dir/SOCIETY_STEP.json`` —— 每步标量：当前时间、步数、已完成的顶层步数、``terminated``。"
+msgstr ""
+"``run_dir/SOCIETY_STEP.json`` -- per-step scalars: current time, step "
+"count, completed top-level step count, and ``terminated``."
+
+#: ../../cli.rst:132
+#, python-brace-format
+msgid ""
+"各 env 模块的状态写到 "
+"``run_dir/env/{module_type}/state/ENV_STATE.json``，具体格式由模块自定。"
+msgstr ""
+"Each env module writes its state to "
+"``run_dir/env/{module_type}/state/ENV_STATE.json``. The module chooses "
+"the concrete format."
+
+#: ../../cli.rst:134
+msgid "用 ``--resume`` 从最后完成的步续跑："
+msgstr "Use ``--resume`` to continue from the last completed step:"
+
+#: ../../cli.rst:145
+msgid ""
+"恢复时以 checkpoint 中的 env 模块类型和 kwargs、时钟、步数为准，而不是重新读取 config 文件中的 "
+"这些值，这可以避免配置漂移。``RunStep`` 会根据游标跳过已完成的部分；``Ask``、``Intervene`` 和 "
+"``Questionnaire`` 会重新执行。如果 ``steps.yaml`` 的 hash 与 checkpoint 不一致，CLI 会输出"
+" WARNING。可以用下面的命令校验恢复点："
+msgstr ""
+"On resume, the checkpointed env module types and kwargs, clock, and step "
+"counts take precedence over the config file. This avoids configuration "
+"drift. ``RunStep`` skips completed work according to the cursor; ``Ask``,"
+" ``Intervene``, and ``Questionnaire`` run again. If the ``steps.yaml`` "
+"hash does not match the checkpoint, the CLI prints a WARNING. You can "
+"inspect the restore point with:"
+
+#: ../../cli.rst:156
+msgid ""
+"只有覆盖了 ``to_workspace()`` 和 ``restore()`` 的 env 模块才能在 resume 时恢复动态状态 （见 "
+":doc:`env_modules`）。未覆盖的模块 resume 后会回到 fresh 态。"
+msgstr ""
+"Only env modules that override ``to_workspace()`` and ``restore()`` can "
+"restore dynamic state during resume; see :doc:`env_modules`. Modules that"
+" do not override them start in a fresh state after resume."
+
+#: ../../cli.rst:160
 msgid "配置文件"
 msgstr "Configuration Files"
 
-#: ../../cli.rst:122
+#: ../../cli.rst:163
 msgid "init_config.json"
 msgstr "init_config.json"
 
-#: ../../cli.rst:124
+#: ../../cli.rst:165
 msgid "初始化配置文件定义实验的基本设置："
 msgstr ""
 "The initialization configuration file defines the basic settings of the "
 "experiment:"
 
-#: ../../cli.rst:154
+#: ../../cli.rst:195
 msgid "steps.yaml"
 msgstr "steps.yaml"
 
-#: ../../cli.rst:156
+#: ../../cli.rst:197
 msgid "步骤配置文件定义实验的执行步骤："
 msgstr "The step configuration file defines the execution steps of the experiment:"
 
-#: ../../cli.rst:173
+#: ../../cli.rst:214
 msgid "步骤类型"
 msgstr "Step Types"
 
-#: ../../cli.rst:178
+#: ../../cli.rst:219
 msgid "类型"
 msgstr "Type"
 
-#: ../../cli.rst:180
+#: ../../cli.rst:221
 msgid "``ask``"
 msgstr "``ask``"
 
-#: ../../cli.rst:181
+#: ../../cli.rst:222
 msgid "只读查询，不修改环境"
 msgstr "Read-only query, do not modify the environment"
 
-#: ../../cli.rst:182
+#: ../../cli.rst:223
 msgid "``intervene``"
 msgstr "``intervene``"
 
-#: ../../cli.rst:183
+#: ../../cli.rst:224
 msgid "读写操作，可以修改环境"
 msgstr "Read and write operations can modify the environment"
 
-#: ../../cli.rst:184
+#: ../../cli.rst:225
 msgid "``step``"
 msgstr "``step``"
 
-#: ../../cli.rst:185
+#: ../../cli.rst:226
 msgid "执行一个模拟步骤（指定 tick 时长）"
 msgstr "Execute a simulation step (specify tick duration)"
 
-#: ../../cli.rst:188
+#: ../../cli.rst:229
 msgid "输出文件"
 msgstr "Output Files"
 
-#: ../../cli.rst:190
+#: ../../cli.rst:231
 msgid "运行实验后，``run-dir`` 目录将包含："
 msgstr "After running an experiment, the ``run-dir`` directory will contain:"
 
-#: ../../cli.rst:206
+#: ../../cli.rst:247
 msgid "pid.json 格式"
 msgstr "pid.json Format"
 
-#: ../../cli.rst:221
+#: ../../cli.rst:262
 msgid "日志级别"
 msgstr "Log Levels"
 
-#: ../../cli.rst:223
+#: ../../cli.rst:264
 msgid "可选的日志级别："
 msgstr "Available log levels:"
 
-#: ../../cli.rst:229
+#: ../../cli.rst:270
 msgid "级别"
 msgstr "Level"
 
-#: ../../cli.rst:230
+#: ../../cli.rst:271
 msgid "用途"
 msgstr "Usage"
 
-#: ../../cli.rst:231
+#: ../../cli.rst:272
 msgid "``DEBUG``"
 msgstr "``DEBUG``"
 
-#: ../../cli.rst:232
+#: ../../cli.rst:273
 msgid "详细的调试信息，包括 LLM 调用"
 msgstr "Detailed debugging information, including LLM calls"
 
-#: ../../cli.rst:233
+#: ../../cli.rst:274
 msgid "``INFO``"
 msgstr "``INFO``"
 
-#: ../../cli.rst:234
+#: ../../cli.rst:275
 msgid "常规运行信息（默认）"
 msgstr "General operating information (default)"
 
-#: ../../cli.rst:235
+#: ../../cli.rst:276
 msgid "``WARNING``"
 msgstr "``WARNING``"
 
-#: ../../cli.rst:236
+#: ../../cli.rst:277
 msgid "警告信息"
 msgstr "Warning message"
 
-#: ../../cli.rst:237
+#: ../../cli.rst:278
 msgid "``ERROR``"
 msgstr "``ERROR``"
 
-#: ../../cli.rst:238
+#: ../../cli.rst:279
 msgid "错误信息"
 msgstr "Error message"
 
-#: ../../cli.rst:239
+#: ../../cli.rst:280
 msgid "``CRITICAL``"
 msgstr "``CRITICAL``"
 
-#: ../../cli.rst:240
+#: ../../cli.rst:281
 msgid "严重错误"
 msgstr "Critical error"
 
-#: ../../cli.rst:243
+#: ../../cli.rst:284
 msgid "示例：完整工作流"
 msgstr "Example: Complete Workflow"
 
+#~ msgid ""
+#~ "从 ``run_dir/SOCIETY.json`` + ``SOCIETY_STEP.json``"
+#~ " 续跑中断的实验：恢复 society 时钟/步数与各 env 模块状态，跳过已完成的"
+#~ " ``RunStep``（``Ask``/``Intervene``/ ``Questionnaire`` "
+#~ "会重跑，产物时间戳更新）。``steps.yaml`` 与 checkpoint 不一致时告警。"
+#~ msgstr ""
+
+#~ msgid "实验在每步结束时原子地写两份 checkpoint（崩溃不会损坏）："
+#~ msgstr ""
+
+#~ msgid ""
+#~ "``run_dir/SOCIETY.json`` —— 不可变全量（init "
+#~ "时写一次）：``agent_specs``、env 模块类型+kwargs、 "
+#~ "``batch_size``、``steps_hash``。"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "各 env 模块的状态写到 "
+#~ "``run_dir/env/<module_type>/state/ENV_STATE.json``（由模块自选格式）。"
+#~ msgstr ""
+
+#~ msgid ""
+#~ "恢复机制：以持久化的 env 模块类型/kwargs、时钟、步数为准（而非 config "
+#~ "文件，避免配置漂移）； ``RunStep`` "
+#~ "按游标跳过已完成部分，``Ask``/``Intervene``/``Questionnaire`` "
+#~ "重跑；``steps.yaml`` 的 hash 与 checkpoint "
+#~ "不一致时 WARNING。校验恢复点："
+#~ msgstr ""
+
+#~ msgid ""
+#~ "只有覆盖了 ``to_workspace()``/``restore()`` 的 env "
+#~ "模块才能在 resume 时恢复动态状态 （见 "
+#~ ":doc:`env_modules`）。未覆盖的模块 resume 后会回到 fresh "
+#~ "态。"
+#~ msgstr ""

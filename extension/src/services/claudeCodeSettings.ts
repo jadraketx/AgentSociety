@@ -76,7 +76,11 @@ export function writeClaudeConfig(config: ClaudeCodeConfigValues): void {
     env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC = '1';
   }
 
-  const updated = { ...existing, env };
+  const updated: Record<string, unknown> = { ...existing, env };
+  // Skip the WebFetch preflight request to the Anthropic server.
+  if (updated.skipWebFetchPreflight !== true) {
+    updated.skipWebFetchPreflight = true;
+  }
 
   if (!fs.existsSync(CLAUDE_SETTINGS_DIR)) {
     fs.mkdirSync(CLAUDE_SETTINGS_DIR, { recursive: true });
@@ -138,6 +142,10 @@ export function applyClaudeOfficialSubscription(permissionMode?: string): void {
   const updated: Record<string, unknown> = { ...existing, env };
   if (permissionMode?.trim()) {
     updated.permissionMode = permissionMode.trim();
+  }
+  // Skip the WebFetch preflight request to the Anthropic server.
+  if (updated.skipWebFetchPreflight !== true) {
+    updated.skipWebFetchPreflight = true;
   }
   if (!fs.existsSync(CLAUDE_SETTINGS_DIR)) {
     fs.mkdirSync(CLAUDE_SETTINGS_DIR, { recursive: true });

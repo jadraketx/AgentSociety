@@ -61,6 +61,12 @@ CLI 是运行 AgentSociety 2 实验的主要方式。它提供：
    * - ``--replay-disable``
      - false
      - 禁用回放写入（百万级 agent 场景适用）
+   * - ``--resume``
+     - false
+     - 从 ``run_dir/SOCIETY.json`` 和 ``SOCIETY_STEP.json`` 恢复中断的实验。CLI 会恢复
+       society 的时钟、步数和各 env 模块状态，并跳过已经完成的 ``RunStep``。``Ask``、
+       ``Intervene`` 和 ``Questionnaire`` 会重新执行，产物时间戳也会随之更新；如果
+       ``steps.yaml`` 与 checkpoint 不一致，CLI 会给出告警。
 
 运行实验
 ------------
@@ -114,6 +120,41 @@ CLI 是运行 AgentSociety 2 实验的主要方式。它提供：
 
    # 发送 SIGTERM 信号
    kill $pid
+
+恢复中断的实验
+~~~~~~~~~~~~~~~~~~~~~
+
+实验会在每步结束时原子地写出 checkpoint。即使进程在写入过程中崩溃，已有 checkpoint 也不会被破坏：
+
+* ``run_dir/SOCIETY.json`` —— 初始化时写一次，保存不可变的全量配置，例如 ``agent_specs``、
+  env 模块类型和 kwargs、``batch_size``、``steps_hash``。
+* ``run_dir/SOCIETY_STEP.json`` —— 每步标量：当前时间、步数、已完成的顶层步数、``terminated``。
+* 各 env 模块的状态写到 ``run_dir/env/{module_type}/state/ENV_STATE.json``，具体格式由模块自定。
+
+用 ``--resume`` 从最后完成的步续跑：
+
+.. code-block:: bash
+
+   python -m agentsociety2.society.cli \
+       --config hypothesis_1/experiment_1/init/init_config.json \
+       --steps hypothesis_1/experiment_1/init/steps.yaml \
+       --run-dir hypothesis_1/experiment_1/run \
+       --resume \
+       --log-file hypothesis_1/experiment_1/run/output.log &
+
+恢复时以 checkpoint 中的 env 模块类型和 kwargs、时钟、步数为准，而不是重新读取 config 文件中的
+这些值，这可以避免配置漂移。``RunStep`` 会根据游标跳过已完成的部分；``Ask``、``Intervene`` 和
+``Questionnaire`` 会重新执行。如果 ``steps.yaml`` 的 hash 与 checkpoint 不一致，CLI 会输出
+WARNING。可以用下面的命令校验恢复点：
+
+.. code-block:: bash
+
+   cat hypothesis_1/experiment_1/run/SOCIETY_STEP.json   # step_count / completed_step_count
+
+.. note::
+
+   只有覆盖了 ``to_workspace()`` 和 ``restore()`` 的 env 模块才能在 resume 时恢复动态状态
+   （见 :doc:`env_modules`）。未覆盖的模块 resume 后会回到 fresh 态。
 
 配置文件
 ------------

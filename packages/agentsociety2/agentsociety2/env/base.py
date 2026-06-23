@@ -63,6 +63,18 @@ __all__ = [
 ]
 
 
+def dump_int_map(mapping: dict[int, Any]) -> dict[str, Any]:
+    """``dict[int, ...]`` → JSON 友好的 ``dict[str, ...]``（JSON 键只能是字符串）。"""
+    return {str(k): v for k, v in mapping.items()}
+
+
+def load_int_map(mapping: dict[str, Any] | None) -> dict[int, Any]:
+    """JSON 还原后的 ``dict[str, ...]`` → ``dict[int, ...]``。"""
+    if not mapping:
+        return {}
+    return {int(k): v for k, v in mapping.items()}
+
+
 F = TypeVar("F", bound=Callable)
 
 
@@ -409,6 +421,9 @@ class EnvBase(metaclass=EnvMeta):
         self._replay_writer: Optional["ReplayWriter"] = None
         self._state_tables_registered: bool = False
 
+        # workspace 持久化槽位（无状态 resume）。
+        self._workspace_root: Optional[Path] = None
+
         tools = list(getattr(self.__class__, "_registered_tools", {}).values())
         self._tool_manager = ToolManager(tools=tools)
         self._readonly_llm_tools: list[ChatCompletionToolParam] = []
@@ -556,6 +571,52 @@ class EnvBase(metaclass=EnvMeta):
     async def close(self):
         """关闭环境模块并释放资源（可选重写）。"""
         ...
+
+    # ==================== workspace 持久化（无状态 resume） ====================
+    #
+    # 基类只提供「绑定到一个 workspace 目录」+ 一对供子类覆盖的落盘/恢复钩子，
+    # 不规定状态格式、文件名或目录结构——子类自行决定如何序列化（JSON / 多文件 /
+    # 二进制都行）。未覆盖的钩子为 no-op（模块不持久化，重启后状态丢失但不报错）。
+
+    def _bind_workspace(self, workspace_path: Path) -> None:
+        """绑定到 env workspace 目录（幂等），创建该目录。
+
+        :param workspace_path: env workspace 根目录。
+        """
+        self._workspace_root = Path(workspace_path).resolve()
+        self._workspace_root.mkdir(parents=True, exist_ok=True)
+
+    async def to_workspace(self, workspace_path: Path | None = None) -> None:
+        """把动态状态写入 workspace（每步由 society 经 router 调用）。
+
+        默认 no-op。子类按自选的格式/文件名把需要跨重启保留的状态写到
+        ``self._workspace_root``（或传入的 ``workspace_path``）下。建议用
+        :func:`~agentsociety2.storage.workspace_state.atomic_write_text` 原子写。
+        """
+        if workspace_path is not None:
+            self._bind_workspace(workspace_path)
+
+    async def restore(self, workspace_path: Path) -> bool:
+        """从 workspace 恢复动态状态（resume 路径）。
+
+        默认返回 ``False``。子类读取自己写入的状态并还原；返回是否成功加载
+        （供 router 区分 fresh / resume）。仅在 ``__init__`` 与 ``init()`` 之后调用，
+        故可安全覆盖 ``init()`` 设置的字段。
+        """
+        self._bind_workspace(workspace_path)
+        return False
+
+    @classmethod
+    async def from_workspace(
+        cls, workspace_path: Path, **init_kwargs: Any
+    ) -> "EnvBase":
+        """从 workspace 重建就绪模块：``cls(**init_kwargs)`` 后 ``restore``。
+
+        :param init_kwargs: 构造该模块用的 kwargs（resume 时由 actor 从 ``SOCIETY.json`` 取）。
+        """
+        module = cls(**init_kwargs)
+        await module.restore(Path(workspace_path))
+        return module
 
     def get_tool_call_history(self) -> list[dict[str, Any]]:
         """获取工具调用历史（浅拷贝）。

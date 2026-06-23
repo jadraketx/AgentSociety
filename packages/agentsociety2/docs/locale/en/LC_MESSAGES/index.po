@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: AgentSociety 2 2.6.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-18 09:09+0800\n"
+"POT-Creation-Date: 2026-06-23 12:38+0800\n"
 "PO-Revision-Date: 2026-03-05 23:50+0800\n"
 "Last-Translator: AgentSociety Team\n"
 "Language: en\n"
@@ -19,19 +19,19 @@ msgstr ""
 "Content-Transfer-Encoding: 8bit\n"
 "Generated-By: Babel 2.18.0\n"
 
-#: ../../index.rst:65
+#: ../../index.rst:67
 msgid "入门指南:"
 msgstr "Getting Started:"
 
-#: ../../index.rst:77
+#: ../../index.rst:79
 msgid "用户指南:"
 msgstr "User Guide:"
 
-#: ../../index.rst:88
+#: ../../index.rst:90
 msgid "开发者指南:"
 msgstr "Developer Guide:"
 
-#: ../../index.rst:96
+#: ../../index.rst:98
 msgid "参考:"
 msgstr "Reference:"
 
@@ -150,44 +150,53 @@ msgid ""
 "**回放与分析**: append-only JSONL replay、``_schema.json`` catalog 与 DuckDB "
 "读侧，用于实验跟踪和分析。"
 msgstr ""
-"**Replay and analysis**: append-only JSONL replay, the ``_schema.json`` catalog, and a "
-"DuckDB read side for experiment tracking and analysis."
+"**Replay and analysis**: append-only JSONL replay, the ``_schema.json`` "
+"catalog, and a DuckDB read side for experiment tracking and analysis."
 
 #: ../../index.rst:40
+msgid ""
+"**中断恢复**: agent、env 和 society 三层状态都会原子持久化，CLI ``--resume`` 可从中断处继续运行实验（见 "
+":doc:`cli`）。"
+msgstr ""
+"**Interrupt recovery**: agent, env, and society state are all persisted"
+" atomically, and CLI ``--resume`` can continue an experiment from the "
+"interruption point; see :doc:`cli`."
+
+#: ../../index.rst:42
 msgid "**研究技能**: 内置文献检索、假设生成、实验设计、论文撰写等 LLM 原生工作流。"
 msgstr ""
 "**Research Skills**: Built-in LLM-native workflows for literature search,"
 " hypothesis generation, experiment design, and paper writing."
 
-#: ../../index.rst:42
+#: ../../index.rst:44
 msgid "**REST API**: 基于 FastAPI 的独立后端服务，支持外部集成。"
 msgstr ""
 "**REST API**: Independent FastAPI-based backend service for external "
 "integrations."
 
-#: ../../index.rst:44
+#: ../../index.rst:46
 msgid "**CLI 工具**: 强大的命令行界面，支持实验运行和进度跟踪。"
 msgstr ""
 "**CLI Tool**: Powerful command-line interface for experiment execution "
 "and progress tracking."
 
-#: ../../index.rst:46
+#: ../../index.rst:48
 msgid "**可扩展**: 轻松扩展自定义智能体、环境和工具。"
 msgstr "**Extensible**: Easily extend with custom agents, environments, and tools."
 
-#: ../../index.rst:49
+#: ../../index.rst:51
 msgid "安装"
 msgstr "Installation"
 
-#: ../../index.rst:55
+#: ../../index.rst:57
 msgid "详细安装说明请参见 :doc:`installation`。"
 msgstr "See :doc:`installation` for detailed installation instructions."
 
-#: ../../index.rst:58
+#: ../../index.rst:60
 msgid "快速开始"
 msgstr "Quick Start"
 
-#: ../../index.rst:60
+#: ../../index.rst:62
 msgid ""
 "与智能体交互通过 :class:`~agentsociety2.society.AgentSociety` 的异步 API（如 ``ask`` /"
 " ``intervene``）完成，需使用 ``asyncio``。最小示意见 :doc:`quickstart`。"
@@ -197,30 +206,35 @@ msgstr ""
 "``intervene``) using ``asyncio``. See :doc:`quickstart` for a minimal "
 "example."
 
-#: ../../index.rst:63
+#: ../../index.rst:65
 msgid "文档"
 msgstr "Documentation"
 
-#: ../../index.rst:104
+#: ../../index.rst:106
 msgid "链接"
 msgstr "Links"
 
-#: ../../index.rst:106
+#: ../../index.rst:108
 msgid "**GitHub**: https://github.com/tsinghua-fib-lab/AgentSociety"
 msgstr "**GitHub**: https://github.com/tsinghua-fib-lab/AgentSociety"
 
-#: ../../index.rst:107
+#: ../../index.rst:109
 msgid "**PyPI**: https://pypi.org/project/agentsociety2/"
 msgstr "**PyPI**: https://pypi.org/project/agentsociety2/"
 
-#: ../../index.rst:108
+#: ../../index.rst:110
 msgid "**Issues**: https://github.com/tsinghua-fib-lab/AgentSociety/issues"
 msgstr "**Issues**: https://github.com/tsinghua-fib-lab/AgentSociety/issues"
 
-#: ../../index.rst:111
+#: ../../index.rst:113
 msgid "搜索"
 msgstr "Search"
 
-#: ../../index.rst:113
+#: ../../index.rst:115
 msgid ":ref:`search`"
 msgstr ":ref:`search`"
+
+#~ msgid ""
+#~ "**中断恢复**: agent/env/society 三层状态原子持久化，CLI "
+#~ "``--resume`` 从中断处续跑（见 :doc:`cli`）。"
+#~ msgstr ""

@@ -18,7 +18,11 @@ from agentsociety2.env import (
     EnvBase,
     tool,
 )
+from agentsociety2.env.base import dump_int_map, load_int_map
 from agentsociety2.storage import ColumnDef
+from agentsociety2.storage.workspace_state import atomic_write_text
+
+_STATE_REL = "state/ENV_STATE.json"
 
 
 # Enums for better type safety
@@ -259,6 +263,45 @@ class ReputationGameEnv(EnvBase):
 
         # Initialize state
         self._init_state()
+
+    async def to_workspace(self, workspace_path=None) -> None:
+        """写入 ``state/ENV_STATE.json``（原子写）。
+
+        Reputation(int Enum) 存 .value；ActionLogEntry(pydantic) 用 model_dump。
+        """
+        if workspace_path is not None:
+            self._bind_workspace(workspace_path)
+        if self._workspace_root is None:
+            raise RuntimeError("Env module workspace is not bound")
+        atomic_write_text(
+            self._workspace_root / _STATE_REL,
+            json.dumps(
+                {
+                    "reputations": {k: v.value for k, v in dump_int_map(self._reputations).items()},
+                    "payoffs": dump_int_map(self._payoffs),
+                    "action_log": [e.model_dump(mode="json") for e in self._action_log],
+                    "step_counter": self._step_counter,
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+        )
+
+    async def restore(self, workspace_path) -> bool:
+        """从 ``state/ENV_STATE.json`` 恢复。"""
+        self._bind_workspace(workspace_path)
+        state_path = self._workspace_root / _STATE_REL
+        if not state_path.is_file():
+            return False
+        d = json.loads(state_path.read_text(encoding="utf-8"))
+        self._reputations = {
+            aid: Reputation(int(v)) for aid, v in load_int_map(d.get("reputations")).items()
+        }
+        self._payoffs = {aid: float(v) for aid, v in load_int_map(d.get("payoffs")).items()}
+        self._action_log = [ActionLogEntry.model_validate(e) for e in d.get("action_log", [])]
+        self._step_counter = int(d.get("step_counter", 0))
+        return True
 
     @classmethod
     def init_description(cls) -> str:

@@ -196,8 +196,6 @@ def main() -> None:
             "id": aid,
             "profile": _profile_block(p, slot_minutes),
             "max_react_turns": 6 if len(use) > 20 else 8,
-            "force_template_mode": False,
-            "allow_template_mode": False,
             "default_activated_skill_ids": ["built-in@daily-guidance"],
         }
         agents.append(

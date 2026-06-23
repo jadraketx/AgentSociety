@@ -3,6 +3,7 @@ Prisoner's Dilemma Game Environment
 Environment for Prisoner's Dilemma game based on AgentSociety2
 """
 import asyncio
+import json
 from datetime import datetime
 from typing import ClassVar, Dict, List, Optional, Tuple
 
@@ -10,6 +11,10 @@ from pydantic import BaseModel, Field
 
 from agentsociety2.env import EnvBase, tool
 from agentsociety2.storage import ColumnDef
+from agentsociety2.storage.workspace_state import atomic_write_text
+
+# 本模块自选的 workspace 布局：<workspace_root>/state/ENV_STATE.json。
+_STATE_REL = "state/ENV_STATE.json"
 
 
 # Response models
@@ -72,6 +77,44 @@ class PrisonersDilemmaEnv(EnvBase):
         
         self._lock = asyncio.Lock()
         self._step_counter: int = 0
+
+    async def to_workspace(self, workspace_path=None) -> None:
+        """写入 ``state/ENV_STATE.json``（原子写）。"""
+        if workspace_path is not None:
+            self._bind_workspace(workspace_path)
+        if self._workspace_root is None:
+            raise RuntimeError("Env module workspace is not bound")
+        atomic_write_text(
+            self._workspace_root / _STATE_REL,
+            json.dumps(
+                {
+                    "round_number": self.round_number,
+                    "round_history": list(self.round_history),
+                    "pending_actions": dict(self._pending_actions),
+                    "step_counter": self._step_counter,
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+        )
+
+    async def restore(self, workspace_path) -> bool:
+        """从 ``state/ENV_STATE.json`` 恢复。
+
+        晚于 ``init()``（会重置回合状态）执行，故 checkpoint 覆盖重置；
+        ``_lock`` 由 ``__init__`` 重建，不从盘读取。
+        """
+        self._bind_workspace(workspace_path)
+        state_path = self._workspace_root / _STATE_REL
+        if not state_path.is_file():
+            return False
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        self.round_number = int(data.get("round_number", 0))
+        self.round_history = list(data.get("round_history", []))
+        self._pending_actions = dict(data.get("pending_actions", {}))
+        self._step_counter = int(data.get("step_counter", 0))
+        return True
 
     @classmethod
     def init_description(cls) -> str:

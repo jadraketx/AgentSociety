@@ -4,6 +4,7 @@ This environment provides global information to the agent.
 """
 
 import asyncio
+import json
 from datetime import datetime
 from typing import ClassVar
 
@@ -14,6 +15,9 @@ from agentsociety2.env import (
     tool,
 )
 from agentsociety2.storage import ColumnDef
+from agentsociety2.storage.workspace_state import atomic_write_text
+
+_STATE_REL = "state/ENV_STATE.json"
 
 
 class GetGlobalInformationResponse(BaseModel):
@@ -51,6 +55,36 @@ class GlobalInformationEnv(EnvBase):
         self._global_information = self._default_global_information
         self._lock = asyncio.Lock()
         self._step_counter: int = 0
+
+    async def to_workspace(self, workspace_path=None) -> None:
+        """写入 ``state/ENV_STATE.json``（原子写）。"""
+        if workspace_path is not None:
+            self._bind_workspace(workspace_path)
+        if self._workspace_root is None:
+            raise RuntimeError("Env module workspace is not bound")
+        atomic_write_text(
+            self._workspace_root / _STATE_REL,
+            json.dumps(
+                {
+                    "global_information": self._global_information,
+                    "step_counter": self._step_counter,
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+        )
+
+    async def restore(self, workspace_path) -> bool:
+        """从 ``state/ENV_STATE.json`` 恢复。"""
+        self._bind_workspace(workspace_path)
+        state_path = self._workspace_root / _STATE_REL
+        if not state_path.is_file():
+            return False
+        d = json.loads(state_path.read_text(encoding="utf-8"))
+        self._global_information = str(d.get("global_information", self._default_global_information))
+        self._step_counter = int(d.get("step_counter", 0))
+        return True
 
     @classmethod
     def init_description(cls) -> str:

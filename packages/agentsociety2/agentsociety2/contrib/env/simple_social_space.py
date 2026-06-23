@@ -4,6 +4,7 @@ This environment provides social communication functionalities for agents.
 """
 
 import asyncio
+import json
 from collections import defaultdict
 from datetime import datetime
 from typing import ClassVar, Dict, List, Optional, Tuple
@@ -12,8 +13,13 @@ from agentsociety2.env import (
     EnvBase,
     tool,
 )
+from agentsociety2.env.base import dump_int_map, load_int_map
 from agentsociety2.storage import ColumnDef
+from agentsociety2.storage.workspace_state import atomic_write_text
 from pydantic import BaseModel, Field
+
+# 本模块自选的 workspace 布局：<workspace_root>/state/ENV_STATE.json。
+_STATE_REL = "state/ENV_STATE.json"
 
 
 class Message(BaseModel):
@@ -119,6 +125,63 @@ class SimpleSocialSpace(EnvBase):
         self._lock = asyncio.Lock()
         self._step_counter: int = 0
         self._total_messages_sent: int = 0
+
+    async def to_workspace(self, workspace_path=None) -> None:
+        """写入 ``state/ENV_STATE.json``（原子写）。pydantic 用 model_dump，``_lock`` 不存盘。"""
+        if workspace_path is not None:
+            self._bind_workspace(workspace_path)
+        if self._workspace_root is None:
+            raise RuntimeError("Env module workspace is not bound")
+        atomic_write_text(
+            self._workspace_root / _STATE_REL,
+            json.dumps(
+                {
+                    "mailboxes": {
+                        str(aid): [m.model_dump(mode="json") for m in msgs]
+                        for aid, msgs in self._mailboxes.items()
+                    },
+                    "groups": {
+                        str(gid): g.model_dump(mode="json")
+                        for gid, g in self._groups.items()
+                    },
+                    "next_group_id": self._next_group_id,
+                    "next_message_id": self._next_message_id,
+                    "agent_names": dump_int_map(self._agent_names),
+                    "step_counter": self._step_counter,
+                    "total_messages_sent": self._total_messages_sent,
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+        )
+
+    async def restore(self, workspace_path) -> bool:
+        """从 ``state/ENV_STATE.json`` 恢复。
+
+        ``_mailboxes`` 恢复为 ``defaultdict(list)``（工具方法依赖自动建键）；
+        ``_lock`` 由 ``__init__`` 重建，不从盘读取。
+        """
+        self._bind_workspace(workspace_path)
+        state_path = self._workspace_root / _STATE_REL
+        if not state_path.is_file():
+            return False
+        state = json.loads(state_path.read_text(encoding="utf-8"))
+        mailboxes = load_int_map(state.get("mailboxes"))
+        self._mailboxes = defaultdict(
+            list,
+            {aid: [Message.model_validate(m) for m in msgs] for aid, msgs in mailboxes.items()},
+        )
+        groups = load_int_map(state.get("groups"))
+        self._groups = {gid: Group.model_validate(g) for gid, g in groups.items()}
+        self._next_group_id = int(state.get("next_group_id", 1))
+        self._next_message_id = int(state.get("next_message_id", 1))
+        self._agent_names = {
+            aid: str(name) for aid, name in load_int_map(state.get("agent_names")).items()
+        }
+        self._step_counter = int(state.get("step_counter", 0))
+        self._total_messages_sent = int(state.get("total_messages_sent", 0))
+        return True
 
     @classmethod
     def init_description(cls) -> str:

@@ -69,8 +69,6 @@ def test_benchmark_config_activates_daily_guidance_without_template_cache(tmp_pa
     config = json.loads(cfg_path.read_text(encoding="utf-8"))
     agents = config["agents"]
     assert len(agents) == 2
-    assert all(agent["kwargs"]["force_template_mode"] is False for agent in agents)
-    assert all(agent["kwargs"]["allow_template_mode"] is False for agent in agents)
     assert all(
         agent["kwargs"]["default_activated_skill_ids"] == ["built-in@daily-guidance"]
         for agent in agents

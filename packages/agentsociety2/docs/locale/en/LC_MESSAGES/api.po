@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: AgentSociety 2 2.6.0\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-06-18 22:50+0800\n"
+"POT-Creation-Date: 2026-06-23 12:53+0800\n"
 "PO-Revision-Date: 2026-05-19 00:00+0000\n"
 "Last-Translator: AgentSociety Team\n"
 "Language: en\n"
@@ -306,7 +306,7 @@ msgid "Return the agent-owned workspace root."
 msgstr ""
 
 #: ../../api/agent.rst ../../api/backend.rst ../../api/config.rst
-#: ../../api/env.rst
+#: ../../api/env.rst ../../api/society.rst
 #: agentsociety2.backend.routers.prefill_params.get_class_prefill_params of
 msgid "抛出"
 msgstr "Throw"
@@ -354,10 +354,52 @@ msgid "Discover custom and environment-provided skill sources."
 msgstr "Scan skills from an environment module's skill directory."
 
 #: agentsociety2.agent.base.agent.AgentBase.discover_skill_sources:3 of
-msgid "Environment router used to locate run directories and modules."
+msgid ""
+"Scans the default ``<root>/custom/skills`` locations (``env.run_dir`` and"
+" this agent's workspace root), then any extra skill directories merged "
+"from two sources:"
 msgstr ""
+"Scans the default ``<root>/custom/skills`` locations (``env.run_dir`` and"
+" this agent's workspace root), then any extra skill directories merged "
+"from two sources:"
 
-#: agentsociety2.agent.base.agent.AgentBase.discover_skill_sources:5 of
+#: agentsociety2.agent.base.agent.AgentBase.discover_skill_sources:7 of
+msgid ""
+"declarative: ``extra_skill_paths`` in ``config.json`` (resolved in "
+":meth:`restore`);"
+msgstr ""
+"declarative: ``extra_skill_paths`` in ``config.json`` (resolved in "
+":meth:`restore`);"
+
+#: agentsociety2.agent.base.agent.AgentBase.discover_skill_sources:9 of
+msgid "programmatic: the ``extra_skill_paths`` argument here."
+msgstr "programmatic: the ``extra_skill_paths`` argument here."
+
+#: agentsociety2.agent.base.agent.AgentBase.discover_skill_sources:11 of
+msgid ""
+"Each extra entry is a directory containing skill subdirectories (same "
+"layout as ``custom/skills``). Relative entries resolve against the "
+"workspace root. The default scan is unchanged when neither is given, so "
+"agents can load custom skills stored anywhere via either entry point."
+msgstr ""
+"Each extra entry is a directory containing skill subdirectories (same "
+"layout as ``custom/skills``). Relative entries resolve against the "
+"workspace root. The default scan is unchanged when neither is given, so "
+"agents can load custom skills stored anywhere via either entry point."
+
+#: agentsociety2.agent.base.agent.AgentBase.discover_skill_sources:16 of
+msgid "Environment router used to locate run directories and modules."
+msgstr "Environment router used to locate run directories and modules."
+
+#: agentsociety2.agent.base.agent.AgentBase.discover_skill_sources:17 of
+msgid ""
+"Additional skill directories to scan now (each a root of skill "
+"subdirectories)."
+msgstr ""
+"Additional skill directories to scan now (each a root of skill "
+"subdirectories)."
+
+#: agentsociety2.agent.base.agent.AgentBase.discover_skill_sources:20 of
 msgid "Mapping from discovery source labels to added skill IDs."
 msgstr ""
 
@@ -1364,12 +1406,12 @@ msgstr ""
 
 #: agentsociety2.backend.routers.agent_skills:5 of
 msgid ""
-"本路由基于 v2 skill 注册表 (:mod:`agentsociety2.agent.base.registry`)，它是一个 "
+"本路由基于 v2 skill 注册表 (:mod:`agentsociety2.agent.base.skill_registry`)，它是一个 "
 "**只读元数据注册表**：skill 是\"始终存在\"的目录，PersonAgent 在运行时按目录选择激活。 因此本路由**没有** "
 "enable/disable/reload/remove 端点（v2 模型无此概念）。"
 msgstr ""
 "This route is based on the v2 skill registry "
-"(:mod:`agentsociety2.agent.base.registry`), a **read-only metadata "
+"(:mod:`agentsociety2.agent.base.skill_registry`), a **read-only metadata "
 "registry**: skills are directories that always exist, and ``PersonAgent``"
 " selects which ones to activate at runtime from the catalog. Therefore "
 "this route has **no** enable / disable / reload / remove endpoints; those"
@@ -1377,13 +1419,14 @@ msgstr ""
 
 #: agentsociety2.backend.routers.agent_skills:9 of
 msgid ""
-"关联文件： - @packages/agentsociety2/agentsociety2/agent/base/registry.py - "
+"关联文件： - "
+"@packages/agentsociety2/agentsociety2/agent/base/skill_registry.py - "
 "Skill 注册表 - @extension/src/apiClient.ts - VSCode 扩展 API 客户端 - "
 "@frontend/src/pages/Skills/index.tsx - Web 前端 Skill 管理页"
 msgstr ""
 "Associated files: - "
-"@packages/agentsociety2/agentsociety2/agent/skills/__init__.py - Skill "
-"registry - @extension/src/apiClient.ts - VSCode extension API client - "
+"@packages/agentsociety2/agentsociety2/agent/base/skill_registry.py - "
+"Skill registry - @extension/src/apiClient.ts - VSCode extension API client - "
 "@frontend/src/pages/Skills/index.tsx - Web front-end Skill management "
 "page"
 
@@ -1849,11 +1892,12 @@ msgid "Upper bound used as the Ray CPU budget hint (``ray.init(num_cpus=...)``).
 msgstr ""
 
 #: agentsociety2.config.Config.LLM_RAY_MAX_WORKERS:3 of
-#, fuzzy
 msgid ""
 "Environment variable: AGENTSOCIETY_LLM_RAY_MAX_WORKERS Default: machine "
 "logical CPU count (``os.cpu_count()``)."
-msgstr "Environment variable: AGENTSOCIETY_LLM_MODEL Default: \"gpt-5.5\""
+msgstr ""
+"Environment variable: AGENTSOCIETY_LLM_RAY_MAX_WORKERS Default: machine "
+"logical CPU count (``os.cpu_count()``)."
 
 #: agentsociety2.config.Config.LLM_RAY_MAX_WORKERS:6 of
 msgid ""
@@ -1869,7 +1913,7 @@ msgstr ""
 
 #: agentsociety2.config.Config.LLM_RAY_CONCURRENCY:3 of
 msgid "Environment variable: AGENTSOCIETY_LLM_RAY_CONCURRENCY Default: 16"
-msgstr "Environment variable: AGENTSOCIETY_LLM_MODEL Default: \"gpt-5.5\""
+msgstr "Environment variable: AGENTSOCIETY_LLM_RAY_CONCURRENCY Default: 16"
 
 #: agentsociety2.config.Config.LLM_RAY_CONCURRENCY:6 of
 msgid ""
@@ -1884,9 +1928,8 @@ msgid "Number of agents per ``step_agent_batch`` Ray Task."
 msgstr ""
 
 #: agentsociety2.config.Config.BATCH_SIZE:3 of
-#, fuzzy
 msgid "Environment variable: AGENTSOCIETY_BATCH_SIZE Default: 256"
-msgstr "Environment variable: AGENTSOCIETY_LLM_MODEL Default: \"gpt-5.5\""
+msgstr "Environment variable: AGENTSOCIETY_BATCH_SIZE Default: 256"
 
 #: agentsociety2.config.Config.BATCH_SIZE:6 of
 msgid ""
@@ -2088,15 +2131,15 @@ msgstr ""
 #: agentsociety2.env.router_search_tool.SearchToolRouter.__init__:7
 #: agentsociety2.env.router_two_tier_plan_execute.TwoTierPlanExecuteRouter.__init__:7
 #: agentsociety2.env.router_two_tier_react.TwoTierReActRouter.__init__:7 of
-#, fuzzy, python-brace-format
+#, python-brace-format
 msgid ""
 "可选。注入的 :class:`LLMClient` 句柄映射， 例如 ``{\"coder\": \"LLMClient\", "
 "\"default\": \"LLMClient\"}``。提供时 router 使用注入的 client；为空时按配置构建本地 client。"
 msgstr ""
 "Optional injected :class:`LLMClient` handle mapping, such as "
-"``{\"coder\": <LLMClient>, \"default\": <LLMClient>}``. When provided, "
-"the router uses the injected clients; when empty, it builds local clients"
-" from configuration."
+"``{\"coder\": \"LLMClient\", \"default\": \"LLMClient\"}``. When "
+"provided, the router uses the injected clients; when empty, it builds "
+"local clients from configuration."
 
 #: agentsociety2.env.router_base.RouterBase.set_trace_sink:1 of
 msgid "Inject a sync sharded-writer adapter for env-side trace spans."
@@ -2176,6 +2219,12 @@ msgstr "Initialize router and environment modules."
 msgid "仿真起始时间。"
 msgstr "Simulation start time."
 
+#: agentsociety2.env.router_base.RouterBase.init:4 of
+msgid "是否有 env 模块恢复了 checkpoint（即 resume）。"
+msgstr ""
+"Whether any env module restored a checkpoint, i.e. whether this is a "
+"resume."
+
 #: agentsociety2.env.base.EnvBase.step:1
 #: agentsociety2.env.router_base.RouterBase.step:1 of
 msgid "推进环境模块一个仿真步。"
@@ -2195,6 +2244,51 @@ msgstr "The simulation time after the end of this step."
 #: agentsociety2.env.router_base.RouterBase.close:1 of
 msgid "关闭路由器（关闭所有环境模块）。"
 msgstr "Shut down the router (turn off all environment modules)."
+
+#: agentsociety2.env.router_base.RouterBase.bind_env_workspaces:1 of
+msgid "把每个 env 模块绑定到 root/module_type（幂等）。"
+msgstr "Bind each env module to root/module_type idempotently."
+
+#: agentsociety2.env.router_base.RouterBase.bind_env_workspaces:3 of
+msgid ""
+"``module_types`` 与 ``env_modules`` 按位置对应，同时作为目录键 （与 ``env_kwargs`` "
+"对齐，避免同类多实例冲突）。"
+msgstr ""
+"``module_types`` and ``env_modules`` correspond by position and also act "
+"as directory keys. They align with ``env_kwargs`` to avoid conflicts "
+"between multiple instances of the same class."
+
+#: agentsociety2.env.router_base.RouterBase.from_workspaces:1 of
+msgid "恢复各已绑定模块的状态（存在快照时）。"
+msgstr "Restore the state of each bound module when a snapshot exists."
+
+#: agentsociety2.env.router_base.RouterBase.from_workspaces:3 of
+msgid ""
+"任一模块恢复失败不会中断其它模块，但会以 ERROR 级汇总告警——否则会出现 「部分模块 fresh、部分模块 "
+"checkpoint」的静默不一致状态。"
+msgstr ""
+"A restore failure in one module does not stop other modules, but the "
+"failures are summarized at ERROR level. Otherwise the run could silently "
+"enter an inconsistent state where some modules are fresh and others came "
+"from checkpoints."
+
+#: agentsociety2.env.router_base.RouterBase.from_workspaces:6 of
+msgid "是否有任一模块加载了快照（即 resume）。"
+msgstr "Whether any module loaded a snapshot, i.e. whether this is a resume."
+
+#: agentsociety2.env.router_base.RouterBase.to_workspaces:1 of
+msgid "把每个模块的动态状态写入其 workspace。"
+msgstr "Write each module's dynamic state to its workspace."
+
+#: agentsociety2.env.router_base.RouterBase.to_workspaces:3 of
+msgid ""
+"用 ``return_exceptions=True`` 收集结果，单个模块落盘失败不会让本步其它 "
+"模块的持久化全部丢失（否则一次序列化异常会导致整步 checkpoint 落后）。"
+msgstr ""
+"Collect results with ``return_exceptions=True`` so one module's write "
+"failure does not discard persistence for every other module in this step."
+" Without this, a single serialization error could leave the whole step's "
+"checkpoint behind."
 
 #: agentsociety2.env.router_base.RouterBase.get_tool_call_history:1 of
 msgid "汇总所有环境模块的工具调用历史（按时间排序）。"
@@ -2682,6 +2776,51 @@ msgstr "The base class does not provide a default implementation."
 msgid "关闭环境模块并释放资源（可选重写）。"
 msgstr "Closes the environment module and releases resources (optional override)."
 
+#: agentsociety2.env.base.EnvBase.to_workspace:1 of
+msgid "把动态状态写入 workspace（每步由 society 经 router 调用）。"
+msgstr ""
+"Write dynamic state to the workspace; called by society through the "
+"router on each step."
+
+#: agentsociety2.env.base.EnvBase.to_workspace:3 of
+msgid ""
+"默认 no-op。子类按自选的格式/文件名把需要跨重启保留的状态写到 ``self._workspace_root``（或传入的 "
+"``workspace_path``）下。建议用 "
+":func:`~agentsociety2.storage.workspace_state.atomic_write_text` 原子写。"
+msgstr ""
+"The default implementation is a no-op. Subclasses write restart-"
+"persistent state under ``self._workspace_root`` or the provided "
+"``workspace_path`` using their chosen format and file name. Use "
+":func:`~agentsociety2.storage.workspace_state.atomic_write_text` for "
+"atomic writes."
+
+#: agentsociety2.env.base.EnvBase.restore:1 of
+msgid "从 workspace 恢复动态状态（resume 路径）。"
+msgstr "Restore dynamic state from the workspace on the resume path."
+
+#: agentsociety2.env.base.EnvBase.restore:3 of
+msgid ""
+"默认返回 ``False``。子类读取自己写入的状态并还原；返回是否成功加载 （供 router 区分 fresh / resume）。仅在 "
+"``__init__`` 与 ``init()`` 之后调用， 故可安全覆盖 ``init()`` 设置的字段。"
+msgstr ""
+"The default implementation returns ``False``. Subclasses read and restore"
+" the state they wrote, and return whether a snapshot was loaded so the "
+"router can distinguish fresh startup from resume. This is called only "
+"after ``__init__`` and ``init()``, so it can safely override fields set "
+"by ``init()``."
+
+#: agentsociety2.env.base.EnvBase.from_workspace:1 of
+msgid "从 workspace 重建就绪模块：``cls(**init_kwargs)`` 后 ``restore``。"
+msgstr ""
+"Rebuild a ready module from a workspace: ``cls(**init_kwargs)`` followed "
+"by ``restore``."
+
+#: agentsociety2.env.base.EnvBase.from_workspace:3 of
+msgid "构造该模块用的 kwargs（resume 时由 actor 从 ``SOCIETY.json`` 取）。"
+msgstr ""
+"Keyword arguments used to construct the module; during resume the actor "
+"reads them from ``SOCIETY.json``."
+
 #: agentsociety2.env.base.EnvBase.get_tool_call_history:1 of
 msgid "获取工具调用历史（浅拷贝）。"
 msgstr "Get tool call history (shallow copy)."
@@ -2906,6 +3045,12 @@ msgstr ""
 "LLM. Load the cache set of the current env type from the local cache "
 "database and build the FAISS index."
 
+#: agentsociety2.env.router_codegen.CodeGenRouter.init:4 of
+msgid "是否有 env 模块恢复了 checkpoint（透传自 ``RouterBase.init``）。"
+msgstr ""
+"Whether any env module restored a checkpoint; forwarded from "
+"``RouterBase.init``."
+
 #: agentsociety2.env.router_codegen.CodeGenRouter.step:1 of
 msgid "Run forward one step for all simulation modules."
 msgstr ""
@@ -3033,7 +3178,34 @@ msgstr ""
 
 #: agentsociety2.env.env_router_proxy.EnvRouterProxy:1 of
 msgid "Agent/society-facing handle delegating to a Ray env-router actor."
+msgstr "Agent/society-facing handle delegating to a Ray env-router actor."
+
+#: agentsociety2.env.env_router_proxy.EnvRouterProxy:3 of
+#, python-brace-format
+msgid ""
+"Unlike the in-process router, the proxy does NOT hold concrete env-module"
+" instances (they live in the actor's process), so it cannot expose "
+"``env_modules``. To keep env-provided skills discoverable from the agent "
+"side, the proxy carries ``env_skill_dirs`` — the union of every "
+"configured env module's ``skill_dirs()`` resolved from the registry at "
+"construction time, each paired with the module's class name (used as the "
+"``env:{ClassName}`` namespace). ``AgentBase.discover_skill_sources`` "
+"reads this attribute in addition to ``env_modules``, so env skills are "
+"visible regardless of whether the agent sees a real router or this proxy."
+" The attribute is plain JSON-serializable data (``list[(str, str)]``), so"
+" the proxy still crosses the Ray boundary cleanly."
 msgstr ""
+"Unlike the in-process router, the proxy does NOT hold concrete env-module"
+" instances (they live in the actor's process), so it cannot expose "
+"``env_modules``. To keep env-provided skills discoverable from the agent "
+"side, the proxy carries ``env_skill_dirs`` -- the union of every "
+"configured env module's ``skill_dirs()`` resolved from the registry at "
+"construction time, each paired with the module's class name (used as the "
+"``env:{ClassName}`` namespace). ``AgentBase.discover_skill_sources`` "
+"reads this attribute in addition to ``env_modules``, so env skills are "
+"visible regardless of whether the agent sees a real router or this proxy."
+" The attribute is plain JSON-serializable data (``list[(str, str)]``), so"
+" the proxy still crosses the Ray boundary cleanly."
 
 #: agentsociety2.env.env_router_proxy.EnvRouterProxy.set_current_time:1 of
 msgid "Forward the society clock to the actor (fire-and-forget)."
@@ -3061,6 +3233,14 @@ msgstr ""
 #: agentsociety2.env.env_router_proxy.EnvRouterProxy.ask:1 of
 msgid "Forward an env ask to the actor and await the (ctx, answer) result."
 msgstr ""
+
+#: agentsociety2.env.env_router_proxy.EnvRouterProxy.to_workspaces:1 of
+msgid "转发每步 env 状态持久化到 actor。"
+msgstr "Forward per-step env state persistence to the actor."
+
+#: agentsociety2.env.env_router_proxy.EnvRouterProxy.from_workspaces:1 of
+msgid "转发 env 状态恢复（resume）到 actor。"
+msgstr "Forward env state restoration (resume) to the actor."
 
 #: agentsociety2.env.env_router_actor.get_env_router_actor_class:1 of
 msgid "Return (creating once per max_concurrency) the Ray env-router actor class."
@@ -4418,17 +4598,15 @@ msgid "Dictionary with search results and saved file information"
 msgstr "Dictionary with search results and saved file information"
 
 #: ../../api/skills.rst:44
-#, fuzzy
 msgid ""
 "当前仓库中可公开使用的 research skills 模块为 ``analysis``、``experiment``、 "
 "``hypothesis``、``literature``。``web_research`` 目录当前没有保留 可读源码，因此未列为文档 API "
 "表面。"
 msgstr ""
 "The publicly documented research skill modules in this repository are "
-"``analysis``, ``experiment``, ``hypothesis``, ``literature``, and "
-"``paper``. The ``web_research`` directory does not currently retain "
-"readable source code, so it is not included in the documented API "
-"surface."
+"``analysis``, ``experiment``, ``hypothesis``, and ``literature``. The "
+"``web_research`` directory does not currently retain readable source "
+"code, so it is not included in the documented API surface."
 
 #: ../../api/skills.rst:49
 msgid "Agent Skills"
@@ -4450,139 +4628,141 @@ msgstr ""
 msgid "SkillRegistry"
 msgstr "SkillRegistry"
 
-#: agentsociety2.agent.base.registry.SkillRegistry:1 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry:1 of
 msgid "Registry for Skill metadata."
 msgstr "Tool metadata."
 
-#: agentsociety2.agent.base.registry.SkillRegistry.__init__:1 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.__init__:1 of
 msgid "Initialize an empty registry."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.__init__:5
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.__init__:6
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.add_default_activated_skills:5
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.bind_workspace:7
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.set_activated_skills:5
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.set_visible_skills:5 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.__init__:5
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.__init__:6
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.add_default_activated_skills:7
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.bind_workspace:7
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.set_activated_skills:8
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.set_visible_skills:8
+#: of
 msgid "None."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.scan_builtin:1 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.scan_builtin:1 of
 msgid "Scan built-in skills once."
 msgstr "Scan built-in skills from the agent/skills directory."
 
-#: agentsociety2.agent.base.registry.SkillRegistry.scan_builtin:3 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.scan_builtin:3 of
 msgid "Optional built-in skill root override."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.scan_builtin:5
-#: agentsociety2.agent.base.registry.SkillRegistry.scan_custom:6
-#: agentsociety2.agent.base.registry.SkillRegistry.scan_env:6 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.scan_builtin:5
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.scan_custom:6
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.scan_env:6 of
 msgid "Added skill ids."
 msgstr "Agent Skills"
 
-#: agentsociety2.agent.base.registry.SkillRegistry.scan_custom:1 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.scan_custom:1 of
 msgid "Scan a custom skill root."
 msgstr "Scan custom skills from a workspace directory."
 
-#: agentsociety2.agent.base.registry.SkillRegistry.scan_custom:3
-#: agentsociety2.agent.base.registry.SkillRegistry.scan_env:3 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.scan_custom:3
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.scan_env:3 of
 msgid "Directory containing skill subdirectories."
 msgstr "Directory containing skill subdirectories with ``SKILL.md`` files."
 
-#: agentsociety2.agent.base.registry.SkillRegistry.scan_custom:4 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.scan_custom:4 of
 msgid "Namespace assigned to discovered skills."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.scan_env:1 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.scan_env:1 of
 msgid "Scan skills provided by an environment module."
 msgstr "Scan skills from an environment module's skill directory."
 
-#: agentsociety2.agent.base.registry.SkillRegistry.scan_env:4 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.scan_env:4 of
 msgid "Environment module name."
 msgstr "List of environment module types"
 
-#: agentsociety2.agent.base.registry.SkillRegistry.list_all:1 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.list_all:1 of
 msgid "List all registered skills."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.list_all:5 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.list_all:5 of
 msgid "Registered skill descriptors."
 msgstr "Get standard status descriptions."
 
-#: agentsociety2.agent.base.registry.SkillRegistry.get:1 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.get:1 of
 msgid "Return one skill descriptor by id."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.get:3
-#: agentsociety2.agent.base.registry.SkillRegistry.read_skill_doc:3
-#: agentsociety2.agent.base.registry.SkillRegistry.read_skill_file:3
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.add_visible_skill:3
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.load_skill_doc:3
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.read_skill_file:3
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.remove_visible_skill:3
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.run_skill_hook:3
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.run_skill_script:3 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.get:3
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.read_skill_doc:3
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.read_skill_file:3
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.load_skill_doc:3
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.read_skill_file:3
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.run_skill_hook:3
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.run_skill_script:3
+#: of
 msgid "Registry skill id."
 msgstr "Registry Module"
 
-#: agentsociety2.agent.base.registry.SkillRegistry.get:5 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.get:5 of
 msgid "Matching descriptor, or None."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.find_by_name:1 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.find_by_name:1 of
 msgid "Find skill descriptors by display name."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.find_by_name:3 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.find_by_name:3 of
 msgid "Skill display name."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.find_by_name:5 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.find_by_name:5 of
 msgid "Matching descriptors."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.read_skill_doc:1 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.read_skill_doc:1 of
 msgid "Read one skill's SKILL.md."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.read_skill_doc:5 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.read_skill_doc:5 of
 msgid "Skill document text, or an empty string."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.read_skill_file:1 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.read_skill_file:1 of
 msgid "Read one file inside a skill directory."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.read_skill_file:4
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.read_skill_file:4 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.read_skill_file:4
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.read_skill_file:4
+#: of
 msgid "Path relative to the skill root."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.read_skill_file:6
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.read_skill_file:6 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.read_skill_file:6
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.read_skill_file:6
+#: of
 msgid "File text, or an empty string."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.list_hooks:1 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.list_hooks:1 of
 msgid "List skills declaring one hook."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.list_hooks:3
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.active_hook_skills:3
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.run_skill_hook:4 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.list_hooks:3
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.active_hook_skills:3
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.run_skill_hook:4 of
 msgid "Lifecycle hook name."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.list_hooks:5 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.list_hooks:5 of
 msgid "Skill descriptors that declare the hook."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillRegistry.copy:1 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.copy:1 of
 msgid "Copy this registry."
 msgstr "source registry."
 
-#: agentsociety2.agent.base.registry.SkillRegistry.copy:5 of
+#: agentsociety2.agent.base.skill_registry.SkillRegistry.copy:5 of
 msgid "Shallow registry copy."
 msgstr "SkillRegistry"
 
@@ -4590,51 +4770,51 @@ msgstr "SkillRegistry"
 msgid "SkillDescriptor"
 msgstr "SkillRegistry"
 
-#: agentsociety2.agent.base.registry.SkillDescriptor:1 of
+#: agentsociety2.agent.base.skill_registry.SkillDescriptor:1 of
 msgid "Skill metadata."
 msgstr "Tool metadata."
 
-#: agentsociety2.agent.base.registry.SkillDescriptor:3 of
+#: agentsociety2.agent.base.skill_registry.SkillDescriptor:3 of
 msgid "Stable registry skill id."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillDescriptor:4 of
+#: agentsociety2.agent.base.skill_registry.SkillDescriptor:4 of
 msgid "Display name from SKILL.md."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillDescriptor:5 of
+#: agentsociety2.agent.base.skill_registry.SkillDescriptor:5 of
 msgid "Skill namespace."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillDescriptor:6 of
+#: agentsociety2.agent.base.skill_registry.SkillDescriptor:6 of
 msgid "Catalog description."
 msgstr "Hypothesis description"
 
-#: agentsociety2.agent.base.registry.SkillDescriptor:7 of
+#: agentsociety2.agent.base.skill_registry.SkillDescriptor:7 of
 msgid "Skill root directory."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillDescriptor:8 of
+#: agentsociety2.agent.base.skill_registry.SkillDescriptor:8 of
 msgid "Source category."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillDescriptor:9 of
+#: agentsociety2.agent.base.skill_registry.SkillDescriptor:9 of
 msgid "Human-readable source label."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillDescriptor:10 of
+#: agentsociety2.agent.base.skill_registry.SkillDescriptor:10 of
 msgid "Optional default script path."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillDescriptor:11 of
+#: agentsociety2.agent.base.skill_registry.SkillDescriptor:11 of
 msgid "Lifecycle hook script map."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillDescriptor.resource_files:1 of
+#: agentsociety2.agent.base.skill_registry.SkillDescriptor.resource_files:1 of
 msgid "List files shipped under this skill root."
 msgstr ""
 
-#: agentsociety2.agent.base.registry.SkillDescriptor.resource_files:5 of
+#: agentsociety2.agent.base.skill_registry.SkillDescriptor.resource_files:5 of
 msgid "Relative resource file paths under the skill root."
 msgstr ""
 
@@ -4642,236 +4822,335 @@ msgstr ""
 msgid "AgentSkillRuntime"
 msgstr "Agent Skills"
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime:1 of
 msgid "Runtime for skill visibility, activation, and execution."
 msgstr "Registry for skill discovery, management, and execution."
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.__init__:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.__init__:1 of
 msgid "Initialize the skill runtime."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.__init__:3 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.__init__:3 of
 msgid "Numeric agent id."
 msgstr "Experiment ID"
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.__init__:4 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.__init__:4 of
 msgid "Skill registry facade used by this runtime."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.bind_workspace:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.bind_workspace:1 of
 msgid "Bind this runtime to an agent-owned workspace."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.bind_workspace:3 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.bind_workspace:3 of
 msgid "Agent workspace root created by the agent."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.bind_workspace:4 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.bind_workspace:4 of
 msgid "Agent-owned workspace filesystem facade."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.bind_workspace:5 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.bind_workspace:5 of
 msgid "Agent-owned trace writer."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.workspace_root:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.workspace_root:1 of
 msgid "Return the workspace root."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.workspace_root:5 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.workspace_root:5 of
 msgid "Absolute workspace root path."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.is_initialized:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.is_initialized:1 of
 msgid "Return whether the workspace is initialized."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.is_initialized:5 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.is_initialized:5 of
 msgid "True when the workspace has been initialized."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.fs:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.fs:1 of
 msgid "Return the workspace filesystem facade."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.fs:5 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.fs:5 of
 msgid "Workspace filesystem facade."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.set_visible_skills:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.set_visible_skills:1
+#: of
 msgid "Set visible skills for this agent."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.set_visible_skills:3 of
-msgid "Candidate registry skill ids."
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.set_visible_skills:3
+#: of
+msgid ""
+"Each entry may be a registry skill id (``namespace@name``) or a display "
+"name; both forms resolve against the whole registry."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.add_visible_skill:1 of
-msgid "Add one visible skill."
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.set_visible_skills:6
+#: of
+msgid "Candidate skill ids or display names."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.add_visible_skill:5 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.add_visible_skill:1
+#: of
+msgid "Add one visible skill by id or display name."
+msgstr ""
+
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.activate_skill:3
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.add_visible_skill:3
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.deactivate_skill:3
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.remove_visible_skill:3
+#: of
+msgid "Skill id (``namespace@name``) or display name."
+msgstr ""
+
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.add_visible_skill:5
+#: of
 msgid "True when the skill exists and was made visible."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.remove_visible_skill:1 of
-msgid "Remove one visible skill."
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.remove_visible_skill:1
+#: of
+msgid "Remove one visible skill by id or display name."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.remove_visible_skill:5 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.remove_visible_skill:5
+#: of
 msgid "True when the skill was visible and removed."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.visible_skill_ids:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.visible_skill_ids:1
+#: of
 msgid "Return visible skill ids."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.visible_skill_ids:5 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.visible_skill_ids:5
+#: of
 msgid "Copy of the visible skill id set."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.visible_skill_count:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.visible_skill_count:1
+#: of
 msgid "Return the visible skill count."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.visible_skill_count:5 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.visible_skill_count:5
+#: of
 msgid "Number of visible skills."
 msgstr "Number of API calls made."
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.list_visible_skills:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.list_visible_skills:1
+#: of
 msgid "List visible skill descriptors."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.list_visible_skills:5 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.list_visible_skills:5
+#: of
 msgid "Visible skill descriptors."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.skill_catalog:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.skill_catalog:1 of
 msgid "Build a compact visible skill catalog."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.skill_catalog:5 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.skill_catalog:5 of
 msgid "Catalog entries with name and description."
 msgstr "Get the world description."
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.set_activated_skills:1 of
-msgid "Set activated skills from visible skill ids."
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.set_activated_skills:1
+#: of
+msgid "Set activated skills from visible skills."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.set_activated_skills:3 of
-msgid "Candidate skill ids to activate."
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.set_activated_skills:3
+#: of
+msgid ""
+"Each entry may be a skill id (``namespace@name``) or a display name; both"
+" forms resolve against visible skills."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.add_default_activated_skills:1
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.set_activated_skills:6
+#: of
+msgid "Candidate skill ids or display names to activate."
+msgstr ""
+
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.add_default_activated_skills:1
 #: of
 msgid "Activate configured default skills when they are visible."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.add_default_activated_skills:3
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.add_default_activated_skills:3
 #: of
-msgid "Skill ids requested by outer agent configuration."
+msgid "Each entry may be a skill id or a display name."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.activated_skill_ids:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.add_default_activated_skills:5
+#: of
+msgid "Skill ids or display names requested by outer agent config."
+msgstr ""
+
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.activated_skill_ids:1
+#: of
 msgid "Return activated skill ids."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.activated_skill_ids:5 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.activated_skill_ids:5
+#: of
 msgid "Copy of the activated skill id set."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.activated_skill_count:1
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.activated_skill_count:1
 #: of
 msgid "Return activated skill count."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.activated_skill_count:5
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.activated_skill_count:5
 #: of
 msgid "Number of activated skills."
 msgstr "Number of API calls made."
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.infer_single_script_skill_id:1
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.infer_single_script_skill_id:1
 #: of
 msgid "Infer a visible activated skill when exactly one has a default script."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.infer_single_script_skill_id:5
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.infer_single_script_skill_id:5
 #: of
 msgid "Skill id for the only active scripted skill, or an empty string."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.resolve_skill_id_by_name:1
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_id:1
 #: of
-msgid "Resolve a visible skill name to a registry skill id."
-msgstr "Remove a custom skill from registry only."
+msgid "Resolve a skill id or display name to a registry skill id."
+msgstr "Resolve a skill id or display name to a registry skill id."
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.activate_skill_by_name:3
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.deactivate_skill_by_name:3
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.resolve_skill_id_by_name:3
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_id:3
 #: of
-msgid "Skill display name from model tool arguments."
+msgid ""
+"Accepts either a registry skill id (``namespace@name``) or a bare display"
+" ``name`` — every public skill API in this runtime takes the same "
+"``token`` and tolerates both forms. When ``visible_only`` is True (the "
+"default) resolution is restricted to visible skills; when False the whole"
+" registry is searched (use this for skills that are not yet visible, e.g."
+" in :meth:`add_visible_skill`)."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.resolve_skill_id_by_name:5
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_id:10
+#: of
+msgid ""
+"Ambiguous display names (more than one match) resolve only when exactly "
+"one candidate is currently activated."
+msgstr ""
+
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_id:13
+#: of
+msgid ""
+"Skill id (``namespace@name``) or display name from tool arguments / agent"
+" config."
+msgstr ""
+
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_id:15
+#: of
+msgid "Restrict resolution to visible skills."
+msgstr "Restrict resolution to visible skills."
+
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_id:17
+#: of
+msgid "Matching skill id, or an empty string when not found or ambiguous."
+msgstr ""
+
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_id_by_name:1
+#: of
+msgid "Deprecated alias for :meth:`resolve_skill_id`."
+msgstr ""
+
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.activate_skill_by_name:3
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.deactivate_skill_by_name:3
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_id_by_name:3
+#: of
+msgid "Skill id or display name."
+msgstr ""
+
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_id_by_name:5
 #: of
 msgid "Matching visible skill id, or an empty string."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.activate_skill_by_name:1
-#: of
-msgid "Activate a visible skill by display name."
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.activate_skill:1 of
+msgid "Activate a visible skill by id or display name."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.activate_skill_by_name:5
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.activate_skill:5
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.activate_skill_by_name:5
 #: of
 msgid "Tuple of ``(activated, skill_id, skill_doc)``."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.deactivate_skill_by_name:1
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.activate_skill_by_name:1
 #: of
-msgid "Deactivate a visible skill by display name."
+msgid "Deprecated alias for :meth:`activate_skill`."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.deactivate_skill_by_name:5
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.deactivate_skill:1
+#: of
+msgid "Deactivate a visible skill by id or display name."
+msgstr ""
+
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.deactivate_skill:5
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.deactivate_skill_by_name:5
 #: of
 msgid "Tuple of ``(removed, skill_id)``."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.activated_skill_content_xml:1
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.deactivate_skill_by_name:1
+#: of
+msgid "Deprecated alias for :meth:`deactivate_skill`."
+msgstr ""
+
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.activated_skill_content_xml:1
 #: of
 msgid "Render docs and resource hints for activated skills."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.activated_skill_content_xml:5
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.activated_skill_content_xml:5
 #: of
 msgid "XML-like skill content blocks for active skills."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.active_hook_skills:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.active_hook_skills:1
+#: of
 msgid "List visible activated skills that declare one hook."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.active_hook_skills:5 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.active_hook_skills:5
+#: of
 msgid "Skill descriptors eligible to run the hook."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.load_skill_doc:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.load_skill_doc:1 of
 msgid "Read a visible skill document."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.load_skill_doc:5 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.load_skill_doc:5 of
 msgid "SKILL.md text, or an empty string."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.read_skill_file:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.read_skill_file:1
+#: of
 msgid "Read one file inside a visible skill."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.resolve_skill_path:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_path:1
+#: of
 msgid "Map a path to a ``(skill_id, relative_path)`` inside a visible skill."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.resolve_skill_path:3 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_path:3
+#: of
 msgid ""
 "Used to recover when an agent tries to ``read`` a skill-bundled file "
 "(e.g. ``references/examples.md``) via the generic workspace ``read`` "
@@ -4880,17 +5159,20 @@ msgid ""
 "delegate to :meth:`read_skill_file` instead of failing."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.resolve_skill_path:9 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_path:9
+#: of
 msgid "Two matching strategies, in order:"
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.resolve_skill_path:11 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_path:11
+#: of
 msgid ""
 "Direct containment — the resolved absolute path is inside a visible skill"
 " root."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.resolve_skill_path:13 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_path:13
+#: of
 msgid ""
 "Skill-name segment — some path component equals a visible skill's "
 "``skill_id`` or ``name`` (e.g. the model-emitted ``.../skills/daily-"
@@ -4899,40 +5181,47 @@ msgid ""
 "under the skill root."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.resolve_skill_path:19 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_path:19
+#: of
 msgid "Path to test (absolute, or relative to be matched by segment)."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.resolve_skill_path:21 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.resolve_skill_path:21
+#: of
 msgid ""
 "``(skill_id, posix_relative_path)`` if a visible skill file matches, else"
 " ``None``."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.run_skill_script:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.run_skill_script:1
+#: of
 msgid "Run a script inside a visible skill."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.run_skill_script:4 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.run_skill_script:4
+#: of
 msgid "Path relative to the skill root, or empty to use the default script."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.run_skill_hook:5
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.run_skill_script:5 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.run_skill_hook:5
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.run_skill_script:5
+#: of
 msgid "Command-line arguments."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.run_skill_hook:6
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.run_skill_script:6 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.run_skill_hook:6
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.run_skill_script:6
+#: of
 msgid "Execution timeout in seconds."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.run_skill_hook:8
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.run_skill_script:8 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.run_skill_hook:8
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.run_skill_script:8
+#: of
 msgid "Script run result."
 msgstr "Tool execution result."
 
-#: agentsociety2.agent.base.runtime.AgentSkillRuntime.run_skill_hook:1 of
+#: agentsociety2.agent.base.skill_runtime.AgentSkillRuntime.run_skill_hook:1 of
 msgid "Run a lifecycle hook for a visible skill."
 msgstr ""
 
@@ -4940,34 +5229,34 @@ msgstr ""
 msgid "SkillScriptContext"
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.SkillScriptContext:1 of
+#: agentsociety2.agent.base.skill_runtime.SkillScriptContext:1 of
 msgid "Per-call context handed to an in-process skill ``entrypoint``."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.SkillScriptContext:3 of
+#: agentsociety2.agent.base.skill_runtime.SkillScriptContext:3 of
 msgid ""
 "Replaces the process-global env vars (``AGENT_WORK_DIR`` etc.) that the "
 "subprocess path relied on, so 50 agents can run their hooks in-process in"
 " parallel without racing on ``os.environ`` / ``cwd`` / ``sys.stdout``."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.SkillScriptContext:7 of
+#: agentsociety2.agent.base.skill_runtime.SkillScriptContext:7 of
 msgid "This agent's workspace root (was ``AGENT_WORK_DIR``)."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.SkillScriptContext:8 of
+#: agentsociety2.agent.base.skill_runtime.SkillScriptContext:8 of
 msgid "The skill package root (was ``SKILL_DIR``)."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.SkillScriptContext:9 of
+#: agentsociety2.agent.base.skill_runtime.SkillScriptContext:9 of
 msgid "Registry skill id (was ``SKILL_ID``)."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.SkillScriptContext:10 of
+#: agentsociety2.agent.base.skill_runtime.SkillScriptContext:10 of
 msgid "Display name (was ``SKILL_NAME``)."
 msgstr ""
 
-#: agentsociety2.agent.base.runtime.SkillScriptContext:11 of
+#: agentsociety2.agent.base.skill_runtime.SkillScriptContext:11 of
 msgid "Snapshot of the env-var dict the subprocess path would have set."
 msgstr ""
 
@@ -5137,6 +5426,56 @@ msgid "关闭：env router + service_proxy 的 trace/replay 句柄 + LLM dispatc
 msgstr ""
 "Close: env router, trace / replay actors in service_proxy, and the LLM "
 "dispatcher."
+
+#: agentsociety2.society.society.AgentSociety.to_workspace:1 of
+msgid "持久化 society + env 状态（每步调用，无状态 resume）。"
+msgstr ""
+
+#: agentsociety2.society.society.AgentSociety.to_workspace:3 of
+msgid ""
+"让 env router 落盘各模块状态，并写 ``run_dir/SOCIETY_STEP.json``（仅少量 标量：当前时间 / 步数 / "
+"已完成前置步数 / terminated）。不可变的大字段 （agent_specs 等）只在 :meth:`init` 写一次到 "
+"``SOCIETY.json``，避免每步 重序列化。``run_dir`` 为空时 no-op；env 落盘失败只告警，不中断 step。"
+msgstr ""
+
+#: agentsociety2.society.society.AgentSociety.to_workspace:8 of
+msgid "保留以兼容旧调用签名（不再单独持久化）。"
+msgstr ""
+
+#: agentsociety2.society.society.AgentSociety.mark_step_completed:1 of
+msgid "标记第 ``step_idx`` 个顶层 step 已完成并立即持久化进度。"
+msgstr ""
+
+#: agentsociety2.society.society.AgentSociety.mark_step_completed:3 of
+msgid ""
+"由 CLI 在每个顶层 step（含 Ask/Intervene/Questionnaire）成功后调用—— 否则连续的非 RunStep "
+"完成后若崩溃，resume 会把它们当作未执行而重跑。"
+msgstr ""
+
+#: agentsociety2.society.society.AgentSociety.from_workspace:1 of
+msgid "从 ``run_dir`` 重建 society（resume）。"
+msgstr ""
+
+#: agentsociety2.society.society.AgentSociety.from_workspace:3 of
+msgid ""
+"读 ``SOCIETY.json``（不可变：agent specs、env 模块类型+kwargs）+ "
+"``SOCIETY_STEP.json``（每步标量：当前时间、步数、已完成前置步数）。 ``env_router`` "
+"必须由调用方（CLI）预先构造（actor 不可在此重建）； env 模块状态由 actor 在自身 ``init()`` 中恢复。"
+msgstr ""
+
+#: agentsociety2.society.society.AgentSociety.from_workspace:8 of
+msgid ""
+"返回的 society 的 :meth:`init` 会跳过 agent workspace 创建与 profile 重写 （原 run "
+"已存在），也不会覆盖已有的 ``SOCIETY.json``。"
+msgstr ""
+
+#: agentsociety2.society.society.AgentSociety.from_workspace:11 of
+msgid "``run_dir/SOCIETY.json`` 不存在。"
+msgstr ""
+
+#: agentsociety2.society.society.AgentSociety.from_workspace:12 of
+msgid "schema 不兼容或 checkpoint 损坏。"
+msgstr ""
 
 #: agentsociety2.society.society.AgentSociety.step:1 of
 msgid "推进一次仿真步：sync clock → 切批 step_agent_batch → env.step → 前进时钟。"
@@ -5788,3 +6127,29 @@ msgstr "agent conversation record (frame table)."
 #~ "``step_agent_batch`` Ray Task; default is "
 #~ "256."
 
+#~ msgid "Candidate registry skill ids."
+#~ msgstr ""
+
+#~ msgid "Add one visible skill."
+#~ msgstr ""
+
+#~ msgid "Remove one visible skill."
+#~ msgstr ""
+
+#~ msgid "Set activated skills from visible skill ids."
+#~ msgstr ""
+
+#~ msgid "Candidate skill ids to activate."
+#~ msgstr ""
+
+#~ msgid "Skill ids requested by outer agent configuration."
+#~ msgstr ""
+
+#~ msgid "Skill display name from model tool arguments."
+#~ msgstr ""
+
+#~ msgid "Activate a visible skill by display name."
+#~ msgstr ""
+
+#~ msgid "Deactivate a visible skill by display name."
+#~ msgstr ""

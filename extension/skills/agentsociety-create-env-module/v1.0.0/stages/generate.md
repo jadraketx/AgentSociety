@@ -26,6 +26,7 @@ Generation rules:
 - Distinguish `tick` from replay `step`: in `EnvBase.step(self, tick, t)`, `tick` is the duration of one simulation step, not the monotonically increasing step index. Do not use `tick` directly as the primary-key step value for replay tables unless the design explicitly defines them to be the same.
 - If the environment needs per-step replay snapshots, maintain an internal step counter such as `self._tick` / `self._step_index`, increment it once per `step()` call, and use that counter for `_write_agent_state_batch()` / `_write_env_state()` and other step-keyed state like `created_step`.
 - If the module keeps mutable in-memory state, treat it as derived/cached: reconstruct it from the constructor kwargs + replay data on each run.
+- If the module should support `--resume`, implement `to_workspace()` / `restore()` writing the dynamic state (counters, queues, maps) to `state/ENV_STATE.json` via `atomic_write_text` (separate from replay; see `references/persistence-patterns.md` → Workspace Persistence). Do NOT serialize `asyncio.Lock`, external subprocesses, or pre-trained model weights — rebuild them in `__init__`/`init()`.
 - Persist step counters, IDs, queues, maps, or other reconstruction-critical state by writing them to replay tables (declare the columns, write via `_write_*`), not via a dump channel.
 - Do not add placeholder persistence hooks. Either implement the real replay-write path or keep the module intentionally stateless.
 

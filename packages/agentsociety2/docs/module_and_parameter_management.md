@@ -337,6 +337,15 @@ class MyCustomEnv(EnvBase):
     def get_state(self, agent_id: int) -> str:
         """返回环境状态"""
         return f"Current state: {self.config_param}"
+
+    async def step(self, tick: int, t) -> None:
+        """环境每步推进"""
+        self.t = t
+
+    # 若模块带动态态且希望支持 --resume，可覆盖 to_workspace/restore：
+    # async def to_workspace(self, workspace_path=None) -> None: ...
+    # async def restore(self, workspace_path) -> bool: ...
+    # 见 docs/env_modules.rst 的「状态持久化与 resume」
 ```
 
 ### 4.4 扫描和注册

@@ -74,15 +74,20 @@ For each piece of per-agent state:
 
 ### 5. Persistence Design
 
-Persistence is **replay-only**. In-memory structures that need to survive a restart
-must be reconstructable from constructor kwargs + replay data.
+There are **two independent** persistence channels: **replay** (analysis, declare columns → write rows) and **workspace** (resume, override `to_workspace()`/`restore()` → write `state/ENV_STATE.json`). A stateful module that wants `--resume` support MUST implement both.
 
 Based on the state classifications above, specify:
 
-**Replay tables** (the only persistence channel):
+**Replay tables** (analysis snapshots):
 - `_agent_state_columns`: column definitions for per-agent replay (keyed by `agent_id + step`)
 - `_env_state_columns`: column definitions for global replay (keyed by `step`)
 - Write points: where `_write_agent_state()` / `_write_agent_state_batch()` / `_write_env_state()` are called (usually in `step()`)
+
+**Workspace persistence** (for `--resume`):
+- Whether the module needs `to_workspace()`/`restore()` (yes/no). If yes:
+  - Which dynamic fields are written to `state/ENV_STATE.json`
+  - Whether fields are reconstructable from workspace checkpoint alone
+  - Which objects are NOT serialized (`asyncio.Lock`, external handles, model weights — rebuilt in `__init__`/`init()`)
 
 **In-memory state** (derived/cached):
 - Which structures are kept in memory for fast access

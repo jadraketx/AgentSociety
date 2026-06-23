@@ -7,8 +7,10 @@ from pathlib import Path
 from typing import Any, ClassVar, Dict, List, Optional, Set, Tuple, Union
 
 from agentsociety2.env import EnvBase, tool
+from agentsociety2.env.base import load_int_map
 from agentsociety2.logger import get_logger
 from agentsociety2.storage import ColumnDef, ReplayDatasetSpec, TableSchema
+from agentsociety2.storage.workspace_state import atomic_write_text
 
 from .models import (
     SocialMediaPerson,
@@ -97,6 +99,9 @@ _SOCIAL_MEDIA_EVENT_SCHEMA = TableSchema(
     primary_key=["id"],
     indexes=[["step"], ["sender_id"], ["action"]],
 )
+
+
+_STATE_REL = "state/ENV_STATE.json"
 
 
 class SocialMediaSpace(EnvBase):
@@ -231,6 +236,83 @@ class SocialMediaSpace(EnvBase):
             self._agent_names = {aid: name for aid, name in pairs}
 
         get_logger().info("SocialMediaSpace initialized (in-memory data only)")
+
+    async def to_workspace(self, workspace_path=None) -> None:
+        """写入 ``state/ENV_STATE.json``（原子写）。
+
+        持久化社交图（persons/posts/comments）+ 计数器 + 事件缓冲。
+        ``_rec_engine``（预训练推荐器）不入盘——由 ``__init__`` 据
+        ``recommendation_model_path``/``recommendation_algorithm``（在 env_kwargs）重建。
+        ``_allowed_user_ids``/``_agent_names`` 由 agent_id_name_pairs 配置派生，不存。
+        """
+        if workspace_path is not None:
+            self._bind_workspace(workspace_path)
+        if self._workspace_root is None:
+            raise RuntimeError("Env module workspace is not bound")
+        atomic_write_text(
+            self._workspace_root / _STATE_REL,
+            json.dumps(
+                {
+                    "persons": {
+                        str(pid): p.model_dump(mode="json")
+                        for pid, p in self._persons.items()
+                    },
+                    "posts": {
+                        str(pid): p.model_dump(mode="json")
+                        for pid, p in self._posts.items()
+                    },
+                    "comments": {
+                        str(pid): [c.model_dump(mode="json") for c in cs]
+                        for pid, cs in self._comments.items()
+                    },
+                    "next_post_id": self._next_post_id,
+                    "next_comment_id": self._next_comment_id,
+                    "event_id": self._event_id,
+                    "pending_events": list(self._pending_events),
+                    "recent_events": list(self._recent_events),
+                    "step_counter": self._step_counter,
+                },
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            ),
+        )
+
+    async def restore(self, workspace_path) -> bool:
+        """从 ``state/ENV_STATE.json`` 恢复社交图与缓冲。
+
+        ``_rec_engine``/``_allowed_user_ids``/``_agent_names``/极化参数由
+        ``__init__`` 从 kwargs 重建，不在此覆盖。``_comments`` 还原为
+        ``defaultdict(list)``，``_recent_events`` 还原为 ``deque(maxlen=200)``。
+        """
+        self._bind_workspace(workspace_path)
+        state_path = self._workspace_root / _STATE_REL
+        if not state_path.is_file():
+            return False
+        d = json.loads(state_path.read_text(encoding="utf-8"))
+        self._persons = {
+            pid: SocialMediaPerson.model_validate(p)
+            for pid, p in load_int_map(d.get("persons")).items()
+        }
+        self._posts = {
+            pid: Post.model_validate(p)
+            for pid, p in load_int_map(d.get("posts")).items()
+        }
+        comments_raw = load_int_map(d.get("comments"))
+        self._comments = defaultdict(
+            list,
+            {
+                pid: [Comment.model_validate(c) for c in cs]
+                for pid, cs in comments_raw.items()
+            },
+        )
+        self._next_post_id = int(d.get("next_post_id", 1))
+        self._next_comment_id = int(d.get("next_comment_id", 1))
+        self._event_id = int(d.get("event_id", 0))
+        self._pending_events = list(d.get("pending_events", []))
+        self._recent_events = deque(d.get("recent_events", []), maxlen=200)
+        self._step_counter = int(d.get("step_counter", 0))
+        return True
 
     def _get_community_labels(self) -> Dict[int, int]:
         """

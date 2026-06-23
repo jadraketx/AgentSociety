@@ -35,10 +35,12 @@ The `persistence` section should answer these questions explicitly:
 - Which in-memory structures are derived/cached and can be rebuilt from kwargs + replay data on each run (no persistence needed)
 - Where replay writes happen, usually `step()` or another canonical mutation boundary
 - Which `_write_*` helper (`_write_agent_state` / `_write_agent_state_batch` / `_write_env_state`) each write uses
+- Whether the module should support `--resume`: if yes, which dynamic fields are written to `state/ENV_STATE.json` via `to_workspace()`/`restore()` (separate from replay; see `references/persistence-patterns.md` → Workspace Persistence)
 
-Persistence is replay-only: declare columns, let the framework auto-register tables,
-and write rows via the `_write_*` helpers. In-memory state is reconstructed by the
-constructor + replay on each run.
+Persistence has two independent channels: **replay** (declare columns, auto-register
+append-only tables, write via `_write_*`) for analysis; and **workspace**
+(`to_workspace`/`restore` → `state/ENV_STATE.json`) for resuming interrupted runs.
+A stateful module that needs `--resume` must implement both.
 
 Persist:
 

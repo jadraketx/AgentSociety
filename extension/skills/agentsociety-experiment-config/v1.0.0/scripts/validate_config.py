@@ -234,8 +234,6 @@ class ConfigValidator:
                     "max_react_turns",
                     "enable_memory",
                     "enable_todo_list",
-                    "force_template_mode",
-                    "allow_template_mode",
                     "disabled_skill_ids",
                     "default_activated_skill_ids",
                     "extra_skill_paths",

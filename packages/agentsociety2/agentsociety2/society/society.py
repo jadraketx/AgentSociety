@@ -13,8 +13,10 @@ Ray Task（:mod:`agentsociety2.agent.runner`）流式处理。这使得内存占
   ``await`` 全部后再推进 env、前进时钟。
 - **交互接口**: ``ask()``/``intervene()``/``run_questionnaire()`` 为低频外部查询，在主进程
   内按需 ``from_workspace`` 重建目标 agent（workspace 在本地磁盘，无需 Ray Task）。
-- **状态持久化**: ``dump()`` 读各 workspace 的 ``AGENT.json``（轻量），``load()`` 恢复
-  society 时间 + env_router（agent 状态已落盘，下次 ``from_workspace`` 即可重建）。
+- **状态持久化**: ``to_workspace()`` 每 step 写 ``run_dir/SOCIETY.json``（society
+  时间 / 步数 / env 模块配置）并让 env router 落盘各模块动态状态；``from_workspace()``
+  从 ``run_dir`` 重建 society（agent 状态已落盘，env 由 actor 在 ``init`` 中恢复），
+  支持中断后 CLI ``--resume`` 续跑。
 """
 
 from __future__ import annotations
@@ -24,6 +26,8 @@ import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional
+
+from agentsociety2.storage.workspace_state import atomic_write_text
 
 from agentsociety2.agent.runner import (
     create_agents_batch,
@@ -56,6 +60,12 @@ if TYPE_CHECKING:
 __all__ = ["AgentSociety"]
 
 logger = get_logger()
+
+# checkpoint 布局：SOCIETY.json 只在 init 写一次（含不可变的 agent_specs 等，
+# 避免每步重序列化大列表）；SOCIETY_STEP.json 每步写少量标量。两文件均原子写入。
+SOCIETY_JSON = "SOCIETY.json"
+SOCIETY_STEP_JSON = "SOCIETY_STEP.json"
+SOCIETY_SCHEMA_VERSION = 1
 
 
 def _json_safe_profile(profile: Any) -> dict[str, Any]:
@@ -128,6 +138,8 @@ class AgentSociety:
         service_proxy: Optional["ServiceProxy"] = None,
         batch_size: Optional[int] = None,
         enable_replay: bool = True,
+        env_module_types: Optional[list[str]] = None,
+        env_kwargs: Optional[dict[str, dict]] = None,
     ):
         """创建 record-based 仿真编排器。
 
@@ -173,12 +185,26 @@ class AgentSociety:
         self._batch_size = max(1, int(resolved_batch_size))
         self._enable_replay = enable_replay
 
+        # env 模块类型 + init kwargs：写入 SOCIETY.json，resume 时据此重建 env 模块。
+        self._env_module_types: list[str] = list(env_module_types or [])
+        self._env_kwargs: dict[str, dict] = {
+            k: dict(v) for k, v in (env_kwargs or {}).items()
+        }
+        # resume 游标：已完成的前置 step 数（含 Ask/Intervene/Questionnaire），
+        # 由 CLI 在每个顶层 step 开始前推进；resume 时据此跳过已执行的前置步。
+        self._completed_step_count: int = 0
+        # steps.yaml 的 hash（CLI 在 init 前设置），用于 resume 时检测 steps 漂移。
+        self._steps_hash: Optional[str] = None
+
         self._service_proxy: Optional["ServiceProxy"] = service_proxy
         self._owns_service_proxy = service_proxy is not None
 
         self._replay_writer: Any = None
         self._agent_profiles_persisted = False
         self._agents_created = False
+        # SOCIETY.json（不可变全量）只在 init 写一次；resume 时由 from_workspace
+        # 置 True 跳过，避免覆盖原 checkpoint。
+        self._society_json_written = False
         # Aggregate LLM token usage across all Ray Task batches (instance-level,
         # not module-global). Each batch returns a per-task delta.
         self._token_stats: dict[str, dict[str, int]] = {}
@@ -357,6 +383,12 @@ class AgentSociety:
 
         await self._env_router.init(self._t)
 
+        # 写一次不可变全量 checkpoint（含 agent_specs / env 配置 / steps_hash）。
+        # resume 时（from_workspace 已置 _society_json_written=True）跳过，避免覆盖。
+        if self._run_dir is not None and not self._society_json_written:
+            self._write_society_json()
+            self._society_json_written = True
+
     async def close(self):
         """关闭：env router + service_proxy 的 trace/replay 句柄 + LLM dispatcher。"""
         try:
@@ -380,6 +412,162 @@ class AgentSociety:
 
         await shutdown_dispatchers()
 
+    # ------------------------------------------------------------------
+    # 状态持久化 / resume（无状态 checkpoint）
+    # ------------------------------------------------------------------
+    async def to_workspace(self, *, tick: Optional[int] = None) -> None:
+        """持久化 society + env 状态（每步调用，无状态 resume）。
+
+        让 env router 落盘各模块状态，并写 ``run_dir/SOCIETY_STEP.json``（仅少量
+        标量：当前时间 / 步数 / 已完成前置步数 / terminated）。不可变的大字段
+        （agent_specs 等）只在 :meth:`init` 写一次到 ``SOCIETY.json``，避免每步
+        重序列化。``run_dir`` 为空时 no-op；env 落盘失败只告警，不中断 step。
+
+        :param tick: 保留以兼容旧调用签名（不再单独持久化）。
+        """
+        if self._run_dir is None:
+            return
+        try:
+            await self._env_router.to_workspaces()
+        except Exception as exc:  # noqa: BLE001 - 落盘失败不中断 step
+            logger.warning("env to_workspaces failed: %s", exc)
+        self._write_society_step_json()
+
+    def _write_society_json(self) -> None:
+        """写不可变全量 checkpoint 到 ``run_dir/SOCIETY.json``（init 时写一次）。
+
+        含 schema_version、agent_specs、env 模块类型+kwargs、batch_size、steps_hash。
+        原子写入。
+        """
+        assert self._run_dir is not None
+        payload = {
+            "schema_version": SOCIETY_SCHEMA_VERSION,
+            "agent_class_name": self._agent_class_name,
+            "agent_specs": list(self._agent_specs),
+            "env_module_types": list(self._env_module_types),
+            "env_kwargs": dict(self._env_kwargs),
+            "batch_size": self._batch_size,
+            "steps_hash": self._steps_hash,
+        }
+        atomic_write_text(
+            self._run_dir / SOCIETY_JSON,
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+        )
+
+    def _write_society_step_json(self) -> None:
+        """写每步标量 checkpoint 到 ``run_dir/SOCIETY_STEP.json``（原子写入）。"""
+        assert self._run_dir is not None
+        payload = {
+            "current_time": self._t.isoformat(),
+            "step_count": self._step_count,
+            "completed_step_count": self._completed_step_count,
+            "terminated": self._should_terminate,
+        }
+        atomic_write_text(
+            self._run_dir / SOCIETY_STEP_JSON,
+            json.dumps(payload, ensure_ascii=False, indent=2, default=str),
+        )
+
+    def mark_step_completed(self, step_idx: int) -> None:
+        """标记第 ``step_idx`` 个顶层 step 已完成并立即持久化进度。
+
+        由 CLI 在每个顶层 step（含 Ask/Intervene/Questionnaire）成功后调用——
+        否则连续的非 RunStep 完成后若崩溃，resume 会把它们当作未执行而重跑。
+        """
+        if self._run_dir is None:
+            return
+        self._completed_step_count = step_idx + 1
+        self._write_society_step_json()
+
+    @staticmethod
+    def _read_checkpoint(run_dir: Path) -> tuple[dict, dict]:
+        """读取并校验 society checkpoint，返回 (society_meta, step_meta)。
+
+        :raises FileNotFoundError: SOCIETY.json 不存在。
+        :raises ValueError: schema_version 缺失/不支持，或字段残缺。
+        """
+        run_dir = Path(run_dir)
+        meta_path = run_dir / SOCIETY_JSON
+        if not meta_path.is_file():
+            raise FileNotFoundError(
+                f"Cannot resume: {meta_path} not found (not a checkpoint run_dir)"
+            )
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                f"Cannot resume: {meta_path} is corrupt or was truncated "
+                f"(non-atomic write of a prior crash?): {exc}"
+            ) from exc
+        schema_version = meta.get("schema_version")
+        if schema_version != SOCIETY_SCHEMA_VERSION:
+            raise ValueError(
+                f"Cannot resume: {meta_path} schema_version={schema_version!r}, "
+                f"expected {SOCIETY_SCHEMA_VERSION}. The checkpoint was written by "
+                "an incompatible build."
+            )
+        if "agent_class_name" not in meta:
+            raise ValueError(f"Cannot resume: {meta_path} missing agent_class_name")
+        step_path = run_dir / SOCIETY_STEP_JSON
+        step_meta: dict = {}
+        if step_path.is_file():
+            try:
+                step_meta = json.loads(step_path.read_text(encoding="utf-8"))
+            except json.JSONDecodeError as exc:
+                raise ValueError(
+                    f"Cannot resume: {step_path} is corrupt or was truncated: {exc}"
+                ) from exc
+        return meta, step_meta
+
+    @classmethod
+    async def from_workspace(
+        cls,
+        run_dir: Path,
+        *,
+        env_router: RouterBase,
+        service_proxy: Optional["ServiceProxy"] = None,
+    ) -> "AgentSociety":
+        """从 ``run_dir`` 重建 society（resume）。
+
+        读 ``SOCIETY.json``（不可变：agent specs、env 模块类型+kwargs）+
+        ``SOCIETY_STEP.json``（每步标量：当前时间、步数、已完成前置步数）。
+        ``env_router`` 必须由调用方（CLI）预先构造（actor 不可在此重建）；
+        env 模块状态由 actor 在自身 ``init()`` 中恢复。
+
+        返回的 society 的 :meth:`init` 会跳过 agent workspace 创建与 profile 重写
+        （原 run 已存在），也不会覆盖已有的 ``SOCIETY.json``。
+
+        :raises FileNotFoundError: ``run_dir/SOCIETY.json`` 不存在。
+        :raises ValueError: schema 不兼容或 checkpoint 损坏。
+        """
+        run_dir = Path(run_dir).resolve()
+        meta, step_meta = cls._read_checkpoint(run_dir)
+        if step_meta.get("current_time"):
+            current_time = datetime.fromisoformat(str(step_meta["current_time"]))
+        else:
+            # 旧布局（仅有 SOCIETY.json，无 SOCIETY_STEP.json）——回退到 SOCIETY.json。
+            current_time = datetime.fromisoformat(str(meta["current_time"]))
+        society = cls(
+            agent_specs=list(meta.get("agent_specs", [])),
+            agent_class_name=str(meta["agent_class_name"]),
+            env_router=env_router,
+            start_t=current_time,
+            run_dir=run_dir,
+            service_proxy=service_proxy,
+            batch_size=meta.get("batch_size"),
+            enable_replay=True,
+            env_module_types=list(meta.get("env_module_types", [])),
+            env_kwargs=dict(meta.get("env_kwargs", {})),
+        )
+        society._steps_hash = meta.get("steps_hash")
+        society._step_count = int(step_meta.get("step_count", meta.get("step_count", 0)))
+        society._completed_step_count = int(step_meta.get("completed_step_count", 0))
+        # init() 时跳过 agent workspace 创建、profile 重写，以及 SOCIETY.json 覆盖。
+        society._agents_created = True
+        society._agent_profiles_persisted = True
+        society._society_json_written = True
+        return society
+
     async def __aenter__(self):
         await self.init()
         return self
@@ -396,11 +584,13 @@ class AgentSociety:
         :param tick: 本步时间跨度（秒）。
         """
         if not self._agent_ids:
-            # Still advance env + clock for an empty society.
+            # 仍推进 env + 时钟。
             self._env_router.set_current_time(self._t)
             await self._env_router.step(tick, self._t)
             self._t += timedelta(seconds=tick)
             self._step_count += 1
+            # 自增后再落盘，checkpoint 反映已完成步数。
+            await self.to_workspace(tick=tick)
             return
 
         proxy = await self._resolve_service_proxy()
@@ -441,6 +631,8 @@ class AgentSociety:
         await self._env_router.step(tick, self._t)
         self._t += timedelta(seconds=tick)
         self._step_count += 1
+        # 自增后再落盘，checkpoint 反映已完成步数。
+        await self.to_workspace(tick=tick)
 
     async def run(self, num_steps: int, tick: int):
         """运行多步仿真。

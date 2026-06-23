@@ -32,11 +32,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Dict, Iterator, Optional
 
 from agentsociety2.agent.base.react import ReactDecision, ReactToolResult
-from agentsociety2.agent.base.workspace import (
-    AGENT_JSON_PATH,
-    STANDARD_WORKSPACE_DIRS,
-    dump_json,
-)
 from agentsociety2.agent.base.tool_schema import react_tool_schemas
 from agentsociety2.agent.base.todo import TodoStateStore
 from agentsociety2.agent.person_prompt import (
@@ -61,6 +56,10 @@ __all__ = [
 ]
 
 logger = get_logger()
+
+# agent workspace 布局常量（agent 专属）。
+AGENT_JSON_PATH = "AGENT.json"
+STANDARD_WORKSPACE_DIRS = ("state", "memory")
 
 # Short clock shorthand (HH:MM) used to normalize TODO ``due`` values.
 _SHORT_CLOCK_RE = re.compile(r"^(?P<hour>[01]?\d|2[0-3]):(?P<minute>[0-5]\d)$")
@@ -249,7 +248,8 @@ class AgentBase(ABC):
         for rel in STANDARD_WORKSPACE_DIRS:
             (workspace_path / rel).mkdir(parents=True, exist_ok=True)
         (workspace_path / "config.json").write_text(
-            dump_json(dict(config or {}), indent=2), encoding="utf-8"
+            json.dumps(dict(config or {}), ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
         )
         agent_id = int(profile.get("id", 0))
         name = AgentBase._derive_name(profile, agent_id)
@@ -278,7 +278,8 @@ class AgentBase(ABC):
             "initialized_at": None,
         }
         (workspace_path / AGENT_JSON_PATH).write_text(
-            dump_json(initial_agent, indent=2), encoding="utf-8"
+            json.dumps(initial_agent, ensure_ascii=False, indent=2, default=str),
+            encoding="utf-8",
         )
 
     @classmethod
@@ -828,7 +829,7 @@ The constructor ``__init__`` is arg-less.
         data = self.build_agent_json(tick=tick, t=t)
         self._workspace.write_text(
             AGENT_JSON_PATH,
-            dump_json(data, indent=2),
+            json.dumps(data, ensure_ascii=False, indent=2, default=str),
         )
         return data
 
@@ -1062,7 +1063,7 @@ The constructor ``__init__`` is arg-less.
             "step_count": getattr(self, "_step_count", 0),
         }
         summaries: list[dict[str, Any]] = []
-        argv = ["--args-json", dump_json(payload)]
+        argv = ["--args-json", json.dumps(payload, ensure_ascii=False, default=str)]
         with self.trace_span(
             f"skill.lifecycle_hooks.{hook_type}",
             attributes={
@@ -1267,7 +1268,9 @@ The constructor ``__init__`` is arg-less.
                     for item in self._workspace.list(path, limit=10_000)
                     if not item.is_dir
                 ]
-                return ReactToolResult(True, dump_json(files), {"files": files})
+                return ReactToolResult(
+                    True, json.dumps(files, ensure_ascii=False, default=str), {"files": files}
+                )
             if action == "grep":
                 pattern = str(args.get("pattern") or "")
                 path = str(args.get("path") or ".")
@@ -1283,7 +1286,9 @@ The constructor ``__init__`` is arg-less.
                     matches = await self._workspace.grep(pattern, path, limit=limit)
                     workspace_span.attributes["result.count"] = len(matches)
                 data = {"matches": [item.__dict__ for item in matches]}
-                return ReactToolResult(True, dump_json(data), data)
+                return ReactToolResult(
+                    True, json.dumps(data, ensure_ascii=False, default=str), data
+                )
             if action == "activate_skill":
                 requested_skill_name = str(args.get("skill_name") or "")
                 activated, skill_id, doc = self.skill_runtime.activate_skill(
@@ -1396,7 +1401,7 @@ The constructor ``__init__`` is arg-less.
                 )
                 return ReactToolResult(
                     result.ok,
-                    dump_json(result.as_dict()),
+                    json.dumps(result.as_dict(), ensure_ascii=False, default=str),
                     {
                         "skill_id": skill_id,
                         "script_path": script_path,
@@ -2531,26 +2536,26 @@ The constructor ``__init__`` is arg-less.
                 status=str(args.get("status") or "").strip() or None,
                 limit=limit,
             )
-            return ReactToolResult(True, dump_json(data, indent=2), data)
+            return ReactToolResult(True, json.dumps(data, ensure_ascii=False, indent=2, default=str), data)
         if action == "todo_add":
             data = store.add(dict(args))
-            return ReactToolResult(True, dump_json(data["todo"], indent=2), data)
+            return ReactToolResult(True, json.dumps(data["todo"], ensure_ascii=False, indent=2, default=str), data)
         if action == "todo_update":
             patch = args.get("patch")
             data = store.update(
                 str(args.get("todo_id") or ""),
                 dict(patch) if isinstance(patch, Mapping) else {},
             )
-            return ReactToolResult(True, dump_json(data["todo"], indent=2), data)
+            return ReactToolResult(True, json.dumps(data["todo"], ensure_ascii=False, indent=2, default=str), data)
         if action == "todo_start":
             data = store.start(str(args.get("todo_id") or ""))
-            return ReactToolResult(True, dump_json(data["todo"], indent=2), data)
+            return ReactToolResult(True, json.dumps(data["todo"], ensure_ascii=False, indent=2, default=str), data)
         if action == "todo_complete":
             data = store.complete(
                 str(args.get("todo_id") or ""),
                 outcome=str(args.get("outcome") or ""),
             )
-            return ReactToolResult(True, dump_json(data["todo"], indent=2), data)
+            return ReactToolResult(True, json.dumps(data["todo"], ensure_ascii=False, indent=2, default=str), data)
         if action == "todo_defer":
             data = store.defer(
                 str(args.get("todo_id") or ""),
@@ -2559,7 +2564,7 @@ The constructor ``__init__`` is arg-less.
                 else None,
                 reason=str(args.get("reason") or ""),
             )
-            return ReactToolResult(True, dump_json(data["todo"], indent=2), data)
+            return ReactToolResult(True, json.dumps(data["todo"], ensure_ascii=False, indent=2, default=str), data)
         if action == "todo_clear_completed":
             keep_raw = args.get("keep_recent")
             keep_recent = int(keep_raw) if keep_raw is not None else 2
@@ -2569,5 +2574,9 @@ The constructor ``__init__`` is arg-less.
                 "kept_terminal": data["kept_terminal"],
                 "remaining": data["remaining"],
             }
-            return ReactToolResult(True, dump_json(summary, indent=2), data)
+            return ReactToolResult(
+                True,
+                json.dumps(summary, ensure_ascii=False, indent=2, default=str),
+                data,
+            )
         return ReactToolResult(False, f"unknown action: {action}", {"action": action})
