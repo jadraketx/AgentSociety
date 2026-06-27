@@ -33,7 +33,7 @@ class DINConfig:
         """验证配置参数"""
         if self.hidden_units is None:
             self.hidden_units = [200, 80]
-        
+
         if self.embedding_dim <= 0:
             raise ValueError("embedding_dim 必须 > 0")
         if self.learning_rate <= 0:

@@ -575,7 +575,7 @@ def main() -> None:
                 key=lambda r: r["total_concurrency"],
             )
             if len(tok_results) >= 2:
-                baseline = tok_results[0]
+                _baseline = tok_results[0]
                 print(f"   @ {tok}tok:")
                 for r in tok_results:
                     tc = r["total_concurrency"]

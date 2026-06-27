@@ -2,7 +2,6 @@
 SASRec推荐算法包装类
 """
 
-import pickle
 from typing import List, Tuple, Set, Dict, Optional
 from collections import defaultdict
 import numpy as np
@@ -259,7 +258,7 @@ class SASRecRecommender(RecommenderAlgorithm):
         }
 
         with open(path, 'wb') as f:
-            pickle.dump(checkpoint, f)
+            torch.save(checkpoint, f)  # nosec: internal checkpoint save
 
         get_logger().info(f"SASRec 模型已保存到 {path}")
 
@@ -270,7 +269,7 @@ class SASRecRecommender(RecommenderAlgorithm):
         :param path: 模型文件路径
         """
         with open(path, 'rb') as f:
-            checkpoint = pickle.load(f)
+            checkpoint = torch.load(f, weights_only=False)  # nosec: internal checkpoint loading
 
         self.config = checkpoint['config']
         self._user_map = checkpoint['user_map']

@@ -307,7 +307,7 @@ async def main():
                         traceback.print_exc()
 
                     if latest_round:
-                        round_num_from_env = latest_round.get("round", round_num)
+                        _round_num_from_env = latest_round.get("round", round_num)
                         trustor_investments = latest_round.get(
                             "trustor_investments", {}
                         )

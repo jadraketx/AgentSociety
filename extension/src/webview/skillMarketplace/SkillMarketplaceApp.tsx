@@ -43,7 +43,6 @@ export const SkillMarketplaceApp: React.FC<SkillManagementAppProps> = ({ vscode 
   const [builtinSkills, setBuiltinSkills] = React.useState<BuiltinSkill[]>([]);
   const [builtinSkillsLoading, setBuiltinSkillsLoading] = React.useState(false);
   const [bundledPlugins, setBundledPlugins] = React.useState<BundledPlugin[]>([]);
-  const [bundledPluginsLoading, setBundledPluginsLoading] = React.useState(false);
   const [agentMarketplaceSkills, setAgentMarketplaceSkills] = React.useState<MarketplaceSkill[]>([]);
   const [claudeMarketplaceSkills, setClaudeMarketplaceSkills] = React.useState<MarketplaceSkill[]>([]);
   const [marketplaceLoading, setMarketplaceLoading] = React.useState(false);
@@ -60,7 +59,6 @@ export const SkillMarketplaceApp: React.FC<SkillManagementAppProps> = ({ vscode 
   const [localMdLoading, setLocalMdLoading] = React.useState<Record<string, boolean>>({});
   const [vsixSyncLoading, setVsixSyncLoading] = React.useState<Set<string>>(new Set());
   // 市场源配置状态
-  const [showAdvancedSettings, setShowAdvancedSettings] = React.useState(false);
   const [agentSkillSources, setAgentSkillSources] = React.useState<Array<{
     owner: string;
     repo: string;
@@ -441,10 +439,10 @@ export const SkillMarketplaceApp: React.FC<SkillManagementAppProps> = ({ vscode 
   };
   const handleOpenFolder = (path: string) => vscode.postMessage({ type: 'openSkillFolder', payload: { path } });
   const handleRefreshMarketplace = () => { setMarketplaceLoading(true); vscode.postMessage({ type: 'refreshMarketplace' }); };
-  const handleOpenSkillSourcesSettings = () => {
+  const _handleOpenSkillSourcesSettings = () => {
     vscode.postMessage({ type: 'openSkillSourcesSettings' });
   };
-  const handleOpenClaudeSkillSourcesSettings = () => {
+  const _handleOpenClaudeSkillSourcesSettings = () => {
     vscode.postMessage({ type: 'openClaudeSkillSourcesSettings' });
   };
 

@@ -504,7 +504,7 @@ def list_hypotheses(workspace_path: Path) -> Dict[str, Any]:
                     else:
                         description = content[desc_start:desc_end].strip()
             except Exception:
-                pass
+                logger.debug("Failed to parse hypothesis description", exc_info=True)
 
         hypotheses_info.append(
             {

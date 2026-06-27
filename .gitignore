@@ -175,10 +175,9 @@ PUBLISH_CHECKLIST.md
 # Test data files (local / generated)
 profiles.json
 *.json
+!extension/package-lock.json
+!frontend/package-lock.json
 *.jsonl
-
-# Package lock files (using uv, not npm)
-package-lock.json
 
 # Custom
 paper_sources/

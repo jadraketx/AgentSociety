@@ -516,13 +516,13 @@ Your new plan:"""
             try:
                 return json_repair.loads(json_match.group())
             except Exception:
-                pass
+                get_logger().debug("Failed to parse JSON array from text", exc_info=True)
 
         # 尝试直接解析整个文本
         try:
             return json_repair.loads(text)
         except Exception:
-            pass
+            get_logger().debug("Failed to parse JSON from text", exc_info=True)
 
         # 如果都失败，返回空列表
         return []

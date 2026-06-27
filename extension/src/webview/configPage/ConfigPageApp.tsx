@@ -4,7 +4,6 @@ import {
   Layout,
   Form,
   Input,
-  InputNumber,
   Button,
   Card,
   Typography,
@@ -197,8 +196,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
   const [claudeSettingsPath, setClaudeSettingsPath] = React.useState('~/.claude/settings.json');
   const [claudeCodeCustomized, setClaudeCodeCustomized] = React.useState(false);
   const [claudeAvailableModels, setClaudeAvailableModels] = React.useState<ClaudeModelOption[]>([]);
-  const [claudeModelsLoading, setClaudeModelsLoading] = React.useState(false);
-  const [claudeModelsError, setClaudeModelsError] = React.useState<string | null>(null);
   const claudeModelsFetchFingerprintRef = React.useRef<string | null>(null);
   const [aiCliGatewayStatus, setAiCliGatewayStatus] = React.useState<AiCliGatewayStatus>({
     enabled: false,
@@ -508,7 +505,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     [t]
   );
 
-  const fetchClaudeModels = React.useCallback(
+  const _fetchClaudeModels = React.useCallback(
     (options?: { force?: boolean }) => {
       const claude = getClaudeValuesForValidation();
       const baseUrl = (claude.baseUrl ?? '').trim();
@@ -624,7 +621,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     [vscode]
   );
 
-  const handleQueryAllProviderUsage = React.useCallback(() => {
+  const _handleQueryAllProviderUsage = React.useCallback(() => {
     for (const p of claudeProviders) {
       if (supportsProviderUsageQuery(p.baseUrl)) {
         handleQueryProviderUsage(p.id);
@@ -652,7 +649,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     vscode.postMessage({ command: 'restartCodexCli' });
   }, [vscode]);
 
-  const handleAutoMapClaudeModels = React.useCallback(() => {
+  const _handleAutoMapClaudeModels = React.useCallback(() => {
     if (claudeAvailableModels.length === 0) {
       return;
     }
@@ -1203,7 +1200,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
   };
 
   // 玻璃态样式常量
-  const glassStyle = {
+  const _glassStyle = {
     background: isDark
       ? 'rgba(37, 37, 38, 0.75)'
       : 'rgba(255, 255, 255, 0.72)',

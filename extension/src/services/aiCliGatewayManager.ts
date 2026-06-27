@@ -16,8 +16,6 @@ import {
   writeClaudeConfig,
 } from './claudeCodeSettings';
 import {
-  fetchClaudeCompatibleModels,
-  fetchOpenAiCompatibleModels,
   fetchProviderModels,
 } from './claudeCodeModels';
 import {
@@ -853,7 +851,6 @@ export class AiCliGatewayManager {
       return this.getPublicStatus();
     }
     writeClaudeConfig(config);
-    const upstream = providerUpstream(normalized);
     await this.persistUpstream(this.providerToGatewayUpstream(normalized));
     return this.getPublicStatus();
   }

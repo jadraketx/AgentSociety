@@ -646,8 +646,9 @@ class EnvBase(metaclass=EnvMeta):
                 task = loop.create_task(self._register_state_tables())
                 task.add_done_callback(self._on_register_state_tables_done)
             except RuntimeError:
-                # 没有运行中的事件循环，首次写入时惰性注册
-                pass
+                # No running event loop; register lazily on first write
+                import logging
+                logging.getLogger(__name__).debug("No running event loop for state table registration; deferring")
 
     @staticmethod
     def _on_register_state_tables_done(task: "asyncio.Task[None]") -> None:

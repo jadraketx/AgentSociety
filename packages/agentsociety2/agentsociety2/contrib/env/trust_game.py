@@ -79,7 +79,7 @@ class TrustGameEnv(EnvBase):
         multiplication_factor: int = 3,
     ):
         """Initialize environment
-        
+
         :param num_pairs: Number of Trustor-Trustee pairs (default: 4)
         :param initial_funds: Initial coins per Trustor per round (default: 10)
         :param multiplication_factor: Investment multiplication factor (default: 3)
@@ -93,11 +93,11 @@ class TrustGameEnv(EnvBase):
         self.round_number = 0
         self.round_history: List[dict] = []
         self.partner_mapping: Dict[str, str] = {}  # trustor_name -> trustee_name, trustee_name -> trustor_name
-        
+
         # Pending decisions for current round
         self._pending_investments: Dict[str, int] = {}  # trustor_name -> investment
         self._pending_returns: Dict[str, int] = {}  # trustee_name -> return_amount
-        
+
         self._lock = asyncio.Lock()
         self._step_counter: int = 0
 
@@ -581,16 +581,16 @@ class TrustGameEnv(EnvBase):
     async def step(self, tick: int, t: datetime):
         """
         Run forward one step.
-        
+
         Executes a round if all trustors and trustees have submitted their decisions.
-        
+
         :param tick: The number of ticks of this simulation step.
         :param t: The current datetime of the simulation after this step with the ticks.
         """
         async with self._lock:
             self.t = t
             last_round = self.round_history[-1] if self.round_history else None
-            
+
             # Check if we have enough submissions to execute a round
             # Need all trustors' investments; if trustees haven't submitted returns yet, default to 0
             if len(self._pending_investments) >= self.num_pairs:

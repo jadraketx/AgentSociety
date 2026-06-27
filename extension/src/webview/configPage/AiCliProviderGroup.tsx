@@ -329,7 +329,6 @@ export function AiCliProviderGroup({
               modelsLoading={modelsLoadingByProvider[NEW_ID] ?? false}
               modelsError={modelsErrorByProvider[NEW_ID] ?? null}
               onSave={(d) => {
-                const isNewOpenAi = newApiKind === 'openai';
                 onAdd({
                   name: d.name,
                   baseUrl: d.baseUrl,

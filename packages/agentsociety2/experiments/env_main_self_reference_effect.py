@@ -314,7 +314,7 @@ async def main(
     if use_default_profiles or not profiles:
         logger.info("  [INFO] Creating default agent profiles")
         if participant_ids:
-            target_agent_count = len(participant_ids)
+            _target_agent_count = len(participant_ids)
             agent_ids = participant_ids
         elif num_agents is not None:
             target_agent_count = num_agents

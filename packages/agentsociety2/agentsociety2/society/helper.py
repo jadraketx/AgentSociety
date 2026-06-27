@@ -892,7 +892,8 @@ Generate the final answer. Your JSON response:"""
                     try:
                         await a.to_workspace(self._society._workspace_for(a.id))
                     except Exception:
-                        pass
+                        logger = get_logger()
+                        logger.debug("Best-effort persistence failed for agent %s", a.id, exc_info=True)
             for a, ans in zip(agents, results, strict=False):
                 try:
                     if str(ans).strip().lower() == target_norm:
@@ -938,7 +939,8 @@ Generate the final answer. Your JSON response:"""
                 try:
                     await a.to_workspace(self._society._workspace_for(a.id))
                 except Exception:
-                    pass
+                    logger = get_logger()
+                    logger.debug("Best-effort persistence failed for agent %s", a.id, exc_info=True)
         answers: Dict[str, Any] = {}
         for a, ans in zip(agents, results, strict=False):
             answers[str(a.id)] = ans

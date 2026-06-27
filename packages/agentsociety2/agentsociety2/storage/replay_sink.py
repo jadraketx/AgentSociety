@@ -215,6 +215,8 @@ class ReplaySink:
             try:
                 os.close(fd)
             except OSError:
+                import logging
+                logging.getLogger(__name__).debug("Failed to close replay sink fd", exc_info=True)
                 pass
         self._fds.clear()
 

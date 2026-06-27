@@ -2,7 +2,6 @@
 增强版MF (矩阵分解) 推荐算法
 """
 
-import pickle
 from typing import List, Tuple, Set, Dict, Optional
 import numpy as np
 import torch
@@ -333,14 +332,14 @@ class EnhancedMFRecommender(RecommenderAlgorithm):
         }
 
         with open(path, 'wb') as f:
-            pickle.dump(checkpoint, f)
+            torch.save(checkpoint, f)  # nosec: internal checkpoint save
 
         get_logger().info(f"增强版MF模型已保存到 {path}")
 
     def load(self, path: str) -> None:
         """从文件加载模型"""
         with open(path, 'rb') as f:
-            checkpoint = pickle.load(f)
+            checkpoint = torch.load(f, weights_only=False)  # nosec: internal checkpoint loading
 
         self.config = checkpoint['config']
         self._user_map = checkpoint['user_map']

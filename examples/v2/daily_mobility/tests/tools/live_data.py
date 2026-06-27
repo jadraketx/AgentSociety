@@ -277,7 +277,8 @@ def _canonical_meal_slots(run_dir: Path, agent_id: int) -> dict[str, int]:
                 if meal in {"breakfast", "lunch", "dinner"} and when:
                     canonical[str(meal)] = _slot_index_from_time(when, 0)
         except Exception:
-            pass
+            import logging
+            logging.getLogger(__name__).debug("Failed to parse meal schedule from agent state", exc_info=True)
     meal_path = (
         run_dir / "agents" / f"agent_{agent_id:04d}" / "state" / "meal_state.json"
     )
@@ -295,7 +296,8 @@ def _canonical_meal_slots(run_dir: Path, agent_id: int) -> dict[str, int]:
                 if meal in {"breakfast", "lunch", "dinner"}:
                     canonical[meal] = _slot_index_from_time(when_raw, 0)
         except Exception:
-            pass
+            import logging
+            logging.getLogger(__name__).debug("Failed to parse meal schedule from meal state", exc_info=True)
     return canonical
 
 
@@ -609,7 +611,8 @@ def infer_tick_seconds(steps_yaml: Path | None = None) -> int:
             if step.get("type") == "run" and step.get("tick"):
                 return int(step["tick"])
     except Exception:
-        pass
+            import logging
+            logging.getLogger(__name__).debug("Failed to parse steps file for tick count", exc_info=True)
     return default
 
 
@@ -635,7 +638,8 @@ def load_run_timing(run_dir: Path, *, tick_sec: int) -> dict[str, Any]:
             timing["step_count"] = pid.get("step_count")
             timing["experiment_id"] = pid.get("experiment_id")
         except Exception:
-            pass
+            import logging
+            logging.getLogger(__name__).debug("Failed to read pid file for timing info", exc_info=True)
     sim_raw = timing.get("simulation_time")
     if isinstance(sim_raw, str):
         sim_t = _parse_time(sim_raw)
@@ -948,10 +952,7 @@ def reconstruct_needs(
 
         if "sleep" in last_goal:
             hunger += (0.018 if 5 <= hour < 8 else 0.012) * hours
-            if hours <= 3:
-                energy = min(0.88, energy + 0.09 * hours)
-            else:
-                energy = min(1.0, energy + 0.04 * hours)
+            energy = min(0.88, energy + 0.09 * hours)  # hours <= 3 always for 0.5h slots
             stress -= 0.07 * hours
         else:
             if 5 <= hour < 8:

@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import DeckGL from '@deck.gl/react';
 import { OrthographicView } from '@deck.gl/core';
 import { IconLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers';
-import MapGL from 'react-map-gl';
+import MapGL from 'react-map-gl/mapbox';
 import mapboxgl from 'mapbox-gl';
 // @ts-ignore
 import MapboxWorker from 'mapbox-gl/dist/mapbox-gl-csp-worker';
@@ -15,7 +15,12 @@ import { useReplay } from '../store';
 import { AGENT_ICONS, getAgentIconUrl } from '../icons';
 import 'mapbox-gl/dist/mapbox-gl.css';
 
-const MAPBOX_ACCESS_TOKEN = 'pk.eyJ1IjoiZmh5ZHJhbGlzayIsImEiOiJja3VzMWc5NXkwb3RnMm5sbnVvd3IydGY0In0.FrwFkYIMpLbU83K9rHSe8w';
+// Public Mapbox token for client-side map rendering. This is a pk.* token
+// (public token) designed for browser use and is safe to expose in the client.
+// Override via the MAPBOX_ACCESS_TOKEN environment variable at build time.
+const MAPBOX_ACCESS_TOKEN = (
+  typeof process !== 'undefined' && process.env?.MAPBOX_ACCESS_TOKEN
+) || 'pk.eyJ1IjoiZmh5ZHJhbGlzayIsImEiOiJja3VzMWc5NXkwb3RnMm5sbnVvd3IydGY0In0.FrwFkYIMpLbU83K9rHSe8w';
 const MAP_STYLE = 'mapbox://styles/mapbox/standard';
 
 const resolvedWorker = (MapboxWorker as any).default ?? MapboxWorker;

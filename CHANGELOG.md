@@ -14,6 +14,8 @@ Git 发版标签：`agentsociety2-v{major}.{minor}.{patch}`（见 `CONTRIBUTING.
 
 ## [Unreleased]
 
+<!-- 暂无待发布变更 -->
+
 ## [2.6.1] - 2026-06-19
 
 - **extension** `1.5.5`

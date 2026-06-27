@@ -23,7 +23,6 @@ import {
 import { applyAnthropicModelMapping } from './anthropicModelMapping';
 import {
   OpenAiChatToAnthropicStreamTranslator,
-  formatAnthropicSseEvent,
   translateAnthropicMessagesToOpenAiChat,
   translateOpenAiChatToAnthropicMessage,
 } from './anthropicOpenAiBridge';
@@ -1380,7 +1379,11 @@ export class AiCliGateway {
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.lastError = message;
-            this.writeJson(clientRes, 502, { error: 'translation_failed', message });
+            // Sanitize error message to avoid leaking stack traces or internal details
+            const sanitized = (error instanceof Error && error.stack)
+              ? message.split('\n')[0].trim()
+              : message;
+            this.writeJson(clientRes, 502, { error: 'translation_failed', message: sanitized });
             resolve({ ok: false, status: 502, canRetry: false, detail: message });
           }
         });

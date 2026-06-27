@@ -11,6 +11,7 @@ import json
 import re
 import shutil
 import sys
+import ipaddress
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Literal
@@ -214,6 +215,33 @@ def looks_like_pdf(url: str, content_type: str, content: bytes) -> bool:
     )
 
 
+def _validate_public_url(url: str) -> None:
+    """Validate that a URL is safe to fetch (SSRF protection).
+
+    Only allows http/https schemes and blocks private/reserved IP ranges.
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise FullTextDownloadError(f"Unsupported URL scheme: {parsed.scheme}")
+
+    hostname = parsed.hostname
+    if not hostname:
+        raise FullTextDownloadError(f"URL has no hostname: {url}")
+
+    # Block raw IP addresses in private/reserved ranges
+    try:
+        ip = ipaddress.ip_address(hostname)
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            raise FullTextDownloadError(f"URL targets restricted IP range: {hostname}")
+    except ValueError:
+        # Not an IP address — resolve hostname and check
+        pass
+
+    # Block localhost aliases
+    if hostname.lower() in ("localhost", "127.0.0.1", "::1", "0.0.0.0"):
+        raise FullTextDownloadError(f"URL targets localhost: {hostname}")
+
+
 def download_pdf_bytes(url: str, *, timeout: int = 60) -> tuple[bytes, str]:
     """Download bytes from a URL and verify the response looks like a PDF.
 
@@ -222,6 +250,7 @@ def download_pdf_bytes(url: str, *, timeout: int = 60) -> tuple[bytes, str]:
     :returns: Tuple of PDF bytes and final URL after redirects.
     :raises FullTextDownloadError: On HTTP errors, network errors, or non-PDF content.
     """
+    _validate_public_url(url)
     request = Request(url, headers={"User-Agent": USER_AGENT})
     try:
         with urlopen(request, timeout=timeout) as response:

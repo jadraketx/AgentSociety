@@ -168,11 +168,11 @@ class EndowmentEffectEnv(EnvBase):
                 "wta": float(wta),
                 "wtp": float(wtp),
             }
-            
+
             # Check if all items are completed
             completed = len(self._evaluations[agent_id])
             all_completed = completed == len(self.VALID_ITEMS)
-            
+
             status = "completed" if all_completed else "submitted"
 
             return SubmitWTAWTPResponse(
@@ -203,7 +203,7 @@ class EndowmentEffectEnv(EnvBase):
             remaining_items = [
                 item for item in self.VALID_ITEMS if item not in completed_items
             ]
-            
+
             return GetMyEvaluationsResponse(
                 agent_id=agent_id,
                 evaluations=evaluations,

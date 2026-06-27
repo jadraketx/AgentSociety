@@ -72,7 +72,7 @@ For long logs, only include the portion around the error.
 <!-- If the issue is specific to certain modules, check them here. -->
 
 - [ ] Agent (PersonAgent / custom agent)
-- [ ] Agent Skill (observation / memory / cognition / plan / custom)
+- [ ] Agent Skill (daily-guidance / custom)
 - [ ] Environment Router (ReAct / PlanExecute / CodeGen / TwoTier)
 - [ ] Environment Module
 - [ ] Research Skill (literature / experiment / hypothesis / paper / analysis / agent)

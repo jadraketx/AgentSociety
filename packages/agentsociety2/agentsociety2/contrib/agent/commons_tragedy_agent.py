@@ -286,7 +286,8 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
                 if isinstance(data, dict):
                     return data.get("current_pool_resources", 100)
         except (json.JSONDecodeError, ValueError, KeyError):
-            pass
+            import logging
+            logging.getLogger(__name__).debug("Failed to parse pool resources from JSON", exc_info=True)
 
         # Fallback: try to extract number from text
         numbers = re.findall(r"\d+", response)

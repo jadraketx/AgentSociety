@@ -772,9 +772,6 @@ export class ProjectItem extends vscode.TreeItem {
     // 检查是否为 JSON 文件
     const isJson = ext === 'json';
 
-    // 检查是否为 Python 文件
-    const isPython = ext === 'py';
-
     // 检查是否为 YAML 文件
     const isYaml = ext === 'yaml' || ext === 'yml';
 
@@ -3436,8 +3433,6 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
       return;
     }
 
-    const workspacePath = workspaceFolder.uri.fsPath;
-
     // init() 是幂等的，所有写入都有 existsSync 守卫，直接执行
 
     try {
@@ -3599,7 +3594,6 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
 
     // 检查custom目录中是否有示例文件（仅作为警告）
     const customAgentsDir = path.join(workspacePath, 'custom', 'agents');
-    const customEnvsDir = path.join(workspacePath, 'custom', 'envs');
     if (fs.existsSync(customAgentsDir)) {
       const agents = fs.readdirSync(customAgentsDir);
       if (agents.length === 0 || agents.every(f => f.startsWith('__') || f === 'examples')) {

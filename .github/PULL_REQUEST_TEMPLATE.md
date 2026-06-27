@@ -22,6 +22,12 @@ Closes #
 - [ ] Documentation update
 - [ ] CI / Build
 
+## Breaking Changes
+
+<!-- If this PR introduces breaking changes, list them here. Otherwise, write "None". -->
+
+-
+
 ## Affected Modules
 
 <!-- Check all that apply. -->

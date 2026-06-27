@@ -104,12 +104,18 @@ class EconomySpace(EnvBase):
         ColumnDef("bank_interest_rate", "REAL"),
     ]
 
-    def __init__(self, persons: List[EconomyPerson] | List[dict]):
+    def __init__(self, persons: List[EconomyPerson] | List[dict], **kwargs):
         """
         Initialize the Economy Space environment.
 
         :param persons: List of persons to initialize the environment with. Can be EconomyPerson objects or dicts.
         """
+        if kwargs:
+            unknown_keys = list(kwargs.keys())
+            get_logger().warning(
+                f"EconomySpace received unknown initialization kwargs: {unknown_keys}. "
+                "These will be ignored."
+            )
         super().__init__()
 
         # Convert dict to EconomyPerson if needed

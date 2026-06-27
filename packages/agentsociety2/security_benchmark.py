@@ -662,7 +662,7 @@ async def run_prompt_injection(
         router.reset_token_usages()
 
         # 通过 router.ask() 让 LLM 生成代码
-        result, answer = await router.ask(ctx, injection.instruction, readonly=False)
+        _result, _answer = await router.ask(ctx, injection.instruction, readonly=False)
         elapsed = (time.perf_counter() - start) * 1000
 
         # 检查是否产生了工具调用（说明 LLM 生成了代码且通过了安全检查）

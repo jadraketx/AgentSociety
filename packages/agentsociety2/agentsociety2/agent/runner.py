@@ -38,6 +38,7 @@ coroutines) unchanged.
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -116,7 +117,7 @@ async def _step_agent_batch_async(
             try:
                 await agent.close()
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("Error closing agent %s", aid, exc_info=True)
             return {"id": aid, "ok": True, "summary": summary}
         except Exception as e:  # noqa: BLE001 — report per-agent failure, don't abort batch
             return {"id": aid, "ok": False, "error": repr(e)}
@@ -189,11 +190,11 @@ async def _questionnaire_agent_batch_async(
                 try:
                     await agent.to_workspace(ws)
                 except Exception:
-                    pass
+                    logging.getLogger(__name__).debug("Error persisting agent %s to workspace", aid, exc_info=True)
             try:
                 await agent.close()
             except Exception:
-                pass
+                logging.getLogger(__name__).debug("Error closing agent %s after query", aid, exc_info=True)
             per_agent = resp.responses[0] if resp.responses else None
             return {
                 "id": aid,
@@ -249,7 +250,7 @@ async def _query_agent_task_async(
         try:
             await agent.close()
         except Exception:
-            pass
+            logging.getLogger(__name__).debug("Error closing agent after query", exc_info=True)
 
 
 # ---------------------------------------------------------------------------

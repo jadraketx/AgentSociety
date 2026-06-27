@@ -121,7 +121,7 @@ async def main(
     TOTAL_STEPS = 97
 
     # 用于存储需要清理的环境
-    mobility_env = None
+    _mobility_env = None
     event_space = None
     social_media_env = None
     env_router = None
@@ -189,10 +189,10 @@ async def main(
     # 创建 MobilitySpace 环境
     # 使用相对路径而不是硬编码的 /root 路径
     home_dir = os.path.join(os.path.expanduser("~"), "agentsociety_data")
-    map_path = os.path.join(home_dir, "beijing.pb")
+    _map_path = os.path.join(home_dir, "beijing.pb")
     os.makedirs(home_dir, exist_ok=True)
 
-    mobility_env = MobilitySpace(map_path, home_dir, persons=mobility_persons)
+    mobility_env = MobilitySpace(_map_path, home_dir, persons=mobility_persons)
     # person = await mobility_env.get_person(1)
     # print(person)
     # input("Press Enter to continue...")

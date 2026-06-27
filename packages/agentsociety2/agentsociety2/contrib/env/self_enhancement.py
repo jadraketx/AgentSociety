@@ -70,12 +70,12 @@ class SelfEnhancementEnv(EnvBase):
 
         self.agent_ids = agent_ids
         self.num_agents = len(agent_ids)
-        
+
         # Store rankings: agent_id -> dimension -> percentile
         self._rankings: Dict[int, Dict[str, int]] = {
             agent_id: {} for agent_id in agent_ids
         }
-        
+
         self._lock = asyncio.Lock()
         self._step_counter: int = 0
 
@@ -155,35 +155,35 @@ class SelfEnhancementEnv(EnvBase):
             # Validate agent_id
             if agent_id not in self.agent_ids:
                 raise ValueError(f"Agent ID {agent_id} is not in the experiment")
-            
+
             # Validate dimension
             dimension_upper = dimension.upper()
             if dimension_upper not in VALID_DIMENSIONS:
                 raise ValueError(
                     f"Invalid dimension: {dimension}. Must be one of: {', '.join(VALID_DIMENSIONS)}"
                 )
-            
+
             # Validate percentile
             if not isinstance(percentile, int):
                 percentile = percentile
             percentile = max(0, min(100, percentile))  # Clamp to 0-100
-            
+
             # Check if already submitted
             if dimension_upper in self._rankings[agent_id]:
                 raise ValueError(
                     f"Ranking for dimension {dimension_upper} has already been submitted. "
                     f"Current ranking: {self._rankings[agent_id][dimension_upper]}"
                 )
-            
+
             # Store the ranking
             self._rankings[agent_id][dimension_upper] = percentile
-            
+
             # Check if all dimensions are completed
             completed = len(self._rankings[agent_id])
             all_completed = completed == len(VALID_DIMENSIONS)
-            
+
             status = "completed" if all_completed else "submitted"
-            
+
             # Debug log
             import sys
             print(
@@ -191,7 +191,7 @@ class SelfEnhancementEnv(EnvBase):
                 f"({completed}/{len(VALID_DIMENSIONS)} completed)",
                 file=sys.stderr
             )
-            
+
             return SubmitRankingResponse(
                 agent_id=agent_id,
                 dimension=dimension_upper,
@@ -211,13 +211,13 @@ class SelfEnhancementEnv(EnvBase):
         async with self._lock:
             if agent_id not in self.agent_ids:
                 raise ValueError(f"Agent ID {agent_id} is not in the experiment")
-            
+
             rankings = self._rankings[agent_id].copy()
             completed_dimensions = list(rankings.keys())
             remaining_dimensions = [
                 dim for dim in VALID_DIMENSIONS if dim not in completed_dimensions
             ]
-            
+
             return GetRankingsResponse(
                 agent_id=agent_id,
                 rankings=rankings,

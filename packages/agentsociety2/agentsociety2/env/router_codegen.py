@@ -1769,7 +1769,6 @@ class CodeGenRouter(RouterBase):
 
             if not code:
                 previous_errors.append("Failed to generate code from LLM.")
-                previous_code = None
                 if retry_count >= self.max_llm_call_retry:
                     raise ValueError(f"Failed to generate {kind} code after retries.")
                 retry_count += 1
@@ -1777,6 +1776,7 @@ class CodeGenRouter(RouterBase):
                     dialog_history.append(
                         {"role": "assistant", "content": previous_code}
                     )
+                previous_code = None
                 dialog_history.append(
                     {
                         "role": "user",

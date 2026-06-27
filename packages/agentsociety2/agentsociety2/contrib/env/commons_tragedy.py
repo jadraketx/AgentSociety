@@ -62,7 +62,7 @@ class CommonsTragedyEnv(EnvBase):
         max_extraction_per_agent: int = 10,
     ):
         """Initialize environment
-        
+
         :param num_agents: Number of agents (default: 4)
         :param initial_pool_resources: Initial resource pool size (default: 100)
         :param max_extraction_per_agent: Maximum extraction per agent per round (default: 10)
@@ -76,16 +76,16 @@ class CommonsTragedyEnv(EnvBase):
         self.current_pool_resources = self.initial_pool_resources
         self.round_number = 0
         self.round_history: List[dict] = []
-        
+
         # Pending extractions for current round (agent_name -> extraction)
         self._pending_extractions: Dict[str, int] = {}
-        
+
         # Track which agents have submitted in current round
         self._agents_submitted_in_current_round: set = set()
-        
+
         # Track the last time we executed a round
         self._last_round_executed: int = -1
-        
+
         self._lock = asyncio.Lock()
         self._step_counter: int = 0
 
@@ -160,9 +160,9 @@ class CommonsTragedyEnv(EnvBase):
     async def get_pool_resources(self) -> GetPoolResourcesResponse:
         """
         Get current pool resources.
-        
-        Game Context: This is a Tragedy of the Commons game. You are participating with other agents 
-        in extracting resources from a shared pool over 10 rounds. Each unit you extract gives you 1 point. 
+
+        Game Context: This is a Tragedy of the Commons game. You are participating with other agents
+        in extracting resources from a shared pool over 10 rounds. Each unit you extract gives you 1 point.
         The pool is depletable - if total extractions exceed available resources, allocations are proportional.
 
         :returns: Response containing current and initial pool resources.
@@ -179,9 +179,9 @@ class CommonsTragedyEnv(EnvBase):
     ) -> SubmitExtractionResponse:
         """
         Submit extraction decision for an agent.
-        
-        Game Context: This is a Tragedy of the Commons game. You are participating with other agents 
-        in extracting resources from a shared pool over 10 rounds. Each unit you extract gives you 1 point. 
+
+        Game Context: This is a Tragedy of the Commons game. You are participating with other agents
+        in extracting resources from a shared pool over 10 rounds. Each unit you extract gives you 1 point.
         The pool is depletable - if total extractions exceed available resources, allocations are proportional.
         Your goal is to maximize your personal resource extraction over all rounds.
 
@@ -269,9 +269,9 @@ class CommonsTragedyEnv(EnvBase):
     async def get_round_history(self, round_num: Optional[int] = None) -> List[dict]:
         """
         Get round history.
-        
-        Game Context: This is a Tragedy of the Commons game. You are participating with other agents 
-        in extracting resources from a shared pool over 10 rounds. Each unit you extract gives you 1 point. 
+
+        Game Context: This is a Tragedy of the Commons game. You are participating with other agents
+        in extracting resources from a shared pool over 10 rounds. Each unit you extract gives you 1 point.
         The pool is depletable - if total extractions exceed available resources, allocations are proportional.
         Reviewing history helps you understand past behaviors and make better decisions.
 
@@ -301,18 +301,18 @@ class CommonsTragedyEnv(EnvBase):
     async def step(self, tick: int, t: datetime):
         """
         Run forward one step.
-        
+
         This method is called by the environment router after agents have submitted their decisions.
         All submissions for the current round are processed and the round is executed here,
         ensuring atomicity and consistent state for the next round.
-        
+
         :param tick: The number of ticks of this simulation step.
         :param t: The current datetime of the simulation after this step with the ticks.
         """
         async with self._lock:
             self.t = t
             last_round = self.round_history[-1] if self.round_history else None
-            
+
             # Execute the round if at least some agents have submitted
             # (Agents that haven't submitted will be treated as extracting 0 units)
             # This prevents deadlock when some agents are slow or fail to decide

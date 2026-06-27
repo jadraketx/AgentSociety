@@ -29,7 +29,7 @@ class NCFConfig:
         """验证配置参数"""
         if self.mlp_layers is None:
             self.mlp_layers = [64, 32, 16]
-        
+
         if self.embedding_dim <= 0:
             raise ValueError("embedding_dim 必须 > 0")
         if self.learning_rate <= 0:

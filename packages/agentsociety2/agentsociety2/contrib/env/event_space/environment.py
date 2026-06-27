@@ -107,7 +107,7 @@ class CurrentEvent(BaseModel):
     def type(self) -> str:
         """Alias for event_type to support both .type and .event_type access"""
         return self.event_type
-    
+
     @property
     def name(self) -> str:
         """Alias for event_name to support both .name and .event_name access"""
@@ -145,12 +145,12 @@ class StartEventResponse(BaseModel):
     start_time: datetime = Field(..., description="Event start time")
     expected_end_time: datetime = Field(..., description="Expected end time")
     status: str = Field(..., description="Event status")
-    
+
     @property
     def type(self) -> str:
         """Alias for event_type to support both .type and .event_type access"""
         return self.event_type
-    
+
     @property
     def name(self) -> str:
         """Alias for event_name to support both .name and .event_name access"""
@@ -173,12 +173,12 @@ class GetEventResponse(BaseModel):
     progress_percentage: Optional[float] = Field(
         None, description="Progress percentage (0-100, if expected_end_time set)"
     )
-    
+
     @property
     def type(self) -> str:
         """Alias for event_type to support both .type and .event_type access"""
         return self.event_type
-    
+
     @property
     def name(self) -> str:
         """Alias for event_name to support both .name and .event_name access"""
@@ -530,11 +530,11 @@ class EventSpace(EnvBase):
             return None
 
         event = self._agent_events[person_id]
-        
+
         # Only return active events, not completed or cancelled ones
         if event.status != "in_progress":
             return None
-            
+
         elapsed = event.get_elapsed_seconds(self.t)
         remaining = event.get_remaining_seconds(self.t)
         progress = event.get_progress_percentage(self.t)

@@ -289,7 +289,7 @@ class ExperimentRunner:
                 with open(self.pid_file, "r", encoding="utf-8") as f:
                     pid_data = json.load(f)
             except (json.JSONDecodeError, IOError):
-                pass
+                logger.debug("Failed to read existing pid file, starting fresh", exc_info=True)
 
         # 更新基本字段
         pid_data.update(
@@ -651,6 +651,7 @@ class ExperimentRunner:
                             try:
                                 await progress_task
                             except asyncio.CancelledError:
+                                logger.debug("Progress task cancelled after step completion")
                                 pass
                         # 最终更新进度
                         self._update_progress()
@@ -769,7 +770,7 @@ class ExperimentRunner:
                 try:
                     await self.society.close()
                 except Exception:
-                    pass
+                    logger.debug("Error closing society during failure cleanup", exc_info=True)
             raise
 
 

@@ -183,7 +183,7 @@ def plot_baseline_vs_eo24_metrics() -> None:
 
     labels = ["eo17", "eo18", "eo19", "eo24"]
     x = np.arange(len(labels))
-    w = 0.2
+    _w = 0.2
 
     fig, axes = plt.subplots(2, 2, figsize=(12, 8))
     keys = [

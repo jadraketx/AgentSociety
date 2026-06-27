@@ -4,48 +4,109 @@
   <a href="./README.md">English</a> · <a href="./README_zh.md">中文</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/tsinghua-fib-lab/AgentSociety/stargazers">
+    <img src="https://img.shields.io/github/stars/tsinghua-fib-lab/AgentSociety?style=social" alt="GitHub Stars">
+  </a>
+  <a href="https://github.com/tsinghua-fib-lab/AgentSociety/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="License">
+  </a>
+  <a href="https://pypi.org/project/agentsociety2/">
+    <img src="https://img.shields.io/pypi/v/agentsociety2.svg" alt="PyPI (v2)">
+  </a>
+  <a href="https://pypi.org/project/agentsociety/">
+    <img src="https://img.shields.io/pypi/v/agentsociety.svg?label=pypi%20(v1)" alt="PyPI (v1)">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://agentsociety2.readthedocs.io/">
+    <img src="https://img.shields.io/badge/docs-v2%20(recommended)-brightgreen" alt="Documentation v2">
+  </a>
+  <a href="https://agentsociety.readthedocs.io/">
+    <img src="https://img.shields.io/badge/docs-v1%20(legacy)-lightgrey" alt="Documentation v1">
+  </a>
+</p>
+
+---
+
 AgentSociety 是用于构建 LLM 驱动智能体仿真、城市环境实验与科研工作流的开源框架。本仓库同时维护推荐使用的 **AgentSociety 2** 与旧版 **AgentSociety 1.x**。
 
-论文见 [arXiv](https://arxiv.org/abs/2502.08691)。
+论文见 [arXiv](https://arxiv.org/abs/2502.08691)：
+
+```bibtex
+@article{piao2025agentsociety,
+  title={AgentSociety: Large-Scale Simulation of LLM-Driven Generative Agents Advances Understanding of Human Behaviors and Society},
+  author={Piao, Jinghua and Yan, Yuwei and Zhang, Jun and Li, Nian and Yan, Junbo and Lan, Xiaochong and Lu, Zhihong and Zheng, Zhiheng and Wang, Jing Yi and Zhou, Di and others},
+  journal={arXiv preprint arXiv:2502.08691},
+  year={2025}
+}
+```
+
+## Star History
+
+<a href="https://www.star-history.com/#tsinghua-fib-lab/AgentSociety&Date">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=tsinghua-fib-lab/AgentSociety&type=Date&theme=dark" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=tsinghua-fib-lab/AgentSociety&type=Date" />
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=tsinghua-fib-lab/AgentSociety&type=Date" />
+ </picture>
+</a>
 
 ## 包结构
 
 ### AgentSociety 2（推荐）
 
-AgentSociety 2 是现代化的 LLM 原生智能体仿真与科研平台，重点支持：
+[![PyPI Version](https://img.shields.io/pypi/v/agentsociety2.svg)](https://pypi.org/project/agentsociety2/)
 
-- 基于 `AgentBase` / `PersonAgent` 的 workspace 绑定智能体（无状态 record，由 Ray Task 流式驱动）
-- 模块化环境与 `CodeGenRouter`（含 ReAct / Plan-Execute / Two-Tier / Search 路由器）
-- 经单一 `ServiceProxy` 注入 env / LLM clients / trace / replay 句柄
-- JSONL replay（catalog-driven，DuckDB 读侧）+ 分布式 trace + agent workspace 多路径记录
-- 文献、假设、实验配置、运行、分析和论文写作等研究技能
-- FastAPI 后端、VS Code 扩展与 React 前端
-
-安装：
+AgentSociety 2 是现代化的 LLM 原生智能体仿真与科研平台：
 
 ```bash
 pip install agentsociety2
 ```
 
-文档：
+**主要特性：**
 
-- [AgentSociety 2 文档](https://agentsociety2.readthedocs.io/)
-- [包内 README](./packages/agentsociety2/README_zh.md)
-- [源码](./packages/agentsociety2/)
+- **LLM 原生设计**：从底层为 LLM 驱动智能体构建
+- **灵活的环境系统**：模块化环境组件，支持热插拔工具
+- **多种推理模式**：CodeGen（默认）、ReAct、Plan-Execute、Two-Tier 和 Search 路由器
+- **可扩展执行**：智能体为 workspace 绑定的无状态 record，由 Ray Task 驱动，通过单一 `ServiceProxy` 注入 env / LLM clients / trace / replay 句柄
+- **科研技能**：文献检索、假设生成、实验设计、论文写作
+- **实验回放**：Catalog-driven JSONL 回放，DuckDB 读侧 + 分布式 trace
+- **MCP 支持**：Model Context Protocol 集成，扩展工具能力
+
+**文档：** [agentsociety2.readthedocs.io](https://agentsociety2.readthedocs.io/)
+
+**源码：** [packages/agentsociety2/](./packages/agentsociety2/)
 
 ### AgentSociety 1.x（旧版）
 
-AgentSociety 1.x 是原始的城市仿真框架，包含 gRPC 环境集成、城市移动/经济/社会模块和分布式仿真能力。
+[![PyPI Version](https://img.shields.io/pypi/v/agentsociety.svg)](https://pypi.org/project/agentsociety/)
+
+AgentSociety 1.x 是原始的城市仿真框架，包含 gRPC 环境集成。
 
 ```bash
 pip install agentsociety
 ```
 
-文档：[agentsociety.readthedocs.io](https://agentsociety.readthedocs.io/)
+**主要特性：**
+
+- 基于 Ray 分布式计算的城市级仿真
+- 城市场景模块（出行、经济、社交）
+- 多智能体协调与通信
+
+**文档：** [agentsociety.readthedocs.io](https://agentsociety.readthedocs.io/)
+
+**源码：** [packages/agentsociety/](./packages/agentsociety/)
+
+## 其他包
+
+- **[agentsociety-community](./packages/agentsociety-community/)**：社区贡献的自定义智能体与 Block
+- **[agentsociety-benchmark](./packages/agentsociety-benchmark/)**：智能体评估基准工具
 
 ## 仓库目录
 
-```text
+```
 AgentSociety/
 ├── packages/
 │   ├── agentsociety2/      # v2.x，当前推荐包
@@ -58,7 +119,9 @@ AgentSociety/
 └── examples/               # 示例实验
 ```
 
-## AgentSociety 2 快速示例
+## 快速开始
+
+### AgentSociety 2
 
 运行示例前请先配置 LLM 环境变量，例如：
 
@@ -67,8 +130,6 @@ export AGENTSOCIETY_LLM_API_KEY="your-api-key"
 export AGENTSOCIETY_LLM_API_BASE="https://api.openai.com/v1"
 export AGENTSOCIETY_LLM_MODEL="gpt-5.5"
 ```
-
-最小示例：
 
 ```python
 import asyncio
@@ -101,35 +162,34 @@ async def main():
 asyncio.run(main())
 ```
 
-## 开发
+### AgentSociety 1.x
 
-```bash
-uv sync
-uv run pytest packages/agentsociety2
-uv run ruff check packages/agentsociety2
+```python
+from agentsociety import AgentSociety
+
+# 详见 packages/agentsociety/README.md
 ```
 
-前端：
+## 环境要求
 
-```bash
-cd frontend
-npm install
-npm run dev
-```
+- Python >= 3.11
+- LLM API Key（OpenAI、Anthropic 或任意 litellm 支持的供应商）
 
-VS Code 扩展：
+## 贡献者
 
-```bash
-cd extension
-npm install
-npm run build
-```
+感谢所有为本项目做出贡献的人：
+
+<a href="https://github.com/tsinghua-fib-lab/AgentSociety/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=tsinghua-fib-lab/AgentSociety" alt="Contributors" />
+</a>
 
 ## 许可证
 
 AgentSociety 采用 Apache License 2.0，`packages/agentsociety/commercial` 目录除外。详见 [LICENSE](./LICENSE)。
 
 ## 引用
+
+如果您在研究中使用了 AgentSociety，请引用：
 
 ```bibtex
 @article{piao2025agentsociety,
@@ -139,3 +199,9 @@ AgentSociety 采用 Apache License 2.0，`packages/agentsociety/commercial` 目�
   year={2025}
 }
 ```
+
+## 联系我们
+
+- **Issues**：[GitHub Issues](https://github.com/tsinghua-fib-lab/AgentSociety/issues)
+- **Discussions**：[GitHub Discussions](https://github.com/tsinghua-fib-lab/AgentSociety/discussions)
+- **Email**：agentsociety.fiblab2025@gmail.com

@@ -56,7 +56,7 @@ class PrisonersDilemmaEnv(EnvBase):
         payoff_dd: int = 1,
     ):
         """Initialize environment
-        
+
         :param payoff_cc: Payoff when both cooperate (default: 3)
         :param payoff_cd: Payoff when cooperate but opponent defects (default: 0)
         :param payoff_dc: Payoff when defect but opponent cooperates (default: 5)
@@ -71,10 +71,10 @@ class PrisonersDilemmaEnv(EnvBase):
 
         self.round_number = 0
         self.round_history: List[dict] = []
-        
+
         # Pending actions for current round (agent_name -> action)
         self._pending_actions: Dict[str, str] = {}
-        
+
         self._lock = asyncio.Lock()
         self._step_counter: int = 0
 
@@ -225,17 +225,17 @@ class PrisonersDilemmaEnv(EnvBase):
     async def step(self, tick: int, t: datetime):
         """
         Run forward one step.
-        
+
         Executes a round if at least one agent has submitted their action.
         If only one agent submitted, the other agent defaults to 'No' (defect).
-        
+
         :param tick: The number of ticks of this simulation step.
         :param t: The current datetime of the simulation after this step with the ticks.
         """
         async with self._lock:
             self.t = t
             last_round = self.round_history[-1] if self.round_history else None
-            
+
             # Check if we have at least one agent's action to execute a round
             # (Other agents default to 'No' if they haven't submitted)
             if len(self._pending_actions) >= 1:
@@ -244,13 +244,13 @@ class PrisonersDilemmaEnv(EnvBase):
 
                 # Get actions (assuming Agent A and Agent B)
                 agent_names = list(self._pending_actions.keys())
-                
+
                 # Handle cases where one or both agents have submitted
                 if len(agent_names) >= 1:
                     # Get first agent's action (or use default)
                     agent_a_name = agent_names[0]
                     agent_a_action = self._pending_actions[agent_a_name]
-                    
+
                     # Get second agent's action or default to "No" (defect)
                     if len(agent_names) >= 2:
                         agent_b_name = agent_names[1]
