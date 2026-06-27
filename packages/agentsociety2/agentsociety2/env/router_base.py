@@ -312,7 +312,7 @@ class RouterBase(ABC):
             try:
                 sink.append_record(record)
             except Exception:  # noqa: BLE001 - never let tracing break the call
-                pass
+                get_logger().debug("Failed to append trace record to sink", exc_info=True)
 
     def _add_current_time_to_ctx(self, ctx: dict) -> None:
         """向 ctx 注入当前时间信息（原地修改）。"""

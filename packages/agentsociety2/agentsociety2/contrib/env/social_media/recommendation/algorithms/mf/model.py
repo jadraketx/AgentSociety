@@ -4,7 +4,6 @@ MF (矩阵分解) 推荐算法实现
 基于 PyTorch 的矩阵分解算法,使用 SGD 优化
 """
 
-import pickle
 from typing import List, Tuple, Set, Dict, Optional
 import numpy as np
 import torch
@@ -248,7 +247,7 @@ class MFRecommender(RecommenderAlgorithm):
         }
 
         with open(path, 'wb') as f:
-            pickle.dump(checkpoint, f)
+            torch.save(checkpoint, f)  # nosec: internal checkpoint save
 
         get_logger().info(f"MF 模型已保存到 {path}")
 
@@ -259,7 +258,7 @@ class MFRecommender(RecommenderAlgorithm):
         :param path: 模型文件路径
         """
         with open(path, 'rb') as f:
-            checkpoint = pickle.load(f)
+            checkpoint = torch.load(f, weights_only=False)  # nosec: internal checkpoint loading
 
         self.config = checkpoint['config']
         self._user_map = checkpoint['user_map']

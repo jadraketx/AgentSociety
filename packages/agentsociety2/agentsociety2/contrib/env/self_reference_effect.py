@@ -91,34 +91,34 @@ class SelfReferenceEffectEnv(EnvBase):
 
         self.agent_ids = agent_ids
         self.num_agents = len(agent_ids)
-        
+
         # Initialize encoding traits if not provided
         if encoding_traits is None:
             # Default trait list - you can customize this
             self.encoding_traits = self._generate_default_encoding_traits()
         else:
             self.encoding_traits = encoding_traits
-        
+
         # Initialize recognition traits if not provided
         if recognition_traits is None:
             # Use encoding traits plus some new traits
             self.recognition_traits = [t["trait"] for t in self.encoding_traits] + self._generate_new_traits()
         else:
             self.recognition_traits = recognition_traits
-        
+
         # Store encoding ratings: agent_id -> list of {trait, identity, rating}
         self._encoding_ratings: Dict[int, List[Dict[str, Any]]] = {
             agent_id: [] for agent_id in agent_ids
         }
-        
+
         # Store recognition judgments: agent_id -> list of {trait, judge_type, is_correct, rk_type}
         self._recognition_judgments: Dict[int, List[Dict[str, Any]]] = {
             agent_id: [] for agent_id in agent_ids
         }
-        
+
         # Track which traits were presented in encoding phase (for correctness checking)
         self._encoding_trait_set = {t["trait"] for t in self.encoding_traits}
-        
+
         self._lock = asyncio.Lock()
         self._step_counter: int = 0
 
@@ -225,31 +225,31 @@ class SelfReferenceEffectEnv(EnvBase):
             # Validate agent_id
             if agent_id not in self.agent_ids:
                 raise ValueError(f"Agent ID {agent_id} is not in the experiment")
-            
+
             # Validate identity
             identity_lower = identity.lower()
             if identity_lower not in ["self", "friend", "other"]:
                 raise ValueError(
                     f"Invalid identity: {identity}. Must be one of: self, friend, other"
                 )
-            
+
             # Validate rating
             if not isinstance(rating, int):
                 rating = rating
             rating = max(1, min(5, rating))  # Clamp to 1-5
-            
+
             # Check if this trait-identity combination exists in encoding traits
             trait_found = False
             for encoding_trait in self.encoding_traits:
                 if encoding_trait["trait"] == trait and encoding_trait["identity"] == identity_lower:
                     trait_found = True
                     break
-            
+
             if not trait_found:
                 raise ValueError(
                     f"Trait '{trait}' with identity '{identity_lower}' not found in encoding traits list"
                 )
-            
+
             # Check if already submitted
             for existing in self._encoding_ratings[agent_id]:
                 if existing["trait"] == trait and existing["identity"] == identity_lower:
@@ -257,7 +257,7 @@ class SelfReferenceEffectEnv(EnvBase):
                         f"Rating for trait '{trait}' with identity '{identity_lower}' has already been submitted. "
                         f"Current rating: {existing['rating']}"
                     )
-            
+
             # Store the rating
             rating_data = {
                 "trait": trait,
@@ -265,13 +265,13 @@ class SelfReferenceEffectEnv(EnvBase):
                 "rating": rating,
             }
             self._encoding_ratings[agent_id].append(rating_data)
-            
+
             # Check if all encoding traits are completed
             completed = len(self._encoding_ratings[agent_id])
             all_completed = completed == len(self.encoding_traits)
-            
+
             status = "encoding_completed" if all_completed else "submitted"
-            
+
             # Debug log
             import sys
             print(
@@ -279,7 +279,7 @@ class SelfReferenceEffectEnv(EnvBase):
                 f"({completed}/{len(self.encoding_traits)} completed)",
                 file=sys.stderr
             )
-            
+
             return SubmitEncodingRatingResponse(
                 agent_id=agent_id,
                 trait=trait,
@@ -300,10 +300,10 @@ class SelfReferenceEffectEnv(EnvBase):
         async with self._lock:
             if agent_id not in self.agent_ids:
                 raise ValueError(f"Agent ID {agent_id} is not in the experiment")
-            
+
             completed_traits = self._encoding_ratings[agent_id].copy()
             remaining_count = len(self.encoding_traits) - len(completed_traits)
-            
+
             return GetEncodingStatusResponse(
                 agent_id=agent_id,
                 completed_traits=completed_traits,
@@ -328,14 +328,14 @@ class SelfReferenceEffectEnv(EnvBase):
             # Validate agent_id
             if agent_id not in self.agent_ids:
                 raise ValueError(f"Agent ID {agent_id} is not in the experiment")
-            
+
             # Validate judge_type
             judge_type_lower = judge_type.lower()
             if judge_type_lower not in ["old", "new"]:
                 raise ValueError(
                     f"Invalid judge_type: {judge_type}. Must be 'old' or 'new'"
                 )
-            
+
             # Validate rk_type if judge_type is "old"
             if judge_type_lower == "old":
                 if rk_type is None:
@@ -349,13 +349,13 @@ class SelfReferenceEffectEnv(EnvBase):
                     )
             else:
                 rk_type_lower = None
-            
+
             # Check if trait is in recognition traits
             if trait not in self.recognition_traits:
                 raise ValueError(
                     f"Trait '{trait}' not found in recognition traits list"
                 )
-            
+
             # Check if already submitted
             for existing in self._recognition_judgments[agent_id]:
                 if existing["trait"] == trait:
@@ -363,7 +363,7 @@ class SelfReferenceEffectEnv(EnvBase):
                         f"Recognition judgment for trait '{trait}' has already been submitted. "
                         f"Current judgment: {existing['judge_type']}"
                     )
-            
+
             # Determine correctness
             is_correct = False
             if judge_type_lower == "old":
@@ -372,7 +372,7 @@ class SelfReferenceEffectEnv(EnvBase):
             else:  # judge_type == "new"
                 # Correct if trait was NOT in encoding phase
                 is_correct = trait not in self._encoding_trait_set
-            
+
             # Store the judgment
             judgment_data = {
                 "trait": trait,
@@ -381,13 +381,13 @@ class SelfReferenceEffectEnv(EnvBase):
                 "rk_type": rk_type_lower,
             }
             self._recognition_judgments[agent_id].append(judgment_data)
-            
+
             # Check if all recognition traits are completed
             completed = len(self._recognition_judgments[agent_id])
             all_completed = completed == len(self.recognition_traits)
-            
+
             status = "recognition_completed" if all_completed else "submitted"
-            
+
             # Debug log
             import sys
             print(
@@ -396,7 +396,7 @@ class SelfReferenceEffectEnv(EnvBase):
                 f"({completed}/{len(self.recognition_traits)} completed)",
                 file=sys.stderr
             )
-            
+
             return SubmitRecognitionResponse(
                 agent_id=agent_id,
                 trait=trait,
@@ -418,7 +418,7 @@ class SelfReferenceEffectEnv(EnvBase):
         async with self._lock:
             if agent_id not in self.agent_ids:
                 raise ValueError(f"Agent ID {agent_id} is not in the experiment")
-            
+
             # Only return minimal information to avoid memory contamination
             # Don't reveal is_correct or rk_type to prevent agents from using feedback
             completed_judgments = [
@@ -429,7 +429,7 @@ class SelfReferenceEffectEnv(EnvBase):
                 for j in self._recognition_judgments[agent_id]
             ]
             remaining_count = len(self.recognition_traits) - len(self._recognition_judgments[agent_id])
-            
+
             return GetRecognitionStatusResponse(
                 agent_id=agent_id,
                 completed_judgments=completed_judgments,

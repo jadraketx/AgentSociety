@@ -281,7 +281,7 @@ class ModuleRegistry:
                     "kind": str(param.kind),
                 }
         except Exception:
-            pass
+            logger.debug("Failed to inspect signature for tool", exc_info=True)
 
         return {
             "success": True,

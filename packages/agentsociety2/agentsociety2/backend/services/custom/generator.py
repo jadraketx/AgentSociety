@@ -147,7 +147,8 @@ class CustomModuleJsonGenerator:
                             json_file.unlink()
                             count += 1
                 except Exception:
-                    pass
+                    import logging
+                    logging.getLogger(__name__).debug("Failed to clean custom agent JSON", exc_info=True)
 
         # 清理环境模块 JSON
         if self.env_modules_dir.exists():
@@ -159,6 +160,7 @@ class CustomModuleJsonGenerator:
                             json_file.unlink()
                             count += 1
                 except Exception:
-                    pass
+                    import logging
+                    logging.getLogger(__name__).debug("Failed to clean custom env module JSON", exc_info=True)
 
         return count

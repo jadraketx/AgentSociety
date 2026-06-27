@@ -60,7 +60,7 @@ Required env vars: `AGENTSOCIETY_LLM_API_KEY`, `AGENTSOCIETY_LLM_API_BASE`. Defa
 | Area | Entry | Notes |
 | ---- | ----- | ----- |
 | Simulation CLI | `agentsociety2/society/cli.py` | `--log-file` required for background runs |
-| PersonAgent | `agentsociety2/agent/` | metadata-first skill loop; built-ins: observation, memory, cognition, plan |
+| PersonAgent | `agentsociety2/agent/` | metadata-first skill loop; built-in: daily-guidance |
 | Env routers | `agentsociety2/env/` | ReAct, PlanExecute, CodeGen, TwoTier variants |
 | Analysis harness | `agentsociety2/skills/analysis/harness/` | phase gates, EDA embed, experience memory (`draft-reflection` / `promote-reflection`) |
 | Backend API | `agentsociety2/backend/run.py` | FastAPI on `:8001`, separate from CLI |

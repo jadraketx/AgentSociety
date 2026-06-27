@@ -412,6 +412,7 @@ class PersonMemoryRuntime:
                 coerced.append(episode.model_dump())
                 continue
             except Exception:
+                self._logger.debug("Skipping malformed memory episode during validation", exc_info=True)
                 pass
             # Coerce: salvage any text-like field from the raw item.
             text = ""

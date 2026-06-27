@@ -49,6 +49,5 @@ def wait_for_port(
         except (socket.error, socket.timeout) as e:
             # 输出报错内容
             logger.warning(f"Error: {e}")
-            pass
         time.sleep(check_interval)
     return False

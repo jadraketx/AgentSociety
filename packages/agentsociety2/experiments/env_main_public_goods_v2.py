@@ -261,7 +261,7 @@ async def main():
                         traceback.print_exc()
 
                     if latest_round:
-                        round_num_from_env = latest_round.get("round", round_num)
+                        _round_num_from_env = latest_round.get("round", round_num)
                         total_contribution = latest_round.get("total_contribution", 0)
                         public_pool_gain = latest_round.get("public_pool_gain", 0.0)
                         contributions = latest_round.get("contributions", {})

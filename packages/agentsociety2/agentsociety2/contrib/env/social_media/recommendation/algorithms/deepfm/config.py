@@ -31,7 +31,7 @@ class DeepFMConfig:
         """验证配置参数"""
         if self.deep_layers is None:
             self.deep_layers = [64, 32]
-        
+
         if self.embedding_dim <= 0:
             raise ValueError("embedding_dim 必须 > 0")
         if self.learning_rate <= 0:

@@ -18,12 +18,12 @@ jobs:
     permissions:
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Build frontend
         run: |
           bash scripts/rebuild_frontend.sh
-      - uses: astral-sh/setup-uv@v8.1.0
+      - uses: astral-sh/setup-uv@v8.2.0
       - run: cd packages/agentsociety && uv build
       - run: cd packages/agentsociety && uv publish --trusted-publishing always

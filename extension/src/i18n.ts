@@ -1105,9 +1105,6 @@ function getCurrentLanguage(): string {
   const config = vscode.workspace.getConfiguration('aiSocialScientist');
   const language = config.get<string>('language') || vscode.env.language || 'zh-CN';
 
-  // 支持的语言列表
-  const supportedLanguages = ['zh-CN', 'en-US'];
-
   // 如果语言是 zh 或 zh-CN，返回 zh-CN
   if (language.startsWith('zh')) {
     return 'zh-CN';

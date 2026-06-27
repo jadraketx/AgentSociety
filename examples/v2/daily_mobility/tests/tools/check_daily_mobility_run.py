@@ -45,7 +45,8 @@ def _hour(value: str | None, slot: int) -> float:
             t = datetime.fromisoformat(value)
             return t.hour + t.minute / 60.0
         except Exception:
-            pass
+            import logging
+            logging.getLogger(__name__).debug("Failed to parse time value %r", value, exc_info=True)
     return slot * 0.5
 
 

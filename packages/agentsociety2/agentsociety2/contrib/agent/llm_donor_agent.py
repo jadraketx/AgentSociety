@@ -313,8 +313,9 @@ This agent participates in a reputation-based donation game where it can choose 
                 self._cached_Z = int(Z)
                 return self._cached_Z
         except Exception:
-            # 如果查询失败，使用默认值
-            pass
+            # Query failed; use default value
+            import logging
+            logging.getLogger(__name__).debug("Failed to query population size", exc_info=True)
 
         # 如果查询失败，使用默认值（向后兼容）
         self._cached_Z = self.DEFAULT_POPULATION_SIZE
@@ -369,8 +370,9 @@ This agent participates in a reputation-based donation game where it can choose 
                         [f"- {m.get('memory', '')}" for m in recent_memories]
                     )
         except Exception:
-            # 记忆查询失败不影响主流程，静默处理
-            pass
+            # Memory query failed; continue without memory context
+            import logging
+            logging.getLogger(__name__).debug("Failed to query recent memories", exc_info=True)
         return ""
 
     async def _gather_context(self, recipient_id: int) -> Dict[str, Any]:
@@ -563,8 +565,9 @@ Only return "cooperate" or "defect", do not return any other content.
                     user_id=self._memory_user_id,
                 )
             except Exception:
-                # 记忆保存失败不影响主流程，静默处理
-                pass
+                # Memory save failure is non-critical; continue without persisting
+                import logging
+                logging.getLogger(__name__).debug("Failed to save memory", exc_info=True)
 
         return ans
 
@@ -612,10 +615,12 @@ Please summarize their success patterns and provide suggestions: How should I ad
                         user_id=self._memory_user_id,
                     )
                 except Exception:
-                    pass
+                    import logging
+                    logging.getLogger(__name__).debug("Failed to add memory entry", exc_info=True)
         except Exception:
-            # 学习失败不影响主流程，静默处理
-            pass
+            # Learning failure is non-critical; continue without learning
+            import logging
+            logging.getLogger(__name__).debug("Learning from top agents failed", exc_info=True)
 
     async def ask(self, message: str, readonly: bool = True) -> str:
         """Answer a question using LLM and optionally memory.
@@ -641,7 +646,8 @@ Please summarize their success patterns and provide suggestions: How should I ad
                     if memory_items:
                         memory_context = "\n".join(memory_items)
             except Exception:
-                pass
+                import logging
+                logging.getLogger(__name__).debug("Failed to retrieve memory context", exc_info=True)
 
         # Build prompt with memory context
         if memory_context:

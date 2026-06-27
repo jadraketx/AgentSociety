@@ -28,8 +28,6 @@ import { getPlatformAdapter, type SkillSource } from './platforms';
 import {
   CLAUDE_DISABLED_VAULT,
   CATEGORY_MAP,
-  GITHUB_API_TIMEOUT_MS,
-  GITHUB_RAW_TIMEOUT_MS,
   DEFAULT_CLAUDE_SKILL_SOURCES,
   DEFAULT_AGENT_SKILL_SOURCES,
   skillMdPathInDir,

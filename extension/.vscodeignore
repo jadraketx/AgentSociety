@@ -51,6 +51,7 @@ resources/walkthrough/images/gif/switch-vscode-language.gif
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+**/__pycache__
 **/__pycache__/**
 
 # 主扩展进程仅依赖 js-yaml；其余依赖由 webview bundle 内联或仅开发期使用

@@ -373,7 +373,7 @@ class AgentSociety:
             try:
                 self._env_router.set_replay_writer(self._replay_writer)
             except Exception:
-                pass
+                logger.debug("Failed to set replay writer on env router", exc_info=True)
 
         # Ensure workspace_root exists before tasks write into it.
         self._workspace_root.mkdir(parents=True, exist_ok=True)
@@ -394,7 +394,7 @@ class AgentSociety:
         try:
             await self._env_router.close()
         except Exception:
-            pass
+            logger.debug("Error closing env router", exc_info=True)
 
         # Close the proxy's replay actor (if we own the proxy). Trace needs no
         # central close: it is distributed — each writer process appends
@@ -405,7 +405,7 @@ class AgentSociety:
                 try:
                     await replay.close()
                 except Exception:
-                    pass
+                    logger.debug("Error closing replay writer", exc_info=True)
 
         # LLM shutdown is currently a no-op; local Routers die with the process.
         from agentsociety2.config.llm_dispatcher import shutdown_dispatchers

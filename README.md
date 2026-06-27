@@ -195,6 +195,6 @@ If you use AgentSociety in your research, please cite:
 
 ## Contact
 
-- **Issues**: [GitHub Issues](https://github.com/tsinghua-fib-lab/agentsociety/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/tsinghua-fib-lab/agentsociety/discussions)
+- **Issues**: [GitHub Issues](https://github.com/tsinghua-fib-lab/AgentSociety/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/tsinghua-fib-lab/AgentSociety/discussions)
 - **Email**: agentsociety.fiblab2025@gmail.com

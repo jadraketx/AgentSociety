@@ -15,7 +15,7 @@ assignees: ""
 
 <!-- List any steps you've already taken to find an answer. -->
 
-- [ ] Checked the [documentation](...)
+- [ ] Checked the [documentation](https://agentsociety2.readthedocs.io/)
 - [ ] Searched existing issues
 
 ## Context

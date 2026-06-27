@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Table, Button, Modal, Form, Input, Space, Flex, Popconfirm, Dropdown, Tabs, App } from 'antd';
 import dayjs from 'dayjs';
-import 'survey-core/defaultV2.min.css';
+import 'survey-core/survey-core.min.css';
 import { useForm } from 'antd/lib/form/Form';
 import { EllipsisOutlined } from '@ant-design/icons';
 import { Editor } from '../../../components/Editor';

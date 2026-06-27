@@ -991,7 +991,6 @@ class EDAGenerator:
 
         if not entries:
             body = '<p class="hub-empty">暂无 EDA 产物。请先运行 <code>run-eda --type bundle</code>。</p>'
-            tabs_html = ""
         else:
             tab_buttons: List[str] = []
             tab_panels: List[str] = []

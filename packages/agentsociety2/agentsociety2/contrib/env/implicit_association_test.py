@@ -72,7 +72,7 @@ class ImplicitAssociationTestEnv(EnvBase):
         {"block_code": "identity_practice", "stimuli": "她", "identity": "2", "valence": None, "left_label": "others", "right_label": "self", "correct_key": "z"},
         {"block_code": "identity_practice", "stimuli": "俺", "identity": "1", "valence": None, "left_label": "others", "right_label": "self", "correct_key": "m"},
         {"block_code": "identity_practice", "stimuli": "他的", "identity": "2", "valence": None, "left_label": "others", "right_label": "self", "correct_key": "z"},
-        
+
         # Block 2: Valence Practice (12 trials)
         {"block_code": "valence_practice", "stimuli": "可靠", "identity": None, "valence": "1", "left_label": "negative", "right_label": "positive", "correct_key": "m"},
         {"block_code": "valence_practice", "stimuli": "虚伪", "identity": None, "valence": "2", "left_label": "negative", "right_label": "positive", "correct_key": "z"},
@@ -86,7 +86,7 @@ class ImplicitAssociationTestEnv(EnvBase):
         {"block_code": "valence_practice", "stimuli": "卑鄙", "identity": None, "valence": "2", "left_label": "negative", "right_label": "positive", "correct_key": "z"},
         {"block_code": "valence_practice", "stimuli": "真诚", "identity": None, "valence": "1", "left_label": "negative", "right_label": "positive", "correct_key": "m"},
         {"block_code": "valence_practice", "stimuli": "狡猾", "identity": None, "valence": "2", "left_label": "negative", "right_label": "positive", "correct_key": "z"},
-        
+
         # Block 3: Congruent (self+positive, others+negative) - 48 trials
         # Mix of identity and valence words
         {"block_code": "congruent", "stimuli": "我", "identity": "1", "valence": None, "left_label": "others", "right_label": "self", "correct_key": "m"},
@@ -137,7 +137,7 @@ class ImplicitAssociationTestEnv(EnvBase):
         {"block_code": "congruent", "stimuli": "吝啬", "identity": None, "valence": "2", "left_label": "negative", "right_label": "positive", "correct_key": "z"},
         {"block_code": "congruent", "stimuli": "吝啬", "identity": None, "valence": "2", "left_label": "negative", "right_label": "positive", "correct_key": "z"},
         {"block_code": "congruent", "stimuli": "吝啬", "identity": None, "valence": "2", "left_label": "negative", "right_label": "positive", "correct_key": "z"},
-        
+
         # Block 4: Identity Switch (12 trials)
         {"block_code": "identity_switch", "stimuli": "我", "identity": "1", "valence": None, "left_label": "self", "right_label": "others", "correct_key": "z"},
         {"block_code": "identity_switch", "stimuli": "他们", "identity": "2", "valence": None, "left_label": "self", "right_label": "others", "correct_key": "m"},
@@ -151,7 +151,7 @@ class ImplicitAssociationTestEnv(EnvBase):
         {"block_code": "identity_switch", "stimuli": "她", "identity": "2", "valence": None, "left_label": "self", "right_label": "others", "correct_key": "m"},
         {"block_code": "identity_switch", "stimuli": "俺", "identity": "1", "valence": None, "left_label": "self", "right_label": "others", "correct_key": "z"},
         {"block_code": "identity_switch", "stimuli": "他的", "identity": "2", "valence": None, "left_label": "self", "right_label": "others", "correct_key": "m"},
-        
+
         # Block 5: Incongruent (self+negative, others+positive) - 48 trials
         {"block_code": "incongruent", "stimuli": "我", "identity": "1", "valence": None, "left_label": "self", "right_label": "others", "correct_key": "z"},
         {"block_code": "incongruent", "stimuli": "我", "identity": "1", "valence": None, "left_label": "self", "right_label": "others", "correct_key": "z"},

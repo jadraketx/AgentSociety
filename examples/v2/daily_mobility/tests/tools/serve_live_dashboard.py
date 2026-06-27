@@ -70,7 +70,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
                     try:
                         agent_id = int(qs["agent_id"][0])
                     except ValueError:
-                        pass
+                        import logging
+                        logging.getLogger(__name__).debug("Malformed agent_id query param; using default")
                 payload = build_dashboard_payload(
                     self.run_dir, self.log_file, agent_id=agent_id
                 )

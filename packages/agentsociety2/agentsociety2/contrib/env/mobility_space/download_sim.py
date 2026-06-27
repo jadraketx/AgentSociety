@@ -40,7 +40,7 @@ def download_binary(home_dir: str) -> str:
     if not url:
         raise Exception(f"No binary found for {binary_name}")
 
-    response = requests.get(url)
+    response = requests.get(url, timeout=120)
     if response.status_code != 200:
         raise Exception(f"Download failed for {binary_name}")
 

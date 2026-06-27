@@ -357,13 +357,13 @@ Your selection and plan:"""
             try:
                 return json_repair.loads(json_match.group())
             except Exception:
-                pass
+                get_logger().debug("Failed to parse JSON object from text", exc_info=True)
 
         # 尝试直接解析
         try:
             return json_repair.loads(text)
         except Exception:
-            pass
+            get_logger().debug("Failed to parse JSON from text", exc_info=True)
 
         return {}
 

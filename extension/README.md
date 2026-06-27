@@ -301,8 +301,8 @@ npm install && npm run compile
 
 ## 相关链接
 
-- [AgentSociety 项目](https://github.com/tsinghua-fib-lab/agentsociety)
-- [问题反馈](https://github.com/tsinghua-fib-lab/agentsociety/issues)
+- [AgentSociety 项目](https://github.com/tsinghua-fib-lab/AgentSociety)
+- [问题反馈](https://github.com/tsinghua-fib-lab/AgentSociety/issues)
 - [开发指南](DEVELOPMENT.md)
 
 ## 许可证

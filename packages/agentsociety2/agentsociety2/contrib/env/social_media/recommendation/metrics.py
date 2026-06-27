@@ -1,5 +1,5 @@
 """
-推荐系统评估指标模块 
+推荐系统评估指标模块
 """
 
 import numpy as np
@@ -226,7 +226,8 @@ class MetricsCalculator:
                 user_aucs.append(user_auc)
                 computed_users += 1
             except Exception:
-                pass
+                import logging
+                logging.getLogger(__name__).debug("Failed to compute AUC for user %s", k, exc_info=True)
 
             total_num += counts[k]
 

@@ -455,7 +455,7 @@ Minimal config example:
                             }
                         )
                 except Exception:
-                    pass  # Non-fatal: continue even if observe fails.
+                    logger.debug("Observation failed for agent", exc_info=True)
 
             result = await self.run_react_loop(
                 tick=tick, t=t, observations=initial_obs, skill_hooks=skill_hooks

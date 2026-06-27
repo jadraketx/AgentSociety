@@ -16,8 +16,8 @@ def _validated_user_path(path_str: str, *, field: str) -> Path:
     stripped = path_str.strip()
     if not stripped or "\0" in stripped:
         raise HTTPException(status_code=400, detail=f"Invalid {field}")
-    candidate = Path(stripped).expanduser().resolve()
-    if ".." in candidate.parts:
+    candidate = Path(stripped).resolve()
+    if "~" in stripped or ".." in candidate.parts:
         raise HTTPException(status_code=400, detail=f"Invalid {field}")
     return candidate
 

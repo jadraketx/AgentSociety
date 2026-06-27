@@ -272,7 +272,7 @@ async def main():
                         traceback.print_exc()
 
                     if latest_round:
-                        round_num_from_env = latest_round.get("round", round_num)
+                        _round_num_from_env = latest_round.get("round", round_num)
                         agent_a_action = latest_round.get("agent_a_action", "")
                         agent_b_action = latest_round.get("agent_b_action", "")
                         agent_a_payoff = latest_round.get("agent_a_payoff", 0)

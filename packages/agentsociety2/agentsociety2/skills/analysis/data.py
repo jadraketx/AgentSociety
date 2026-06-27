@@ -469,7 +469,7 @@ class DataReader:
                             "count": row[3],
                         }
                 except sqlite3.Error:
-                    pass
+                    logger.debug("Failed to compute aggregate stats for table %s", table, exc_info=True)
             if table_stats:
                 result[table] = table_stats
 
@@ -516,7 +516,7 @@ class DataReader:
                             "top_values": [(v[0], v[1]) for v in top_values] if top_values else [],
                         }
                 except sqlite3.Error:
-                    pass
+                    logger.debug("Failed to compute column stats for table %s", table, exc_info=True)
             if table_stats:
                 result[table] = table_stats
 
@@ -682,7 +682,7 @@ class ContextLoader:
                 end = datetime.fromisoformat(end_s.replace("Z", "+00:00"))
                 return (end - start).total_seconds()
         except Exception:
-            pass
+            logger.debug("Failed to parse simulation duration", exc_info=True)
         return None
 
     def _analyze_status(
@@ -759,6 +759,6 @@ class ContextLoader:
                 if non_ignorable:
                     failures.append("Runtime log contains ERROR/CRITICAL entries")
             except OSError:
-                pass
+                logger.debug("Failed to read log file", exc_info=True)
 
         return failures

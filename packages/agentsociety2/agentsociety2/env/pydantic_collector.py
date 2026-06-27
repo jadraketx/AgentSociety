@@ -13,7 +13,7 @@ from pydantic import BaseModel
 class PydanticModelCollector:
     """
     Collects all pydantic BaseModel classes from function signatures and their nested fields.
-    
+
     This collector recursively traverses:
     - Function parameter annotations
     - Function return type annotations
@@ -30,7 +30,7 @@ class PydanticModelCollector:
     def collect_from_annotation(self, annotation: Any) -> None:
         """
         Recursively collect all BaseModel classes from a type annotation.
-        
+
         :param annotation: The type annotation to process
         """
         if annotation is None or annotation == inspect.Signature.empty:
@@ -58,7 +58,7 @@ class PydanticModelCollector:
     def _add_model(self, model_class: Type[BaseModel]) -> None:
         """
         Add a BaseModel class to the collection, including all its nested BaseModel fields.
-        
+
         :param model_class: The BaseModel class to add
         """
         if model_class in self.visited_models:
@@ -88,7 +88,7 @@ class PydanticModelCollector:
     def collect_from_function(self, func: Any) -> None:
         """
         Collect all BaseModel classes from a function's signature.
-        
+
         :param func: The function to analyze
         """
         try:
@@ -102,12 +102,13 @@ class PydanticModelCollector:
             self.collect_from_annotation(sig.return_annotation)
         except (ValueError, TypeError):
             # If signature inspection fails, skip this function
-            pass
+            import logging
+            logging.getLogger(__name__).debug("Failed to inspect signature for type collection", exc_info=True)
 
     def collect_from_functions(self, functions: list[Any]) -> None:
         """
         Collect BaseModel classes from a list of functions.
-        
+
         :param functions: List of functions to analyze
         """
         for func in functions:
@@ -116,7 +117,7 @@ class PydanticModelCollector:
     def get_collected_models(self) -> Dict[Type[BaseModel], str]:
         """
         Get all collected BaseModel classes with their source code.
-        
+
         :returns: Dictionary mapping BaseModel classes to their source code strings
         """
         return self.models_dict.copy()

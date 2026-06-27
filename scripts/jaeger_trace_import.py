@@ -61,7 +61,8 @@ def _legacy_records(root: Path) -> list[dict[str, Any]]:
             try:
                 records.append(json.loads(line))
             except json.JSONDecodeError:
-                pass
+                import logging
+                logging.getLogger(__name__).debug("Skipping malformed JSON line in trace file")
     return records
 
 
@@ -75,8 +76,8 @@ def _group_by_trace(records: list[dict[str, Any]]) -> dict[str, list[dict[str, A
 
 def _to_otlp_span(record: dict[str, Any]) -> dict[str, Any]:
     """Convert one AgentSociety JSONL record to an OTLP span."""
-    resource = record.get("resource", {})
-    scope = record.get("scope", {})
+    _resource = record.get("resource", {})
+    _scope = record.get("scope", {})
     attrs = record.get("attributes", {})
 
     return {

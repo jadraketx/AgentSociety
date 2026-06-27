@@ -126,9 +126,9 @@ async def stop_experiment(
                         os.kill(pid, signal.SIGTERM)
                         stopped = True
                     except OSError:
-                        pass
+                        logger.debug("Failed to send SIGTERM to pid %s", pid, exc_info=True)
         except (ValueError, OSError, json.JSONDecodeError):
-            pass
+            logger.debug("Failed to read pid file", exc_info=True)
 
     # Experiment lifecycle is managed externally
     return {
@@ -207,7 +207,7 @@ async def get_experiment_status(
                         elif pid_status == "failed":
                             status = "failed"
         except (ValueError, OSError, json.JSONDecodeError):
-            pass
+            logger.debug("Failed to read pid file for status check", exc_info=True)
 
     # Check for log files
     stdout_log = None
@@ -289,7 +289,7 @@ async def list_experiments(
                             if pid_status == "running" and not is_completed:
                                 pid = None
             except (ValueError, OSError, json.JSONDecodeError):
-                pass
+                logger.debug("Failed to read pid file for running check", exc_info=True)
 
         return has_init, has_run, is_completed, pid, is_running, terminal_status
 

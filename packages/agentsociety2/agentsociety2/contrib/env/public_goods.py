@@ -56,7 +56,7 @@ class PublicGoodsEnv(EnvBase):
         public_pool_multiplier: float = 1.6,
     ):
         """Initialize environment
-        
+
         :param num_agents: Number of agents (default: 4)
         :param initial_endowment: Initial coins per agent per round (default: 20)
         :param public_pool_multiplier: Multiplier for public pool contributions (default: 1.6)
@@ -69,13 +69,13 @@ class PublicGoodsEnv(EnvBase):
 
         self.round_number = 0
         self.round_history: List[dict] = []
-        
+
         # Pending contributions for current round (agent_name -> contribution)
         self._pending_contributions: Dict[str, int] = {}
-        
+
         # Track which agents have submitted in current round
         self._agents_submitted_in_current_round: set = set()
-        
+
         self._lock = asyncio.Lock()
         self._step_counter: int = 0
 
@@ -148,7 +148,7 @@ class PublicGoodsEnv(EnvBase):
     ) -> SubmitContributionResponse:
         """
         Submit contribution decision for an agent in the Public Goods Game.
-        
+
         Game Context: This is a Public Goods Game where agents contribute to a public fund.
         Each round, agents receive coins and can contribute 0 to their endowment to the public fund.
         The total public fund is multiplied and divided equally among all players.
@@ -186,7 +186,7 @@ class PublicGoodsEnv(EnvBase):
     async def get_round_history(self, round_num: Optional[int] = None) -> List[dict]:
         """
         Get round history for the Public Goods Game.
-        
+
         Game Context: This is a Public Goods Game where agents contribute to a public fund.
         Each round summary contains: round number, total contribution, public pool gain, and payoffs for each agent.
         History helps agents understand past contributions and outcomes to make better decisions.
@@ -215,18 +215,18 @@ class PublicGoodsEnv(EnvBase):
     async def step(self, tick: int, t: datetime):
         """
         Run forward one step.
-        
+
         This method is called by the environment router after agents have submitted their decisions.
         All submissions for the current round are processed and the round is executed here,
         ensuring atomicity and consistent state for the next round.
-        
+
         :param tick: The number of ticks of this simulation step.
         :param t: The current datetime of the simulation after this step with the ticks.
         """
         async with self._lock:
             self.t = t
             last_round = self.round_history[-1] if self.round_history else None
-            
+
             # Execute the round if all agents have submitted
             if len(self._agents_submitted_in_current_round) >= self.num_agents:
                 # Execute the round

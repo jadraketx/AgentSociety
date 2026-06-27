@@ -44,7 +44,7 @@ class VolunteerDilemmaEnv(EnvBase):
         cost_c: int = 40,
     ):
         """Initialize environment
-        
+
         :param num_agents: Number of agents (default: 4)
         :param benefit_b: Benefit for everyone if someone volunteers (default: 100)
         :param cost_c: Cost for a volunteer (default: 40)
@@ -57,10 +57,10 @@ class VolunteerDilemmaEnv(EnvBase):
 
         self.round_number = 0
         self.round_history: List[dict] = []
-        
+
         # Pending choices for current round (agent_name -> choice)
         self._pending_choices: Dict[str, str] = {}
-        
+
         self._lock = asyncio.Lock()
         self._step_counter: int = 0
 
@@ -183,16 +183,16 @@ class VolunteerDilemmaEnv(EnvBase):
     async def step(self, tick: int, t: datetime):
         """
         Run forward one step.
-        
+
         Executes a round if all agents have submitted their choices.
-        
+
         :param tick: The number of ticks of this simulation step.
         :param t: The current datetime of the simulation after this step with the ticks.
         """
         async with self._lock:
             self.t = t
             last_round = self.round_history[-1] if self.round_history else None
-            
+
             # Check if we have enough submissions to execute a round
             if len(self._pending_choices) >= self.num_agents:
                 # Execute the round
