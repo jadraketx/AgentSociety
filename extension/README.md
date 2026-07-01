@@ -119,11 +119,12 @@ workspace/
 
 ### AI CLI Gateway
 
-本地代理网关，将 Claude Code / Codex CLI 请求经第三方供应商路由转发。
+本地代理网关，将 Claude Code / Codex CLI 请求经统一供应商池路由转发。
 
 **核心能力**：
-- **多供应商管理**：统一管理 Anthropic 和 OpenAI 兼容供应商，支持 Claude Code 和 Codex 双路由
-- **格式转换**：自动将 Anthropic Messages 请求转换为 OpenAI Chat Completions（支持 thinking/reasoning 和 tool_use），将 Codex Responses 请求转换为 Chat Completions
+- **统一供应商池**：新建供应商按“连接与认证 → 用途 → 模型映射”填写；可直接勾选设为 Claude Code / Codex 主供应商
+- **自动协议检测**：点击检测或获取模型后，网关通过 `/models` 自动识别 Chat/Responses 或 Messages，无需用户手动区分接口类型
+- **自动格式转换**：支持 Anthropic Messages、OpenAI Chat Completions、OpenAI Responses 之间的转换，覆盖流式与非流式响应；文本、system/instructions、工具定义、工具调用/结果、temperature、top_p、max tokens 与 usage 已有回归测试
 - **模型映射**：自动将 Claude 角色模型名（sonnet/opus/haiku/fable）映射为供应商模型名，剥离 `[1M]` 等本地标记
 - **故障转移**：支持多供应商优先级排序和断路器保护，失败后自动切换
 - **用量追踪**：按天展示请求趋势，区分 Claude 与 Codex 来源，支持 7/30/全部 天筛选
@@ -179,7 +180,7 @@ workspace/
 | `PYTHON_PATH` | Python 解释器（留空则自动检测） |
 | `BACKEND_PORT` | 本地后端端口 |
 
-Claude Code 的 API Key / Base URL / 模型映射在配置页 **高级 → Claude Code** 中编辑，保存到 `~/.claude/settings.json`。
+Claude Code / Codex 的供应商、API Key、Base URL、用途开关和模型映射在配置页 **高级 → Claude / Codex 路由** 中统一管理。新增供应商时可选择预设或自定义 URL，勾选“设为 Claude Code 主供应商”和/或“设为 Codex 主供应商”；协议类型无需手动选择，点击“检测”或“获取模型”后会自动识别并写入内部缓存。
 
 ## 开发指南
 
@@ -194,8 +195,10 @@ extension/
 │   ├── services/                 # 服务层
 │   │   ├── aiCliGateway.ts       # HTTP 代理核心（路由、格式转换、上游转发）
 │   │   ├── aiCliGatewayManager.ts # 供应商生命周期、用量追踪、故障转移
+│   │   ├── aiCliGatewayUpstream.ts # 上游供应商类型定义
 │   │   ├── anthropicOpenAiBridge.ts # Anthropic Messages ↔ OpenAI Chat 格式转换
 │   │   ├── codexResponsesBridge.ts # Codex Responses ↔ OpenAI Chat 格式转换
+│   │   ├── responsesAnthropicBridge.ts # Codex Responses ↔ Anthropic Messages 格式转换
 │   │   ├── anthropicModelMapping.ts # Claude 角色模型名 → 供应商模型名映射
 │   │   ├── codexModelMapping.ts   # Codex 模型名 → 供应商模型名映射
 │   │   ├── gatewayFailover.ts     # 故障转移：断路器、优先级排序
@@ -208,7 +211,9 @@ extension/
 │   │   ├── codexSettings.ts       # Codex 配置读写
 │   │   ├── codexApiFormat.ts      # OpenAI API 格式检测
 │   │   ├── backendService.ts      # 后端服务管理
-│   │   └── llmValidator.ts        # LLM 连通性验证
+│   │   ├── llmValidator.ts        # LLM 连通性验证
+│   │   ├── officialBuiltinModels.ts # 内置模型列表（API 不可用时的兜底）
+│   │   └── ...
 │   ├── aiCli/                     # 供应商基础类型与工具（source of truth）
 │   │   ├── officialEndpoints.ts   # 官方端点常量、apiKind 推断
 │   │   ├── providerAuth.ts        # 认证模式判定

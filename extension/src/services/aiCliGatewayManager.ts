@@ -60,6 +60,7 @@ import {
   providerHasConfiguredCredentials,
   type AiCliAuthMode,
 } from '../aiCli/providerAuth';
+import { getSharedOutputChannel } from '../shared/outputChannels';
 
 const UPSTREAM_STATE_KEY = 'aiCliGateway.upstream';
 const UPSTREAM_SECRET_KEY = 'aiCliGateway.upstream.secret';
@@ -105,13 +106,13 @@ export type AiCliProviderConfig = {
 export type AiCliProviderAvailabilityResult = {
   ok: boolean;
   models: number;
+  apiKind?: AiCliApiKind;
   error?: string;
 };
 
 export class AiCliGatewayManager {
   private readonly gateway = new AiCliGateway();
   private outputChannel: vscode.OutputChannel;
-  private logChannel: vscode.OutputChannel;
   private sessionUsage: TokenUsageRecord[] = [];
   private usagePersistTimer: NodeJS.Timeout | undefined;
   private usagePersistPromise: Promise<void> = Promise.resolve();
@@ -120,16 +121,15 @@ export class AiCliGatewayManager {
   private readonly secretsReady: Promise<void>;
 
   constructor(private readonly context: vscode.ExtensionContext) {
-    this.outputChannel = vscode.window.createOutputChannel('AI CLI Gateway');
-    this.logChannel = vscode.window.createOutputChannel('AI CLI Gateway Log');
+    this.outputChannel = getSharedOutputChannel('AI CLI Gateway');
     this.gateway.onLog((entry: GatewayLogEntry) => {
       const tokenInfo =
         entry.inputTokens !== undefined && entry.outputTokens !== undefined
           ? ` in:${entry.inputTokens} out:${entry.outputTokens}`
           : '';
       const failoverInfo = entry.failoverFrom ? ` failover:${entry.failoverFrom}` : '';
-      this.logChannel.appendLine(
-        `${entry.ts} ${entry.method} ${entry.path} → ${entry.status} (${entry.ms}ms)${entry.model ? ` [${entry.model}]` : ''}${tokenInfo}${failoverInfo} [${entry.upstream}]`
+      this.outputChannel.appendLine(
+        `${entry.ts} [request] ${entry.method} ${entry.path} -> ${entry.status} (${entry.ms}ms)${entry.model ? ` model=${entry.model}` : ''}${tokenInfo}${failoverInfo} upstream=${entry.upstream}`
       );
     });
     this.gateway.onUsage((record: TokenUsageRecord) => {
@@ -150,8 +150,6 @@ export class AiCliGatewayManager {
     }
     void this.persistUsage();
     void this.gateway.stop();
-    this.outputChannel.dispose();
-    this.logChannel.dispose();
   }
 
   getPublicStatus(): AiCliGatewayPublicStatus {
@@ -221,7 +219,7 @@ export class AiCliGatewayManager {
   }
 
   getLogChannel(): vscode.OutputChannel {
-    return this.logChannel;
+    return this.outputChannel;
   }
 
   getStoredUpstream(): AiCliGatewayUpstream | undefined {
@@ -383,7 +381,6 @@ export class AiCliGatewayManager {
     return this.getProviders().find(
       (p) =>
         p.activeCodex &&
-        p.apiKind === 'openai' &&
         this.providerHasApiUpstream(p)
     );
   }
@@ -407,6 +404,7 @@ export class AiCliGatewayManager {
     return {
       baseUrl: upstream.baseUrl,
       apiKey: upstream.apiKey,
+      apiKind: upstream.apiKind,
       model: normalized.model,
       sonnetModel: normalized.sonnetModel,
       opusModel: normalized.opusModel,
@@ -489,7 +487,7 @@ export class AiCliGatewayManager {
   }
 
   getActiveCodexProvider(): AiCliProviderConfig | undefined {
-    return this.getProviders().find((p) => p.activeCodex && p.apiKind === 'openai');
+    return this.getProviders().find((p) => p.activeCodex);
   }
 
   claudeConfigForUi(): ClaudeCodeConfigValues {
@@ -700,11 +698,11 @@ export class AiCliGatewayManager {
   async checkProviderAvailability(
     baseUrl: string,
     apiKey: string,
-    apiKind: AiCliApiKind = 'anthropic'
+    apiKind?: AiCliApiKind
   ): Promise<AiCliProviderAvailabilityResult> {
     const result = await fetchProviderModels(baseUrl, apiKey, apiKind);
     if (result.ok) {
-      return { ok: true, models: result.models.length };
+      return { ok: true, models: result.models.length, apiKind: result.apiKind };
     }
     return { ok: false, models: 0, error: result.error };
   }
@@ -746,11 +744,10 @@ export class AiCliGatewayManager {
     const providers = this.getProviders();
     const id = `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const kind = provider.apiKind ?? inferApiKindFromBaseUrl(provider.baseUrl);
-    const isOpenAi = kind === 'openai';
     const activeClaude =
       provider.activeClaude ?? !providers.some((p) => p.activeClaude);
     const activeCodex =
-      provider.activeCodex ?? (isOpenAi && !providers.some((p) => p.activeCodex));
+      provider.activeCodex ?? (!providers.some((p) => p.activeCodex) && Boolean(provider.apiKey?.trim()));
     const failoverClaude = provider.failoverClaude ?? false;
     const failoverCodex = provider.failoverCodex ?? false;
     const entry: AiCliProviderConfig = this.normalizeProvider({
@@ -762,10 +759,21 @@ export class AiCliGatewayManager {
       failoverCodex,
     });
     providers.push(entry);
+    if (entry.activeClaude) {
+      for (const p of providers) {
+        p.activeClaude = p.id === entry.id;
+      }
+    }
+    if (entry.activeCodex) {
+      for (const p of providers) {
+        p.activeCodex = p.id === entry.id;
+      }
+    }
     await this.saveProviders(providers);
     if (entry.activeClaude) {
       await this.applyActiveClaudeProvider(entry);
-    } else if (entry.activeCodex) {
+    }
+    if (entry.activeCodex) {
       await this.applyActiveCodexProvider(entry);
     }
     return entry;
@@ -775,15 +783,15 @@ export class AiCliGatewayManager {
     await this.initialize();
     let providers = this.getProviders().filter((p) => p.id !== id);
     const claudeProviders = providers.filter((p) => this.providerHasCredentials(p));
-    const openai = providers.filter((p) => p.apiKind === 'openai');
+    const codexProviders = providers.filter((p) => this.providerHasApiUpstream(p));
     if (claudeProviders.length > 0 && !claudeProviders.some((p) => p.activeClaude)) {
       providers = providers.map((p) =>
         p.id === claudeProviders[0].id ? { ...p, activeClaude: true } : p
       );
     }
-    if (openai.length > 0 && !openai.some((p) => p.activeCodex)) {
+    if (codexProviders.length > 0 && !codexProviders.some((p) => p.activeCodex)) {
       providers = providers.map((p) =>
-        p.id === openai[0].id ? { ...p, activeCodex: true } : p
+        p.id === codexProviders[0].id ? { ...p, activeCodex: true } : p
       );
     }
     await this.saveProviders(providers);
@@ -793,7 +801,7 @@ export class AiCliGatewayManager {
     } else {
       applyClaudeOfficialSubscription();
     }
-    const activeCodex = providers.find((p) => p.activeCodex && p.apiKind === 'openai');
+    const activeCodex = providers.find((p) => p.activeCodex);
     if (activeCodex) {
       await this.applyActiveCodexProvider(activeCodex);
     } else {
@@ -816,10 +824,21 @@ export class AiCliGatewayManager {
     }
     const next = this.normalizeProvider({ ...providers[index], ...patch, id });
     providers[index] = next;
+    if (next.activeClaude) {
+      for (const p of providers) {
+        p.activeClaude = p.id === id;
+      }
+    }
+    if (next.activeCodex) {
+      for (const p of providers) {
+        p.activeCodex = p.id === id;
+      }
+    }
     await this.saveProviders(providers);
     if (next.activeClaude) {
       await this.applyActiveClaudeProvider(next);
-    } else if (next.activeCodex) {
+    }
+    if (next.activeCodex) {
       await this.applyActiveCodexProvider(next);
     }
     return next;
@@ -843,6 +862,9 @@ export class AiCliGatewayManager {
       await this.context.globalState.update(ROUTE_CLAUDE_STATE_KEY, true);
     }
     const config = this.providerToClaudeConfig(normalized);
+    if (!this.isAnthropicProvider(normalized) && !enabled) {
+      return this.enableWithClaudeConfig(config);
+    }
     if (enabled) {
       if (!this.gateway.getStatus().running) {
         return this.enableWithClaudeConfig(config);
@@ -857,29 +879,26 @@ export class AiCliGatewayManager {
 
   private async applyActiveCodexProvider(provider: AiCliProviderConfig): Promise<AiCliGatewayPublicStatus> {
     const normalized = this.normalizeProvider(provider);
-    if (normalized.apiKind !== 'openai') {
-      return this.getPublicStatus();
-    }
     const enabled = this.context.globalState.get<boolean>(ENABLED_STATE_KEY, false);
     if (isOfficialSubscriptionProvider(normalized)) {
-      if (this.isRouteCodexViaGateway()) {
-        await this.context.globalState.update(ROUTE_CODEX_STATE_KEY, false);
+      if (normalized.apiKind !== 'openai') {
+        if (!this.isRouteCodexViaGateway()) {
+          await this.context.globalState.update(ROUTE_CODEX_STATE_KEY, true);
+        }
+      } else {
+        if (this.isRouteCodexViaGateway()) {
+          await this.context.globalState.update(ROUTE_CODEX_STATE_KEY, false);
+        }
+        applyCodexOfficialSubscription();
+        this.log('Codex official subscription: cleared AgentSociety proxy blocks; run codex login if needed');
+        if (enabled) {
+          await this.reconcileGatewayAfterDirectSwitch();
+        }
+        return this.getPublicStatus();
       }
-      applyCodexOfficialSubscription();
-      this.log('Codex official subscription: cleared AgentSociety proxy blocks; run codex login if needed');
-      if (enabled) {
-        await this.reconcileGatewayAfterDirectSwitch();
-      }
-      return this.getPublicStatus();
     }
-    if (!enabled) {
-      applyCodexDirectProvider({
-        baseUrl: normalized.baseUrl,
-        apiKey: normalized.apiKey,
-        model: normalized.model,
-      });
-      this.log(`Codex direct provider: ${normalized.baseUrl}`);
-      return this.getPublicStatus();
+    if (!isOfficialSubscriptionProvider(normalized) && !this.isRouteCodexViaGateway()) {
+      await this.context.globalState.update(ROUTE_CODEX_STATE_KEY, true);
     }
     if (!this.gateway.getStatus().running) {
       const anthropic = this.getAnthropicProviderForGateway();
@@ -925,15 +944,11 @@ export class AiCliGatewayManager {
     if (!target) {
       throw new Error('provider_not_found');
     }
-    const kind = target.apiKind ?? inferApiKindFromBaseUrl(target.baseUrl);
-    if (role === 'codex' && kind !== 'openai') {
-      throw new Error('provider_wrong_kind');
-    }
     for (const p of providers) {
       if (role === 'claude') {
         p.activeClaude = p.id === id;
       }
-      if (role === 'codex' && p.apiKind === 'openai') {
+      if (role === 'codex') {
         p.activeCodex = p.id === id;
       }
     }
@@ -945,7 +960,7 @@ export class AiCliGatewayManager {
   }
 
   showLogChannel(): void {
-    this.logChannel.show();
+    this.outputChannel.show();
   }
 
   // ============ Usage tracking ============
@@ -1036,6 +1051,10 @@ export class AiCliGatewayManager {
       if (subscription) {
         applyCodexOfficialSubscription();
       }
+      return;
+    }
+    if ((openai.apiKind ?? inferApiKindFromBaseUrl(openai.baseUrl)) !== 'openai') {
+      this.log(`Codex direct provider skipped for Anthropic-compatible upstream; use gateway: ${openai.baseUrl}`);
       return;
     }
     applyCodexDirectProvider({
@@ -1181,7 +1200,7 @@ export class AiCliGatewayManager {
   private buildCodexFailoverUpstreams(): AiCliGatewayUpstream[] {
     const providers = this.getProviders().map((p) => this.normalizeProvider(p));
     const active = providers.find(
-      (p) => p.activeCodex && p.apiKind === 'openai' && this.providerHasApiUpstream(p)
+      (p) => p.activeCodex && this.providerHasApiUpstream(p)
     );
     const list: AiCliGatewayUpstream[] = [];
     if (active) {
@@ -1189,7 +1208,7 @@ export class AiCliGatewayManager {
     }
     // Only include providers explicitly marked for failover
     const failoverCandidates = providers.filter(
-      (p) => p.failoverCodex && p.id !== active?.id && p.apiKind === 'openai' && this.providerHasApiUpstream(p)
+      (p) => p.failoverCodex && p.id !== active?.id && this.providerHasApiUpstream(p)
     );
     for (const p of failoverCandidates) {
       list.push(this.providerToGatewayUpstream(p));
@@ -1231,11 +1250,9 @@ export class AiCliGatewayManager {
       );
     });
     if (match) {
-      if (role === 'codex' && match.apiKind === 'openai') {
+      if (role === 'codex') {
         for (const p of hydrated) {
-          if (p.apiKind === 'openai') {
-            p.activeCodex = p.id === match.id;
-          }
+          p.activeCodex = p.id === match.id;
         }
         await this.saveProviders(hydrated);
       } else if (role === 'claude' && this.isAnthropicProvider(match)) {
@@ -1252,6 +1269,6 @@ export class AiCliGatewayManager {
   }
 
   private log(message: string): void {
-    this.outputChannel.appendLine(`${new Date().toISOString()} ${message}`);
+    this.outputChannel.appendLine(`${new Date().toISOString()} [gateway] ${message}`);
   }
 }

@@ -1,4 +1,5 @@
 import {
+  inferApiKindFromBaseUrl,
   isOfficialAnthropicBaseUrl,
   isOfficialOpenAiBaseUrl,
   resolveProviderBaseUrl,
@@ -12,7 +13,7 @@ export type ClaudeModelOption = {
 };
 
 export type FetchClaudeModelsResult =
-  | { ok: true; models: ClaudeModelOption[] }
+  | { ok: true; models: ClaudeModelOption[]; apiKind: AiCliApiKind }
   | { ok: false; error: string; status?: number };
 
 type ModelRow = {
@@ -112,12 +113,35 @@ async function fetchOnce(url: string, headers: Record<string, string>): Promise<
 export async function fetchProviderModels(
   baseUrl: string,
   apiKey: string,
-  apiKind: AiCliApiKind = 'anthropic'
+  apiKind?: AiCliApiKind
 ): Promise<FetchClaudeModelsResult> {
+  if (!apiKind) {
+    return fetchProviderModelsAuto(baseUrl, apiKey);
+  }
   if (apiKind === 'openai') {
     return fetchOpenAiCompatibleModels(baseUrl, apiKey);
   }
   return fetchClaudeCompatibleModels(baseUrl, apiKey);
+}
+
+export async function fetchProviderModelsAuto(
+  baseUrl: string,
+  apiKey: string
+): Promise<FetchClaudeModelsResult> {
+  const inferred = inferApiKindFromBaseUrl(baseUrl);
+  const first = await fetchProviderModels(baseUrl, apiKey, inferred);
+  if (first.ok) {
+    return first;
+  }
+  const second = await fetchProviderModels(
+    baseUrl,
+    apiKey,
+    inferred === 'openai' ? 'anthropic' : 'openai'
+  );
+  if (second.ok) {
+    return second;
+  }
+  return first.error === 'auth_failed' ? first : second;
 }
 
 export async function fetchOpenAiCompatibleModels(
@@ -130,7 +154,7 @@ export async function fetchOpenAiCompatibleModels(
     return { ok: false, error: 'missing_api_key' };
   }
   if (isOfficialOpenAiBaseUrl(base)) {
-    return { ok: true, models: [...OFFICIAL_OPENAI_MODELS] };
+    return { ok: true, models: [...OFFICIAL_OPENAI_MODELS], apiKind: 'openai' };
   }
 
   const url = buildOpenAiModelsUrl(base);
@@ -149,7 +173,7 @@ export async function fetchOpenAiCompatibleModels(
           continue;
         }
         if (response.status === 404) {
-          return { ok: true, models: [...OFFICIAL_OPENAI_MODELS] };
+          return { ok: true, models: [...OFFICIAL_OPENAI_MODELS], apiKind: 'openai' };
         }
         lastError = 'http_error';
         continue;
@@ -160,7 +184,7 @@ export async function fetchOpenAiCompatibleModels(
         lastError = 'empty_list';
         continue;
       }
-      return { ok: true, models };
+      return { ok: true, models, apiKind: 'openai' };
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         return { ok: false, error: 'timeout', status: lastStatus };
@@ -208,7 +232,7 @@ export async function fetchClaudeCompatibleModels(
         lastError = 'empty_list';
         continue;
       }
-      return { ok: true, models };
+      return { ok: true, models, apiKind: 'anthropic' };
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         return { ok: false, error: 'timeout', status: lastStatus };
@@ -221,7 +245,7 @@ export async function fetchClaudeCompatibleModels(
     (lastError === 'models_not_supported' || lastError === 'http_error' || lastError === 'request_failed') &&
     isOfficialAnthropicBaseUrl(base)
   ) {
-    return { ok: true, models: [...OFFICIAL_ANTHROPIC_MODELS] };
+    return { ok: true, models: [...OFFICIAL_ANTHROPIC_MODELS], apiKind: 'anthropic' };
   }
 
   return { ok: false, error: lastError, status: lastStatus };

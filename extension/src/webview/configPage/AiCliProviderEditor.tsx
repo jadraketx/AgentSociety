@@ -1,6 +1,8 @@
 import * as React from 'react';
 import {
+  Alert,
   Button,
+  Checkbox,
   Input,
   Popconfirm,
   Select,
@@ -22,7 +24,6 @@ import { getProviderPresetsForRole, CODEX_SUGGESTED_MODELS } from './aiCliProvid
 import {
   isOfficialAnthropicBaseUrl,
   isOfficialOpenAiBaseUrl,
-  resolveProviderBaseUrl,
   type AiCliApiKind,
 } from './officialEndpoints';
 import { ClaudeModelSelect } from './ClaudeModelSelect';
@@ -34,28 +35,37 @@ const { Text } = Typography;
 
 const CUSTOM_PRESET = 'custom';
 const MODEL_FIELDS = [
-  { key: 'model' as const, envVar: 'ANTHROPIC_MODEL', labelKey: 'claudeCodeConfig.defaultModel' },
-  { key: 'sonnetModel' as const, envVar: 'ANTHROPIC_DEFAULT_SONNET_MODEL', labelKey: 'claudeCodeConfig.sonnetModel' },
-  { key: 'opusModel' as const, envVar: 'ANTHROPIC_DEFAULT_OPUS_MODEL', labelKey: 'claudeCodeConfig.opusModel' },
-  { key: 'haikuModel' as const, envVar: 'ANTHROPIC_DEFAULT_HAIKU_MODEL', labelKey: 'claudeCodeConfig.haikuModel' },
+  { key: 'model' as const, labelKey: 'claudeCodeConfig.defaultModel', hintKey: 'claudeCodeConfig.modelDefaultHint' },
+  { key: 'sonnetModel' as const, labelKey: 'claudeCodeConfig.sonnetModel', hintKey: 'claudeCodeConfig.modelSonnetHint' },
+  { key: 'opusModel' as const, labelKey: 'claudeCodeConfig.opusModel', hintKey: 'claudeCodeConfig.modelOpusHint' },
+  { key: 'haikuModel' as const, labelKey: 'claudeCodeConfig.haikuModel', hintKey: 'claudeCodeConfig.modelHaikuHint' },
 ];
-const HINT_STYLE: React.CSSProperties = { display: 'block', fontSize: 11, marginBottom: 6 };
-const FIELD_LABEL_STYLE: React.CSSProperties = { fontSize: 11, display: 'block', marginBottom: 4 };
+
+const sectionStyle = (palette: VscodeThemePalette): React.CSSProperties => ({
+  borderTop: `1px solid ${palette.panelBorder}`,
+  paddingTop: 10,
+});
+
+const labelStyle: React.CSSProperties = {
+  fontSize: 11,
+  display: 'block',
+  marginBottom: 4,
+};
 
 type ProviderEditorProps = {
   t: TFunction;
   palette: VscodeThemePalette;
-  editorRole: 'claude' | 'codex';
   provider: AiCliProviderRecord;
   isNew?: boolean;
   models: ClaudeModelOption[];
   modelsLoading: boolean;
   modelsError: string | null;
   availability?: ProviderAvailabilityResult;
+  availabilityResults?: Record<string, ProviderAvailabilityResult>;
   onSave: (p: AiCliProviderRecord) => void;
   onActivate?: (role: 'claude' | 'codex') => void;
   onRemove?: () => void;
-  onCheckAvailability: (baseUrl: string, apiKey: string, apiKind: AiCliApiKind) => void;
+  onCheckAvailability: (baseUrl: string, apiKey: string, apiKind?: AiCliApiKind) => void;
   onFetchModels: (baseUrl: string, apiKey: string, apiKind?: AiCliApiKind) => void;
   onRestartCodex?: () => void;
 };
@@ -63,13 +73,13 @@ type ProviderEditorProps = {
 export function ProviderEditor({
   t,
   palette,
-  editorRole,
   provider,
   isNew,
   models,
   modelsLoading,
   modelsError,
   availability,
+  availabilityResults,
   onSave,
   onActivate,
   onRemove,
@@ -78,45 +88,118 @@ export function ProviderEditor({
   onRestartCodex,
 }: ProviderEditorProps) {
   const [draft, setDraft] = React.useState(provider);
+  const providerIdRef = React.useRef(provider.id);
 
   React.useEffect(() => {
-    setDraft(provider);
+    if (providerIdRef.current !== provider.id) {
+      providerIdRef.current = provider.id;
+      setDraft(provider);
+    }
   }, [provider]);
 
-  const apiKind = editorRole === 'codex' ? 'openai' : (draft.apiKind ?? 'anthropic');
-  const rolePresets =
-    editorRole === 'claude' && apiKind === 'openai'
-      ? getProviderPresetsForRole('codex')
-      : getProviderPresetsForRole(editorRole);
-  const resolvedBase = resolveProviderBaseUrl(draft.baseUrl, apiKind);
+  const presets = React.useMemo(() => {
+    const seen = new Set<string>();
+    return [...getProviderPresetsForRole('claude'), ...getProviderPresetsForRole('codex')]
+      .filter((preset) => {
+        if (seen.has(preset.url)) {
+          return false;
+        }
+        seen.add(preset.url);
+        return true;
+      });
+  }, []);
+
+  const patch = (partial: Partial<AiCliProviderRecord>) => {
+    setDraft((prev) => ({ ...prev, ...partial }));
+  };
+
   const isOfficialUrl = (baseUrl: string) => {
     const trimmed = baseUrl.trim();
-    if (!trimmed) {
-      return false;
-    }
-    return apiKind === 'openai' ? isOfficialOpenAiBaseUrl(trimmed) : isOfficialAnthropicBaseUrl(trimmed);
+    return Boolean(trimmed) && (isOfficialOpenAiBaseUrl(trimmed) || isOfficialAnthropicBaseUrl(trimmed));
   };
   const officialUrl = isOfficialUrl(draft.baseUrl);
-  const authMode = inferProviderAuthMode({ ...draft, apiKind });
+  const effectiveAvailability = availabilityResults?.[draft.baseUrl.trim()] ?? availability;
+  const effectiveDetectedApiKind = effectiveAvailability?.ok ? effectiveAvailability.apiKind : draft.apiKind;
+  const authMode = inferProviderAuthMode({ ...draft, apiKind: effectiveDetectedApiKind });
   const isSubscription = authMode === 'subscription';
-  const matchedPreset =
-    rolePresets.find(
-      (p) => p.url === draft.baseUrl.trim() || p.url === resolvedBase
-    )?.id ?? CUSTOM_PRESET;
+  const canUseApi = isSubscription || Boolean(draft.apiKey.trim());
+  const canProbe = Boolean(draft.baseUrl.trim()) && Boolean(draft.apiKey.trim()) && !isSubscription;
+  const canSave = isSubscription || (Boolean(draft.baseUrl.trim()) && Boolean(draft.apiKey.trim()));
+  const matchedPreset = presets.find((p) => p.url === draft.baseUrl.trim())?.id ?? CUSTOM_PRESET;
+  const selectedForClaude = draft.activeClaude;
+  const selectedForCodex = draft.activeCodex;
 
   const presetOptions = [
-    ...rolePresets.map((p) => ({
+    ...presets.map((p) => ({
       value: p.id,
       label: t(`claudeCodeConfig.baseUrlPresets.${p.id}`),
     })),
     { value: CUSTOM_PRESET, label: t('claudeCodeConfig.baseUrlCustom') },
   ];
 
-  const canFetch = Boolean(draft.apiKey.trim()) && !isSubscription;
-  const isCodex = editorRole === 'codex';
+  const protocolTag = () => {
+    if (!effectiveDetectedApiKind) {
+      return <Tag style={{ margin: 0, fontSize: 10 }}>{t('claudeCodeConfig.providerProtocolAuto')}</Tag>;
+    }
+    return (
+      <Tag color={effectiveDetectedApiKind === 'openai' ? 'blue' : 'purple'} style={{ margin: 0, fontSize: 10 }}>
+        {effectiveDetectedApiKind === 'openai'
+          ? t('claudeCodeConfig.providerProtocolOpenAiDetected')
+          : t('claudeCodeConfig.providerProtocolAnthropicDetected')}
+      </Tag>
+    );
+  };
 
-  const patch = (partial: Partial<AiCliProviderRecord>) => {
-    setDraft((prev) => ({ ...prev, ...partial }));
+  const availabilityTag = () => {
+    if (!effectiveAvailability) {
+      return <Tag style={{ margin: 0, fontSize: 10 }}>{t('claudeCodeConfig.providerCheckNotRun')}</Tag>;
+    }
+    if (!effectiveAvailability.ok) {
+      const errorKey = effectiveAvailability.error ? `claudeCodeConfig.modelsFetchErrors.${effectiveAvailability.error}` : '';
+      const errorText =
+        errorKey && t(errorKey) !== errorKey
+          ? t(errorKey)
+          : effectiveAvailability.error ?? t('claudeCodeConfig.providerUnavailable');
+      return (
+        <Tag color="error" style={{ margin: 0, fontSize: 11 }}>
+          <CloseCircleOutlined /> {errorText}
+        </Tag>
+      );
+    }
+    return (
+      <Tag color="success" style={{ margin: 0, fontSize: 11 }}>
+        <CheckCircleOutlined /> {t('claudeCodeConfig.providerAvailableWithProtocol', {
+          count: effectiveAvailability.models,
+          protocol: effectiveAvailability.apiKind === 'openai'
+            ? t('claudeCodeConfig.providerProtocolOpenAiDetected')
+            : t('claudeCodeConfig.providerProtocolAnthropicDetected'),
+        })}
+      </Tag>
+    );
+  };
+
+  const handlePresetChange = (id: string) => {
+    if (id === CUSTOM_PRESET) {
+      patch({
+        name: draft.name.trim() ? draft.name : '',
+        baseUrl: '',
+        apiKind: undefined,
+        authMode: 'api',
+      });
+      return;
+    }
+    const preset = presets.find((p) => p.id === id);
+    if (!preset) {
+      return;
+    }
+    patch({
+      baseUrl: preset.url,
+      apiKind: preset.apiKind,
+      authMode: preset.official ? 'subscription' : 'api',
+      name: draft.name.trim() ? draft.name : t(`claudeCodeConfig.baseUrlPresets.${preset.id}`),
+      activeClaude: draft.activeClaude || preset.apiKind === 'anthropic',
+      activeCodex: draft.activeCodex || preset.apiKind === 'openai',
+    });
   };
 
   const handleAutoMap = () => {
@@ -126,312 +209,220 @@ export function ProviderEditor({
     patch(autoMapClaudeRoleModels(models, draft));
   };
 
-  const availabilityTag = () => {
-    if (!availability) {
-      return null;
-    }
-    if (!availability.ok) {
-      const errorKey = availability.error
-        ? `claudeCodeConfig.modelsFetchErrors.${availability.error}`
-        : '';
-      const errorText =
-        errorKey && t(errorKey) !== errorKey
-          ? t(errorKey)
-          : availability.error ?? t('claudeCodeConfig.providerUnavailable');
-      return (
-        <Tag color="error" style={{ margin: 0, fontSize: 11 }}>
-          <CloseCircleOutlined /> {errorText}
-        </Tag>
-      );
-    }
-    return (
-      <Tag color="success" style={{ margin: 0, fontSize: 11 }}>
-        <CheckCircleOutlined /> {t('claudeCodeConfig.providerAvailable', { count: availability.models })}
-      </Tag>
-    );
+  const save = () => {
+    const finalKind = effectiveDetectedApiKind ?? draft.apiKind;
+    onSave({
+      ...draft,
+      apiKind: finalKind,
+      authMode: officialUrl
+        ? authMode
+        : inferProviderAuthMode({ ...draft, apiKind: finalKind, authMode: 'api' }),
+    });
   };
 
   return (
-    <Space direction="vertical" style={{ width: '100%' }} size={8}>
-      <Input
-        size="small"
-        placeholder={t('claudeCodeConfig.providerNamePlaceholder')}
-        value={draft.name}
-        onChange={(e) => patch({ name: e.target.value })}
+    <Space direction="vertical" style={{ width: '100%' }} size={12}>
+      <Alert
+        type="info"
+        showIcon
+        message={t('claudeCodeConfig.providerEditorTitle')}
+        description={t('claudeCodeConfig.providerEditorHint')}
       />
-      {editorRole === 'claude' ? (
-        <Select
-          size="small"
-          value={apiKind}
-          style={{ width: '100%' }}
-          options={[
-            { value: 'anthropic', label: t('claudeCodeConfig.providerKindClaude') },
-            { value: 'openai', label: t('claudeCodeConfig.providerKindOpenAiCompatible') },
-          ]}
-          onChange={(value) => patch({
-            apiKind: value,
-            baseUrl: '',
-            authMode: value === 'openai' ? 'api' : draft.authMode,
-            model: '',
-            sonnetModel: value === 'openai' ? '' : draft.sonnetModel,
-            opusModel: value === 'openai' ? '' : draft.opusModel,
-            haikuModel: value === 'openai' ? '' : draft.haikuModel,
-          })}
-        />
-      ) : null}
-      {editorRole === 'claude' && apiKind === 'openai' ? (
-        <Text type="secondary" style={{ fontSize: 11 }}>
-          {t('claudeCodeConfig.providerClaudeOpenAiBridgeHint')}
-        </Text>
-      ) : null}
-      <Space.Compact style={{ width: '100%' }}>
-        <Select
-          size="small"
-          value={matchedPreset}
-          options={presetOptions}
-          style={{ width: 140, flexShrink: 0 }}
-          popupMatchSelectWidth={false}
-          onChange={(id) => {
-            if (id === CUSTOM_PRESET) {
-              patch({
-                baseUrl: '',
-                apiKind,
-                authMode: 'api',
-                name: draft.name.trim() ? draft.name : '',
-              });
-              return;
-            }
-            const preset = rolePresets.find((p) => p.id === id);
-            if (preset) {
-              patch({
-                baseUrl: preset.url,
-                apiKind: preset.apiKind,
-                authMode: preset.official ? 'subscription' : 'api',
-                name: draft.name.trim()
-                  ? draft.name
-                  : t(`claudeCodeConfig.baseUrlPresets.${preset.id}`),
-              });
-            }
-          }}
-        />
-        <Input
-          size="small"
-          placeholder={
-            isCodex
-              ? isOfficialUrl(draft.baseUrl)
-                ? t('claudeCodeConfig.providerUrlPlaceholderOpenAi')
-                : t('claudeCodeConfig.providerUrlPlaceholderCodex')
-              : isOfficialUrl(draft.baseUrl)
-                ? t('claudeCodeConfig.providerUrlOfficialAnthropic')
-                : t('claudeCodeConfig.providerUrlPlaceholder')
-          }
-          value={draft.baseUrl}
-          onChange={(e) => {
-            const nextBaseUrl = e.target.value;
-            const nextOfficial = isOfficialUrl(nextBaseUrl);
-            patch({
-              baseUrl: nextBaseUrl,
-              apiKind,
-              authMode: nextOfficial && draft.authMode !== 'api' ? 'subscription' : 'api',
-            });
-          }}
-        />
-      </Space.Compact>
-      {apiKind === 'openai' ? (
-        <Tag color="blue" style={{ margin: 0, fontSize: 10 }}>
-          {t('claudeCodeConfig.providerKindOpenAiCompatible')}
-        </Tag>
-      ) : isOfficialUrl(draft.baseUrl) ? (
-        <Tag color="purple" style={{ margin: 0, fontSize: 10 }}>
-          {t('claudeCodeConfig.providerKindClaudeOfficial')}
-        </Tag>
-      ) : null}
-      {isSubscription ? (
-        <Text type="secondary" style={{ display: 'block', fontSize: 11 }}>
-          {isCodex
-            ? t('claudeCodeConfig.providerCodexSubscriptionHint')
-            : t('claudeCodeConfig.providerClaudeSubscriptionHint')}
-        </Text>
-      ) : null}
-      {officialUrl ? (
-        <Select
-          size="small"
-          value={authMode}
-          style={{ width: '100%' }}
-          options={[
-            {
-              value: 'subscription',
-              label: t(isCodex ? 'claudeCodeConfig.providerAuthCodexLogin' : 'claudeCodeConfig.providerAuthClaudeLogin'),
-            },
-            { value: 'api', label: t('claudeCodeConfig.providerAuthApiKey') },
-          ]}
-          onChange={(value) => patch({ authMode: value })}
-        />
-      ) : null}
-      {!isSubscription ? (
-        <Input.Password
-          size="small"
-          placeholder={t('claudeCodeConfig.providerKeyPlaceholder')}
-          value={draft.apiKey}
-          onChange={(e) => patch({ apiKey: e.target.value, authMode: 'api' })}
-          autoComplete="off"
-        />
-      ) : null}
 
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, alignItems: 'center' }}>
-        <Button
-          size="small"
-          icon={<CheckCircleOutlined />}
-          onClick={() => onCheckAvailability(draft.baseUrl, draft.apiKey, apiKind)}
-          disabled={!canFetch}
-        >
-          {t('claudeCodeConfig.providerCheckAvailability')}
-        </Button>
-        {availabilityTag()}
-      </div>
-
-      {!isCodex ? (
-        <>
-          <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.modelMapping')}</Text>
-          <Text type="secondary" style={HINT_STYLE}>
-            {t('claudeCodeConfig.modelHotSwitchClaudeHint')}
-          </Text>
-          <Text type="secondary" style={HINT_STYLE}>
-            {t('claudeCodeConfig.modelContextClaudeHint')}
-          </Text>
+      <div>
+        <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.providerConnectionSection')}</Text>
+        <Text type="secondary" style={{ display: 'block', fontSize: 11, margin: '2px 0 8px' }}>
+          {t('claudeCodeConfig.providerConnectionHint')}
+        </Text>
+        <Space direction="vertical" style={{ width: '100%' }} size={8}>
+          <Input
+            size="small"
+            placeholder={t('claudeCodeConfig.providerNamePlaceholder')}
+            value={draft.name}
+            onChange={(e) => patch({ name: e.target.value })}
+          />
+          <Space.Compact style={{ width: '100%' }}>
+            <Select
+              size="small"
+              value={matchedPreset}
+              options={presetOptions}
+              style={{ width: 168, flexShrink: 0 }}
+              popupMatchSelectWidth={false}
+              onChange={handlePresetChange}
+            />
+            <Input
+              size="small"
+              placeholder={t('claudeCodeConfig.providerUrlPlaceholder')}
+              value={draft.baseUrl}
+              onChange={(e) => {
+                const nextBaseUrl = e.target.value;
+                const matched = presets.find((p) => p.url === nextBaseUrl.trim());
+                patch({
+                  baseUrl: nextBaseUrl,
+                  apiKind: matched?.apiKind,
+                  authMode: isOfficialUrl(nextBaseUrl) && draft.authMode !== 'api' ? 'subscription' : 'api',
+                });
+              }}
+            />
+          </Space.Compact>
+          <Space size={6} wrap>
+            {protocolTag()}
+            <Tag color={isSubscription ? 'gold' : 'default'} style={{ margin: 0, fontSize: 10 }}>
+              {isSubscription ? t('claudeCodeConfig.providerAuthSubscription') : t('claudeCodeConfig.providerAuthApiKey')}
+            </Tag>
+            {availabilityTag()}
+          </Space>
+          {officialUrl ? (
+            <Select
+              size="small"
+              value={authMode}
+              style={{ width: '100%' }}
+              options={[
+                {
+                  value: 'subscription',
+                  label: t(isOfficialOpenAiBaseUrl(draft.baseUrl) ? 'claudeCodeConfig.providerAuthCodexLogin' : 'claudeCodeConfig.providerAuthClaudeLogin'),
+                },
+                { value: 'api', label: t('claudeCodeConfig.providerAuthApiKey') },
+              ]}
+              onChange={(value) => patch({ authMode: value })}
+            />
+          ) : null}
+          {!isSubscription ? (
+            <Input.Password
+              size="small"
+              placeholder={t('claudeCodeConfig.providerKeyPlaceholder')}
+              value={draft.apiKey}
+              onChange={(e) => patch({ apiKey: e.target.value, authMode: 'api' })}
+              autoComplete="off"
+            />
+          ) : (
+            <Text type="secondary" style={{ display: 'block', fontSize: 11 }}>
+              {isOfficialOpenAiBaseUrl(draft.baseUrl)
+                ? t('claudeCodeConfig.providerCodexSubscriptionHint')
+                : t('claudeCodeConfig.providerClaudeSubscriptionHint')}
+            </Text>
+          )}
           <Space size={8} wrap>
+            <Button
+              size="small"
+              icon={<CheckCircleOutlined />}
+              onClick={() => onCheckAvailability(draft.baseUrl, draft.apiKey)}
+              disabled={!canProbe}
+            >
+              {t('claudeCodeConfig.providerCheckAvailability')}
+            </Button>
             <Button
               size="small"
               icon={<ReloadOutlined />}
               loading={modelsLoading}
-              disabled={!canFetch}
-              onClick={() => onFetchModels(draft.baseUrl, draft.apiKey, apiKind)}
+              disabled={!canProbe}
+              onClick={() => onFetchModels(draft.baseUrl, draft.apiKey)}
             >
               {t('claudeCodeConfig.fetchModels')}
             </Button>
-            <Button size="small" icon={<ReloadOutlined />} disabled={models.length === 0} onClick={handleAutoMap}>
-              {t('claudeCodeConfig.autoMapModels')}
-            </Button>
-            {modelsError ? (
-              <Tag color="error" style={{ margin: 0 }}>{t('claudeCodeConfig.modelsFetchFailed')}</Tag>
-            ) : models.length > 0 ? (
-              <Tag color="success" style={{ margin: 0 }}>{t('claudeCodeConfig.modelsCount', { count: models.length })}</Tag>
-            ) : null}
           </Space>
+        </Space>
+      </div>
 
+      <div style={sectionStyle(palette)}>
+        <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.providerUsageSection')}</Text>
+        <Text type="secondary" style={{ display: 'block', fontSize: 11, margin: '2px 0 8px' }}>
+          {t('claudeCodeConfig.providerUsageHint')}
+        </Text>
+        <Space direction="vertical" style={{ width: '100%' }} size={6}>
+          <Checkbox
+            checked={selectedForClaude}
+            disabled={!canUseApi}
+            onChange={(e) => patch({ activeClaude: e.target.checked })}
+          >
+            <Text style={{ fontSize: 12 }}>{t('claudeCodeConfig.providerUseForClaude')}</Text>
+          </Checkbox>
+          <Checkbox
+            checked={selectedForCodex}
+            disabled={!canUseApi}
+            onChange={(e) => patch({ activeCodex: e.target.checked })}
+          >
+            <Text style={{ fontSize: 12 }}>{t('claudeCodeConfig.providerUseForCodex')}</Text>
+          </Checkbox>
+          <Text type="secondary" style={{ display: 'block', fontSize: 11 }}>
+            {isSubscription
+              ? t('claudeCodeConfig.providerSubscriptionRoutingHint')
+              : t('claudeCodeConfig.providerApiRoutingHint')}
+          </Text>
+        </Space>
+      </div>
+
+      <div style={sectionStyle(palette)}>
+        <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.modelMapping')}</Text>
+        <Text type="secondary" style={{ display: 'block', fontSize: 11, margin: '2px 0 8px' }}>
+          {t('claudeCodeConfig.providerUnifiedModelHint')}
+        </Text>
+        <Space size={8} wrap style={{ marginBottom: 8 }}>
+          <Button size="small" icon={<ReloadOutlined />} disabled={models.length === 0} onClick={handleAutoMap}>
+            {t('claudeCodeConfig.autoMapModels')}
+          </Button>
+          {onRestartCodex ? (
+            <Button size="small" icon={<ReloadOutlined />} onClick={onRestartCodex}>
+              {t('claudeCodeConfig.restartCodex')}
+            </Button>
+          ) : null}
+          {modelsError ? (
+            <Tag color="error" style={{ margin: 0 }}>{t('claudeCodeConfig.modelsFetchFailed')}</Tag>
+          ) : models.length > 0 ? (
+            <Tag color="success" style={{ margin: 0 }}>{t('claudeCodeConfig.modelsCount', { count: models.length })}</Tag>
+          ) : null}
+        </Space>
+        <Space direction="vertical" style={{ width: '100%' }} size={8}>
           {MODEL_FIELDS.map((field) => (
             <div key={field.key}>
-              <Text type="secondary" style={FIELD_LABEL_STYLE}>
-                {t(field.labelKey)}
-              </Text>
+              <Text type="secondary" style={labelStyle}>{t(field.labelKey)}</Text>
               <ClaudeModelSelect
-                models={models}
+                models={models.length > 0 ? models : CODEX_SUGGESTED_MODELS}
                 value={draft[field.key] ?? ''}
                 onChange={(v) => patch({ [field.key]: v })}
                 placeholder={t('claudeCodeConfig.selectOrManual')}
                 disabled={modelsLoading}
               />
+              <Text type="secondary" style={{ display: 'block', fontSize: 10, marginTop: 2 }}>
+                {t(field.hintKey)}
+              </Text>
             </div>
           ))}
+        </Space>
+      </div>
 
-          <div>
-            <Text type="secondary" style={FIELD_LABEL_STYLE}>
-              {t('claudeCodeConfig.permissionMode')}
-            </Text>
-            <Select
-              size="small"
-              style={{ width: '100%' }}
-              allowClear
-              value={draft.permissionMode || undefined}
-              placeholder={t('claudeCodeConfig.permissionModePlaceholder')}
-              onChange={(v) => patch({ permissionMode: v ?? '' })}
-              options={[
-                { value: '', label: t('claudeCodeConfig.permissionModeDefault') },
-                { value: 'bypassPermissions', label: t('claudeCodeConfig.permissionModeBypass') },
-              ]}
-            />
-          </div>
-        </>
-      ) : (
-        <>
-          <Text type="secondary" style={HINT_STYLE}>
-            {t('claudeCodeConfig.providerOpenAiHint')}
-          </Text>
-          <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.providerCodexModel')}</Text>
-          <Text type="secondary" style={HINT_STYLE}>
-            {t('claudeCodeConfig.providerCodexModelConfigHint')}
-          </Text>
-          <Text type="secondary" style={HINT_STYLE}>
-            {t('claudeCodeConfig.modelHotSwitchCodexHint')}
-          </Text>
-          {!isSubscription ? (
-            <Text type="secondary" style={HINT_STYLE}>
-              {t('claudeCodeConfig.providerCodexModelUpstreamHint')}
-            </Text>
-          ) : null}
-          <Space size={8} wrap style={{ marginBottom: 6 }}>
-            <Button
-              size="small"
-              icon={<ReloadOutlined />}
-              loading={modelsLoading}
-              disabled={!canFetch}
-              onClick={() => onFetchModels(draft.baseUrl, draft.apiKey, 'openai')}
-            >
-              {t('claudeCodeConfig.fetchModels')}
-            </Button>
-            {onRestartCodex ? (
-              <Button size="small" icon={<ReloadOutlined />} onClick={onRestartCodex}>
-                {t('claudeCodeConfig.restartCodex')}
-              </Button>
-            ) : null}
-            {models.length > 0 ? (
-              <Tag color="success" style={{ margin: 0 }}>{t('claudeCodeConfig.modelsCount', { count: models.length })}</Tag>
-            ) : isSubscription ? (
-              <Tag style={{ margin: 0, fontSize: 10 }}>{t('claudeCodeConfig.providerCodexModelSubscriptionDefault')}</Tag>
-            ) : null}
-            {modelsError ? (
-              <Tag color="error" style={{ margin: 0, fontSize: 10, maxWidth: 360, whiteSpace: 'normal' }}>
-                {modelsError}
-              </Tag>
-            ) : null}
-          </Space>
-          <ClaudeModelSelect
-            models={models.length > 0 ? models : CODEX_SUGGESTED_MODELS}
-            value={draft.model ?? ''}
-            onChange={(v) => patch({ model: v })}
-            placeholder={t('claudeCodeConfig.providerCodexModelPlaceholder')}
-            disabled={modelsLoading}
-          />
-        </>
-      )}
+      <div style={sectionStyle(palette)}>
+        <Text type="secondary" style={labelStyle}>{t('claudeCodeConfig.permissionMode')}</Text>
+        <Select
+          size="small"
+          style={{ width: '100%' }}
+          allowClear
+          value={draft.permissionMode || undefined}
+          placeholder={t('claudeCodeConfig.permissionModePlaceholder')}
+          onChange={(v) => patch({ permissionMode: v ?? '' })}
+          options={[
+            { value: '', label: t('claudeCodeConfig.permissionModeDefault') },
+            { value: 'bypassPermissions', label: t('claudeCodeConfig.permissionModeBypass') },
+          ]}
+        />
+      </div>
 
       <Space wrap>
         <Button
           size="small"
           type="primary"
           icon={<SaveOutlined />}
-          disabled={!isSubscription && !canFetch}
-          onClick={() =>
-            onSave({
-              ...draft,
-              apiKind,
-              authMode: officialUrl
-                ? authMode
-                : inferProviderAuthMode({ ...draft, apiKind, authMode: 'api' }),
-              ...(isCodex
-                ? { sonnetModel: '', opusModel: '', haikuModel: '', permissionMode: '' }
-                : {}),
-            })
-          }
+          disabled={!canSave}
+          onClick={save}
         >
           {isNew ? t('claudeCodeConfig.providerAdd') : t('claudeCodeConfig.providerSave')}
         </Button>
-        {!isNew && onActivate && editorRole === 'claude' && !provider.activeClaude ? (
+        {!isNew && onActivate && !provider.activeClaude ? (
           <Button size="small" onClick={() => onActivate('claude')}>
             {t('claudeCodeConfig.providerSwitchClaude')}
           </Button>
         ) : null}
-        {!isNew && onActivate && editorRole === 'codex' && !provider.activeCodex ? (
+        {!isNew && onActivate && !provider.activeCodex ? (
           <Button size="small" onClick={() => onActivate('codex')}>
             {t('claudeCodeConfig.providerSwitchCodex')}
           </Button>

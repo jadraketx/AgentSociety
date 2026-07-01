@@ -362,21 +362,27 @@ export class ConfigPageViewProvider {
     providerId?: string,
     apiKind?: 'anthropic' | 'openai'
   ): Promise<void> {
-    const kind =
-      apiKind ??
-      (providerId
-        ? ConfigPageViewProvider.gatewayManager
-          ?.getProviders()
-          .find((p) => p.id === providerId)?.apiKind
-        : undefined) ??
-      inferApiKindFromBaseUrl(baseUrl);
-    const result = await fetchProviderModels(baseUrl, apiKey, kind);
+    const result = await fetchProviderModels(baseUrl, apiKey, apiKind);
     if (result.ok) {
+      if (providerId && providerId !== '__new__' && ConfigPageViewProvider.gatewayManager) {
+        const provider = ConfigPageViewProvider.gatewayManager
+          .getProviders()
+          .find((p) => p.id === providerId);
+        if (provider && provider.apiKind !== result.apiKind) {
+          await ConfigPageViewProvider.gatewayManager.updateProvider(providerId, {
+            ...provider,
+            apiKind: result.apiKind,
+          });
+          await this._postProvidersAndActiveConfig();
+        }
+      }
       this._panel.webview.postMessage({
         command: 'claudeModelsResult',
         success: true,
         models: result.models,
         providerId,
+        apiKind: result.apiKind,
+        baseUrl,
       });
       return;
     }
@@ -423,6 +429,11 @@ export class ConfigPageViewProvider {
       baseUrl: provider.baseUrl?.trim() ?? '',
       apiKey: provider.apiKey?.trim() ?? '',
       apiKind: provider.apiKind ?? inferApiKindFromBaseUrl(provider.baseUrl ?? ''),
+      authMode: provider.authMode,
+      activeClaude: provider.activeClaude,
+      activeCodex: provider.activeCodex,
+      failoverClaude: provider.failoverClaude,
+      failoverCodex: provider.failoverCodex,
       model: provider.model,
       sonnetModel: provider.sonnetModel,
       opusModel: provider.opusModel,
@@ -519,8 +530,7 @@ export class ConfigPageViewProvider {
     if (!manager) {
       return;
     }
-    const kind = apiKind ?? inferApiKindFromBaseUrl(baseUrl);
-    const result = await manager.checkProviderAvailability(baseUrl, apiKey, kind);
+    const result = await manager.checkProviderAvailability(baseUrl, apiKey, apiKind);
     this._panel.webview.postMessage({
       command: 'gatewayCheckProviderResult',
       baseUrl,

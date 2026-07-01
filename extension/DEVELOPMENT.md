@@ -88,9 +88,31 @@ extension/
 │   ├── portUtils.ts                  # 动态端口分配
 │   ├── workspaceManager.ts           # 工作区管理
 │   ├── services/                     # 服务模块
+│   │   ├── aiCliGateway.ts           # HTTP 代理核心（路由、格式转换、上游转发）
+│   │   ├── aiCliGatewayManager.ts    # 供应商生命周期、用量追踪、故障转移
+│   │   ├── aiCliGatewayUpstream.ts   # 上游供应商类型定义
+│   │   ├── aiCliOfficialEndpoints.ts # 官方端点常量与 apiKind 推断
+│   │   ├── anthropicModelMapping.ts  # Claude 角色模型名 → 供应商模型名映射
+│   │   ├── anthropicOpenAiBridge.ts  # Anthropic Messages ↔ OpenAI Chat 格式转换
 │   │   ├── backendManager.ts         # 后端进程管理
 │   │   ├── backendService.ts         # 后端服务接口
+│   │   ├── claudeCodeModels.ts       # 模型列表拉取
+│   │   ├── claudeCodeSettings.ts     # ~/.claude/settings.json 读写
+│   │   ├── codexApiFormat.ts         # OpenAI API 格式检测
+│   │   ├── codexModelMapping.ts      # Codex 模型名 → 供应商模型名映射
+│   │   ├── codexResponsesBridge.ts   # Codex Responses ↔ OpenAI Chat 格式转换
+│   │   ├── codexSettings.ts          # Codex 配置读写
+│   │   ├── gatewayFailover.ts        # 故障转移：断路器、优先级排序
+│   │   ├── gatewayModelPricing.ts    # 模型定价与成本计算
+│   │   ├── gatewayProviderUsage.ts   # 供应商配额查询
+│   │   ├── gatewayRemotePricing.ts   # 远程定价数据拉取与缓存
+│   │   ├── gatewayUsageTracker.ts    # Token 用量提取与聚合
+│   │   ├── httpClient.ts             # HTTP 请求客户端
+│   │   ├── index.ts                  # 服务模块导出
 │   │   ├── llmValidator.ts           # LLM 配置验证
+│   │   ├── officialBuiltinModels.ts  # 内置模型列表（API 不可用时的兜底）
+│   │   ├── responsesAnthropicBridge.ts # Codex Responses ↔ Anthropic Messages 格式转换
+│   │   ├── validateTimeouts.ts       # 超时配置校验
 │   │   └── workspaceExportManager.ts # 工作区导出
 │   ├── webview/                      # React Webview 组件
 │   │   ├── components/               # 共享组件

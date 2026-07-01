@@ -1,14 +1,14 @@
 import { normalizeUpstreamBaseUrl } from './aiCliGatewayUpstream';
 
 const CODEX_MODEL_BY_HOST: Array<{ pattern: RegExp; model: string }> = [
-  { pattern: /open\.bigmodel\.cn/i, model: 'glm-4.7' },
+  { pattern: /open\.bigmodel\.cn/i, model: 'glm-5.2' },
   { pattern: /api\.kimi\.com/i, model: 'kimi-for-coding' },
   { pattern: /api\.deepseek\.com/i, model: 'deepseek-chat' },
-  { pattern: /minimax/i, model: 'MiniMax-M2.5' },
+  { pattern: /minimax/i, model: 'MiniMax-M3' },
   { pattern: /dashscope\.aliyuncs\.com/i, model: 'qwen-plus' },
-  { pattern: /moonshot\.(cn|ai)/i, model: 'moonshot-v1-8k' },
-  { pattern: /siliconflow\.cn/i, model: 'deepseek-ai/DeepSeek-V3' },
-  { pattern: /openrouter\.ai/i, model: 'openai/gpt-4o' },
+  { pattern: /moonshot\.(cn|ai)/i, model: 'kimi-k2.7-code' },
+  { pattern: /siliconflow\.cn/i, model: 'Pro/deepseek-ai/DeepSeek-V4' },
+  { pattern: /openrouter\.ai/i, model: 'openai/gpt-5.5' },
 ];
 
 const CODEX_PLACEHOLDER_MODEL = /^gpt-|^o\d|codex/i;

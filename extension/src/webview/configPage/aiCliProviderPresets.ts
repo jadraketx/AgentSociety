@@ -43,16 +43,26 @@ export const CODEX_PROVIDER_PRESETS: AiCliProviderPreset[] = [
   { id: 'bailian', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', apiKind: 'openai' },
   { id: 'moonshotOpenAi', url: 'https://api.moonshot.cn/v1', apiKind: 'openai' },
   { id: 'openrouterOpenAi', url: 'https://openrouter.ai/api/v1', apiKind: 'openai' },
+  { id: 'volcengineOpenAi', url: 'https://ark.cn-beijing.volces.com/api/v3', apiKind: 'openai' },
+  { id: 'groq', url: 'https://api.groq.com/openai/v1', apiKind: 'openai' },
+  { id: 'stepfun', url: 'https://api.stepfun.com/v1', apiKind: 'openai' },
 ];
 
 export const CODEX_SUGGESTED_MODELS = [
-  { id: 'gpt-5-codex', label: 'GPT-5 Codex' },
-  { id: 'gpt-5', label: 'GPT-5' },
-  { id: 'glm-4.7', label: 'GLM-4.7' },
+  { id: 'gpt-5.5', label: 'GPT-5.5' },
+  { id: 'gpt-5.5-codex', label: 'GPT-5.5 Codex' },
+  { id: 'gpt-5.4', label: 'GPT-5.4' },
+  { id: 'glm-5.2', label: 'GLM-5.2' },
+  { id: 'glm-5.1', label: 'GLM-5.1' },
+  { id: 'deepseek-chat', label: 'DeepSeek Chat (V4)' },
+  { id: 'deepseek-v4-pro', label: 'DeepSeek V4 Pro' },
+  { id: 'deepseek-r2', label: 'DeepSeek R2' },
+  { id: 'kimi-k2.7-code', label: 'Kimi K2.7 Code' },
   { id: 'kimi-for-coding', label: 'Kimi for Coding' },
-  { id: 'deepseek-chat', label: 'DeepSeek Chat' },
-  { id: 'gpt-4.1', label: 'GPT-4.1' },
-  { id: 'gpt-4o', label: 'GPT-4o' },
+  { id: 'qwen3.7-max', label: 'Qwen 3.7 Max' },
+  { id: 'qwen-plus', label: 'Qwen Plus' },
+  { id: 'MiniMax-M3', label: 'MiniMax M3' },
+  { id: 'step-3.7-flash', label: 'Step 3.7 Flash' },
 ];
 
 export function getProviderPresetsForRole(role: 'claude' | 'codex'): AiCliProviderPreset[] {

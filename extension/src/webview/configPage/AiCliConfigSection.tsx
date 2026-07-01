@@ -62,13 +62,11 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
   const claudeProxyAvailable = gatewayStatus.claudeProxyAvailable ?? false;
   const codexProxyAvailable = gatewayStatus.codexProxyAvailable ?? false;
   const claudeUpstreamCount = providers.filter((p) => providerHasApiUpstream(p)).length;
-  const codexUpstreamCount = providers.filter(
-    (p) => p.apiKind === 'openai' && providerHasApiUpstream(p)
-  ).length;
+  const codexUpstreamCount = providers.filter((p) => providerHasApiUpstream(p)).length;
   const showFailoverToggle =
     (routeClaude && claudeUpstreamCount >= 2) || (routeCodex && codexUpstreamCount >= 2);
   const activeClaudeProvider = providers.find((p) => p.activeClaude);
-  const activeCodexProvider = providers.find((p) => p.activeCodex && p.apiKind === 'openai');
+  const activeCodexProvider = providers.find((p) => p.activeCodex);
 
   const summaryItems = [
     {
@@ -273,7 +271,7 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
                     <Text strong style={{ fontSize: 11, display: 'block', marginBottom: 4 }}>
                       {t('claudeCodeConfig.failoverBackupsFor', { role: 'Codex' })}
                     </Text>
-                    {providers.filter((p) => !p.activeCodex && p.apiKind === 'openai').map((p) => (
+                    {providers.filter((p) => !p.activeCodex && providerHasApiUpstream(p)).map((p) => (
                       <div
                         key={p.id}
                         onClick={() => onToggleFailoverProvider(p.id, 'codex')}
@@ -295,7 +293,7 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
                         {p.name || p.baseUrl || t('claudeCodeConfig.providerUnnamed')}
                       </div>
                     ))}
-                    {providers.filter((p) => !p.activeCodex && p.apiKind === 'openai').length === 0 ? (
+                    {providers.filter((p) => !p.activeCodex && providerHasApiUpstream(p)).length === 0 ? (
                       <Text type="secondary" style={{ fontSize: 10 }}>{t('claudeCodeConfig.failoverNoBackups')}</Text>
                     ) : null}
                   </div>
