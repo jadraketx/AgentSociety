@@ -37,6 +37,17 @@ function formatChartCost(cost: number): string {
   return formatCost(cost);
 }
 
+function localDateKey(value: string | number | Date): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function metricTone(color: string): React.CSSProperties {
   return {
     fontSize: 22,
@@ -49,7 +60,7 @@ function metricTone(color: string): React.CSSProperties {
 
 type TrendMetric = 'requests' | 'tokens' | 'cost';
 type UsageAppFilter = 'all' | 'claude' | 'codex';
-type UsageRangeFilter = 'today' | '7d' | '30d';
+type UsageRangeFilter = 'today' | '7d' | '30d' | 'all';
 
 function emptyStats(): UsageModelStats {
   return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, requests: 0 };
@@ -104,7 +115,7 @@ function aggregatePanelUsage(records: TokenUsageRecord[]): UsageAggregation | nu
     addToStats(modelStats, record);
     aggregation.byModel[model] = modelStats;
 
-    const day = record.ts.slice(0, 10);
+    const day = localDateKey(record.ts);
     const dayStats = aggregation.byDay[day] ?? emptyStats();
     addToStats(dayStats, record);
     aggregation.byDay[day] = dayStats;
@@ -191,12 +202,15 @@ export function GatewayUsagePanel({
   const [editingPricing, setEditingPricing] = React.useState<ModelPricingMap>({});
   const [trendMetric, setTrendMetric] = React.useState<TrendMetric>('tokens');
   const [appFilter, setAppFilter] = React.useState<UsageAppFilter>('all');
-  const [rangeFilter, setRangeFilter] = React.useState<UsageRangeFilter>('7d');
+  const [rangeFilter, setRangeFilter] = React.useState<UsageRangeFilter>('all');
   const autoCachedPricingRef = React.useRef('');
   const rangeRecords = React.useMemo(() => {
+    if (rangeFilter === 'all') {
+      return records;
+    }
     if (rangeFilter === 'today') {
-      const today = new Date().toISOString().slice(0, 10);
-      return records.filter((r) => r.ts.slice(0, 10) === today);
+      const today = localDateKey(Date.now());
+      return records.filter((r) => localDateKey(r.ts) === today);
     }
     const days = rangeFilter === '7d' ? 7 : 30;
     const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
@@ -296,7 +310,7 @@ export function GatewayUsagePanel({
       map.set(k, 0);
     }
     for (const r of filteredRecords) {
-      const dayKey = r.ts.slice(0, 10);
+      const dayKey = localDateKey(r.ts);
       const matchKey = map.has(dayKey) ? dayKey : '';
       if (!matchKey) {
         continue;
@@ -522,6 +536,7 @@ export function GatewayUsagePanel({
               { label: t('claudeCodeConfig.usageRangeToday'), value: 'today' },
               { label: t('claudeCodeConfig.usageRange7d'), value: '7d' },
               { label: t('claudeCodeConfig.usageRange30d'), value: '30d' },
+              { label: t('claudeCodeConfig.usageRangeAll'), value: 'all' },
             ]}
           />
           <Button size="small" icon={<SettingOutlined />} onClick={openPricing}>

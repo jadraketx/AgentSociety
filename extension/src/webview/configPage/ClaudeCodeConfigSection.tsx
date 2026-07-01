@@ -28,7 +28,7 @@ export type ProviderSectionCommonProps = {
   providersLoading: boolean;
   speedtestResults: Record<string, ProviderAvailabilityResult>;
   onSaveProvider: (provider: AiCliProviderRecord) => void;
-  onAddProvider: (draft: Omit<AiCliProviderRecord, 'id' | 'activeClaude' | 'activeCodex'>) => void;
+  onAddProvider: (draft: Omit<AiCliProviderRecord, 'id'>) => void;
   onActivateProvider: (id: string, role: 'claude' | 'codex') => void;
   onRemoveProvider: (id: string) => void;
   onSpeedtestProvider: (baseUrl: string, apiKey: string, apiKind?: 'anthropic' | 'openai') => void;

@@ -65,9 +65,7 @@ export interface AdvancedConfigSectionProps {
   claudeProvidersLoading: boolean;
   providerAvailabilityResults: Record<string, import('./claudeCodeTypes').ProviderAvailabilityResult>;
   onSaveClaudeProvider: (provider: AiCliProviderRecord) => void;
-  onAddClaudeProvider: (
-    draft: Omit<AiCliProviderRecord, 'id' | 'activeClaude' | 'activeCodex'>
-  ) => void;
+  onAddClaudeProvider: (draft: Omit<AiCliProviderRecord, 'id'>) => void;
   onRemoveClaudeProvider: (id: string) => void;
   onActivateClaudeProvider: (id: string, role: 'claude' | 'codex') => void;
   onToggleFailoverProvider: (id: string, role: 'claude' | 'codex') => void;

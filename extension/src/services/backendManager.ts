@@ -23,6 +23,7 @@ import { EnvManager } from '../envManager';
 import { findAvailablePort, isPortAvailable } from '../portUtils';
 import { getBackendAccessUrl, getBackendBindHost, getBackendPort } from '../runtimeConfig';
 import { fetchCompat } from '../shared/fetchCompat';
+import { getSharedOutputChannel } from '../shared/outputChannels';
 
 const fetch = fetchCompat as unknown as typeof globalThis.fetch;
 
@@ -54,7 +55,7 @@ export class BackendManager {
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
-    this.outputChannel = vscode.window.createOutputChannel('AI Social Scientist Backend');
+    this.outputChannel = getSharedOutputChannel('AI Social Scientist Backend');
     this.statusBarItem = vscode.window.createStatusBarItem(
       vscode.StatusBarAlignment.Right,
       100
@@ -955,6 +956,5 @@ export class BackendManager {
     this.stopHealthCheck();
     this.stop();
     this.statusBarItem.dispose();
-    this.outputChannel.dispose();
   }
 }

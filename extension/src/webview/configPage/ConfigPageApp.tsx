@@ -546,7 +546,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
   );
 
   const handleAddClaudeProvider = React.useCallback(
-    (draft: Omit<import('./aiCliProviderTypes').AiCliProviderRecord, 'id' | 'activeClaude' | 'activeCodex'>) => {
+    (draft: Omit<import('./aiCliProviderTypes').AiCliProviderRecord, 'id'>) => {
       setClaudeProvidersLoading(true);
       vscode.postMessage({ command: 'gatewaySaveProvider', provider: draft });
     },
@@ -1010,6 +1010,8 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
           models?: ClaudeModelOption[];
           error?: string;
           providerId?: string;
+          apiKind?: 'anthropic' | 'openai';
+          baseUrl?: string;
         };
         const pid = msg.providerId ?? claudeProviders.find((p) => p.activeClaude)?.id;
         if (!pid) {
@@ -1019,6 +1021,12 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
         if (msg.success && msg.models) {
           setModelsByProvider((prev) => ({ ...prev, [pid]: msg.models! }));
           setModelsErrorByProvider((prev) => ({ ...prev, [pid]: null }));
+          if (msg.baseUrl && msg.apiKind) {
+            setProviderAvailabilityResults((prev) => ({
+              ...prev,
+              [msg.baseUrl!]: { ok: true, models: msg.models?.length ?? 0, apiKind: msg.apiKind },
+            }));
+          }
         } else {
           setModelsByProvider((prev) => ({ ...prev, [pid]: [] }));
           setModelsErrorByProvider((prev) => ({

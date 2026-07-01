@@ -24,7 +24,7 @@ export const EMPTY_PROVIDER_DRAFT: Omit<AiCliProviderRecord, 'id' | 'activeClaud
   name: '',
   baseUrl: '',
   apiKey: '',
-  apiKind: 'anthropic',
+  apiKind: undefined,
   authMode: 'api',
   model: '',
   sonnetModel: '',

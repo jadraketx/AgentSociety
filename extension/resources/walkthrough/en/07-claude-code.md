@@ -33,9 +33,10 @@ Claude Code uses Anthropic by default. The recommended way to configure model ro
 
 The config page provides a **unified provider management panel** — all providers share a single list, no duplicates needed:
 
-- **Shared provider pool**: save each provider once. OpenAI-compatible providers can serve **both** Claude Code and Codex simultaneously; native Anthropic providers serve Claude Code only.
-- **Routing toggles**: a compact panel at the top shows Claude Code and Codex proxy toggles side by side, with clear status indicators.
-- **Activation buttons**: each provider card shows "Set as Claude default" and/or "Set as Codex default" — click to switch the active provider for either tool.
+- **Three-step creation**: fill **Connection and auth → Usage target → Model mapping**. Before saving, use **Check** or **Fetch models** to detect the upstream protocol.
+- **Shared provider pool**: save each provider once. While saving, choose whether it becomes the Claude Code primary provider, the Codex primary provider, or both.
+- **Routing toggles**: a compact panel at the top shows Claude Code and Codex proxy toggles side by side; the gateway converts formats per request.
+- **Model mapping**: the default model is used by Codex and as Claude fallback; Sonnet / Opus / Haiku are Claude Code role-model mappings and can be left empty when unsupported.
 - **Gateway status bar**: when local routing is enabled, the status bar shows `AI Gateway: Claude + Codex` (or whichever tools are routed). Click to open the config page.
 
 You can also manually edit `~/.claude/settings.json` (Mac/Linux) or `UserDir/.claude/settings.json` (Windows):
@@ -58,14 +59,14 @@ You can also manually edit `~/.claude/settings.json` (Mac/Linux) or `UserDir/.cl
 
 The config page includes a built-in **AI CLI Gateway** that can proxy Claude Code and Codex CLI requests through third-party providers:
 
-1. In **Advanced → Claude / Codex routing**, add a provider with Base URL and API Key.
-2. Toggle the **Enable local proxy** switches for Claude Code and/or Codex in the routing panel.
-3. The gateway starts automatically and writes the upstream configuration to `~/.claude/settings.json` and `~/.codex/config.toml`.
-4. After changing providers or models, click **Restart Codex** in the provider editor to apply.
+1. In **Advanced → Claude / Codex routing**, add a provider: choose a preset or enter Base URL, use API Key for third-party APIs, or login mode for official subscriptions.
+2. Choose where the provider is used: **Claude Code primary provider**, **Codex primary provider**, or both.
+3. Click **Check** or **Fetch models** to detect the protocol, then fill the default model and Claude role models from the model list.
+4. After saving, API-key providers route through the local gateway. The gateway writes `~/.claude/settings.json` and `~/.codex/config.toml`. After changing providers or models, click **Restart Codex** to apply.
 
 Official subscriptions (Anthropic Pro/Max, ChatGPT) use direct OAuth login and do **not** need the local gateway — keep proxy toggled off for those.
 
-> 💡 The gateway automatically tracks usage and estimates costs, with built-in, remote (OpenRouter / LiteLLM), and custom pricing support. Estimates price input, output, cache reads, and cache writes separately; Codex records subtract cache hits from billable input. Click **View Log** in the config page to inspect routing details.
+> 💡 The gateway automatically converts between Anthropic Messages, OpenAI Chat Completions, and OpenAI Responses while tracking usage and estimating costs. Text, system/instructions, max tokens, temperature/top_p, tool definitions, tool calls, tool results, streaming events, and usage tracking are covered by regression tests; provider-private extension fields are passed through or ignored when unsupported. Click **View Log** in the config page to inspect routing details.
 
 ---
 

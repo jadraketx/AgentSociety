@@ -45,6 +45,34 @@ export type UsageAggregation = {
 
 export type UsageListener = (record: TokenUsageRecord) => void;
 
+export type SseMessage = {
+  event: string;
+  data: string;
+};
+
+export function parseSseMessages(input: string): SseMessage[] {
+  const messages: SseMessage[] = [];
+  for (const block of input.split(/\r?\n\r?\n/)) {
+    if (!block.trim()) {
+      continue;
+    }
+    let event = '';
+    const data: string[] = [];
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith('event:')) {
+        event = line.slice(6).trim();
+      } else if (line.startsWith('data:')) {
+        const value = line.slice(5);
+        data.push(value.startsWith(' ') ? value.slice(1) : value);
+      }
+    }
+    if (data.length > 0) {
+      messages.push({ event, data: data.join('\n').trim() });
+    }
+  }
+  return messages;
+}
+
 function tryParseAnthropicUsage(obj: unknown): {
   inputTokens: number;
   outputTokens: number;
@@ -58,6 +86,15 @@ function tryParseAnthropicUsage(obj: unknown): {
   const o = obj as Record<string, unknown>;
   const u = (o.usage ?? o.token_usage ?? o.count_tokens) as Record<string, unknown> | undefined;
   if (!u) {
+    return null;
+  }
+  const hasAnthropicUsage =
+    typeof u.input_tokens === 'number' ||
+    typeof u.output_tokens === 'number' ||
+    typeof u.cache_read_input_tokens === 'number' ||
+    typeof u.cache_creation_input_tokens === 'number' ||
+    typeof u.server_tool_use_input_tokens === 'number';
+  if (!hasAnthropicUsage) {
     return null;
   }
   return {
@@ -146,9 +183,19 @@ export function extractTokenUsage(body: unknown): {
       ? o.model
       : '';
 
-  let parsed = tryParseAnthropicUsage(o);
+  const usage = o.usage && typeof o.usage === 'object'
+    ? o.usage as Record<string, unknown>
+    : {};
+  const hasOpenAiUsage =
+    typeof usage.prompt_tokens === 'number' ||
+    typeof usage.completion_tokens === 'number' ||
+    typeof usage.prompt_tokens_details === 'object' ||
+    typeof usage.completion_tokens_details === 'object' ||
+    typeof usage.input_tokens_details === 'object';
+
+  let parsed = hasOpenAiUsage ? tryParseOpenAIUsage(o) : tryParseAnthropicUsage(o);
   if (!parsed) {
-    parsed = tryParseOpenAIUsage(o);
+    parsed = hasOpenAiUsage ? tryParseAnthropicUsage(o) : tryParseOpenAIUsage(o);
   }
   if (!parsed) {
     return null;

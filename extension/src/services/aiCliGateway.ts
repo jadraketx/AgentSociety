@@ -27,6 +27,12 @@ import {
   translateOpenAiChatToAnthropicMessage,
 } from './anthropicOpenAiBridge';
 import {
+  AnthropicMessagesToResponsesStreamTranslator,
+  formatResponsesSseEvent as formatAnthropicResponsesSseEvent,
+  translateAnthropicMessageToResponses,
+  translateResponsesRequestToAnthropicMessages,
+} from './responsesAnthropicBridge';
+import {
   buildFailoverUpstreamOrder,
   FAILOVER_MAX_ATTEMPTS,
   isCircuitOpen,
@@ -39,6 +45,7 @@ import {
   extractTokenUsage,
   extractModelFromRequest,
   extractRequestId,
+  parseSseMessages,
   type TokenUsageRecord,
   type UsageListener,
 } from './gatewayUsageTracker';
@@ -288,19 +295,23 @@ export class AiCliGateway {
     this.failoverListener = listener;
   }
 
-  private normalizeOpenaiUpstream(upstream: AiCliGatewayUpstream): AiCliGatewayUpstream {
+  private normalizeCodexUpstream(upstream: AiCliGatewayUpstream): AiCliGatewayUpstream {
     const baseUrl = upstream.baseUrl.trim();
+    const explicitFormat = upstream.codexApiFormat;
     return {
+      ...upstream,
       baseUrl,
       apiKey: upstream.apiKey.trim(),
-      codexApiFormat: upstream.codexApiFormat ?? inferOpenAiApiFormat(baseUrl),
+      codexApiFormat:
+        explicitFormat ??
+        (upstream.apiKind === 'openai' ? inferOpenAiApiFormat(baseUrl) : undefined),
       codexModel: upstream.codexModel?.trim(),
     };
   }
 
   setOpenaiUpstream(upstream: AiCliGatewayUpstream | null): void {
     if (upstream?.baseUrl.trim() && upstream.apiKey.trim()) {
-      this.openaiUpstream = this.normalizeOpenaiUpstream(upstream);
+      this.openaiUpstream = this.normalizeCodexUpstream(upstream);
     } else {
       this.openaiUpstream = null;
     }
@@ -316,7 +327,7 @@ export class AiCliGateway {
       }));
     this.openaiUpstreams = config.openaiUpstreams
       .filter((u) => u.baseUrl.trim() && u.apiKey.trim())
-      .map((u) => this.normalizeOpenaiUpstream(u));
+      .map((u) => this.normalizeCodexUpstream(u));
     this.failoverEnabled = config.enabled;
     if (this.upstreams.length > 0) {
       this.upstream = this.upstreams[0];
@@ -376,10 +387,10 @@ export class AiCliGateway {
   private commitFailoverUpstream(urlPath: string, upstream: AiCliGatewayUpstream): void {
     const role = this.failoverRoleForPath(urlPath);
     if (role === 'codex') {
-      this.openaiUpstream = this.normalizeOpenaiUpstream(upstream);
+      this.openaiUpstream = this.normalizeCodexUpstream(upstream);
       this.failoverListener?.(this.openaiUpstream, role);
     } else {
-      this.upstream = { baseUrl: upstream.baseUrl.trim(), apiKey: upstream.apiKey.trim() };
+      this.upstream = { ...upstream, baseUrl: upstream.baseUrl.trim(), apiKey: upstream.apiKey.trim() };
       this.failoverListener?.(this.upstream, role);
     }
   }
@@ -536,8 +547,12 @@ export class AiCliGateway {
       method === 'POST' &&
       isAnthropicMessagesPath(urlPath) &&
       Boolean(primaryUpstream.codexApiFormat);
+    const usesCodexAnthropicBridge =
+      method === 'POST' &&
+      isCodexResponsesPath(urlPath) &&
+      !primaryUpstream.codexApiFormat;
 
-    if (usesCodexChatBridge || usesClaudeOpenAiChatBridge) {
+    if (usesCodexChatBridge || usesClaudeOpenAiChatBridge || usesCodexAnthropicBridge) {
       const candidates = this.isFailoverActiveForPath(urlPath)
         ? this.orderedUpstreamsForPath(urlPath)
         : [primaryUpstream];
@@ -565,7 +580,8 @@ export class AiCliGateway {
               body,
               upstream
             )
-            : await this.proxyCodexResponsesViaChat(
+            : usesCodexChatBridge
+              ? await this.proxyCodexResponsesViaChat(
               clientReq,
               clientRes,
               method,
@@ -573,7 +589,16 @@ export class AiCliGateway {
               startTime,
               body,
               upstream
-            );
+              )
+              : await this.proxyCodexResponsesViaAnthropic(
+                clientReq,
+                clientRes,
+                method,
+                urlPath,
+                startTime,
+                body,
+                upstream
+              );
           lastStatus = result.status;
           lastFailDetail = result.detail ?? this.lastError;
           if (result.ok) {
@@ -931,7 +956,6 @@ export class AiCliGateway {
   }
 
   private processUsageFromSSE(fullResponse: string, reqModel: string, upstream: string, urlPath: string): void {
-    const lines = fullResponse.split('\n');
     let lastUsage: {
       model: string;
       inputTokens: number;
@@ -941,16 +965,12 @@ export class AiCliGateway {
       serverToolUseTokens: number;
     } | null = null;
     let lastRequestId = '';
-    for (const line of lines) {
-      if (!line.startsWith('data: ')) {
-        continue;
-      }
-      const payload = line.slice(6).trim();
-      if (payload === '[DONE]') {
+    for (const message of parseSseMessages(fullResponse)) {
+      if (message.data === '[DONE]') {
         continue;
       }
       try {
-        const parsed = JSON.parse(payload);
+        const parsed = JSON.parse(message.data);
         const usage = extractTokenUsage(parsed);
         if (usage) {
           lastUsage = usage;
@@ -1285,32 +1305,48 @@ export class AiCliGateway {
           } | null = null;
           proxyRes.on('data', (chunk: Buffer) => {
             buffer += chunk.toString('utf-8');
-            const blocks = buffer.split(/\n\n/);
+            const blocks = buffer.split(/\r?\n\r?\n/);
             buffer = blocks.pop() ?? '';
             for (const block of blocks) {
-              const dataLine = block.split(/\r?\n/).find((line) => line.startsWith('data:'));
-              if (!dataLine) {
-                continue;
-              }
-              const payload = dataLine.slice(5).trim();
-              if (!payload || payload === '[DONE]') {
-                continue;
-              }
-              try {
-                const parsedChunk = JSON.parse(payload) as Record<string, unknown>;
-                const usage = extractTokenUsage(parsedChunk);
-                if (usage) {
-                  usageInfo = usage;
+              for (const message of parseSseMessages(block)) {
+                if (!message.data || message.data === '[DONE]') {
+                  continue;
                 }
-                for (const event of translator.acceptChunk(parsedChunk)) {
-                  clientRes.write(event);
+                try {
+                  const parsedChunk = JSON.parse(message.data) as Record<string, unknown>;
+                  const usage = extractTokenUsage(parsedChunk);
+                  if (usage) {
+                    usageInfo = usage;
+                  }
+                  for (const event of translator.acceptChunk(parsedChunk)) {
+                    clientRes.write(event);
+                  }
+                } catch {
+                  /* ignore malformed chunks */
                 }
-              } catch {
-                /* ignore malformed chunks */
               }
             }
           });
           proxyRes.on('end', () => {
+            if (buffer) {
+              for (const message of parseSseMessages(buffer)) {
+                if (!message.data || message.data === '[DONE]') {
+                  continue;
+                }
+                try {
+                  const parsedChunk = JSON.parse(message.data) as Record<string, unknown>;
+                  const usage = extractTokenUsage(parsedChunk);
+                  if (usage) {
+                    usageInfo = usage;
+                  }
+                  for (const event of translator.acceptChunk(parsedChunk)) {
+                    clientRes.write(event);
+                  }
+                } catch {
+                  /* ignore malformed final chunk */
+                }
+              }
+            }
             if (!clientRes.writableEnded) {
               clientRes.end();
             }
@@ -1398,6 +1434,211 @@ export class AiCliGateway {
         resolve({ ok: false, status: 502, canRetry: false });
       });
       proxyReq.write(chatBody);
+      proxyReq.end();
+    });
+  }
+
+  /**
+   * Proxy an OpenAI Responses request through an Anthropic Messages-compatible upstream.
+   *
+   * This lets a Claude/Anthropic-compatible provider serve Codex through the
+   * same local gateway. It mirrors the OpenAI Chat bridge: convert request
+   * shape, forward upstream, then convert the response back to Responses.
+   */
+  private async proxyCodexResponsesViaAnthropic(
+    clientReq: IncomingMessage,
+    clientRes: ServerResponse,
+    method: string,
+    urlPath: string,
+    startTime: number,
+    body: Buffer,
+    upstream: AiCliGatewayUpstream
+  ): Promise<ProxyAttemptResult> {
+    let responsesRequest: Record<string, unknown>;
+    try {
+      responsesRequest = JSON.parse(body.toString('utf-8')) as Record<string, unknown>;
+    } catch {
+      this.writeJson(clientRes, 400, { error: 'invalid_json' });
+      return { ok: false, status: 400, canRetry: false };
+    }
+
+    const requestedModel = typeof responsesRequest.model === 'string' ? responsesRequest.model : '';
+    const mappedModel = applyAnthropicModelMapping(
+      { model: requestedModel || upstream.model || 'claude-sonnet-4' },
+      upstream
+    );
+    const anthropicModel = String(
+      mappedModel.mappedModel ?? mappedModel.originalModel ?? upstream.model ?? requestedModel ?? 'claude-sonnet-4'
+    );
+    const anthropicRequest = translateResponsesRequestToAnthropicMessages(responsesRequest, anthropicModel);
+    const targetUrl = resolveUpstreamTargetUrl(upstream.baseUrl, '/v1/messages');
+    const parsed = new URL(targetUrl);
+    const isStreaming = anthropicRequest.stream !== false;
+    const headers = filterForwardHeaders(clientReq.headers, parsed.host);
+    applyUpstreamAuth(headers, upstream.apiKey, upstream.baseUrl);
+    const anthropicBody = Buffer.from(JSON.stringify(anthropicRequest), 'utf-8');
+    headers['content-type'] = 'application/json';
+    headers['content-length'] = String(anthropicBody.length);
+    headers['anthropic-version'] = headers['anthropic-version'] || '2023-06-01';
+    if (isStreaming) {
+      headers.accept = 'text/event-stream';
+    }
+
+    const transport = parsed.protocol === 'https:' ? https : http;
+
+    return new Promise<ProxyAttemptResult>((resolve) => {
+      const proxyReq = transport.request(parsed, { method, headers }, (proxyRes) => {
+        const status = proxyRes.statusCode ?? 502;
+        if (status < 200 || status >= 300) {
+          const canRetry = shouldFailoverHttpStatus(status) && !clientRes.headersSent;
+          const chunks: Buffer[] = [];
+          proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+          proxyRes.on('end', () => {
+            if (canRetry) {
+              resolve({ ok: false, status, canRetry: true });
+              return;
+            }
+            const respBody = Buffer.concat(chunks);
+            const detail = summarizeUpstreamErrorBody(respBody, status);
+            this.lastError = detail;
+            clientRes.writeHead(status, {
+              'content-type': proxyRes.headers['content-type'] ?? 'application/json',
+              'content-length': String(respBody.length),
+            });
+            clientRes.end(respBody);
+            this.emitLog({
+              ts: new Date().toISOString(),
+              method,
+              path: urlPath,
+              upstream: targetUrl,
+              status,
+              ms: Date.now() - startTime,
+              model: anthropicModel,
+            });
+            resolve({ ok: false, status, canRetry: false, detail });
+          });
+          return;
+        }
+
+        if (isStreaming) {
+          const translator = new AnthropicMessagesToResponsesStreamTranslator(responsesRequest);
+          clientRes.writeHead(200, {
+            'content-type': 'text/event-stream',
+            'cache-control': 'no-cache',
+            connection: 'keep-alive',
+          });
+          for (const event of translator.initialEvents()) {
+            clientRes.write(formatAnthropicResponsesSseEvent(event));
+          }
+          let buffer = '';
+          proxyRes.on('data', (chunk: Buffer) => {
+            buffer += chunk.toString('utf-8');
+            const blocks = buffer.split(/\r?\n\r?\n/);
+            buffer = blocks.pop() ?? '';
+            for (const block of blocks) {
+              for (const message of parseSseMessages(block)) {
+                try {
+                  const parsedChunk = JSON.parse(message.data) as Record<string, unknown>;
+                  for (const event of translator.consumeAnthropicEvent(message.event, parsedChunk)) {
+                    clientRes.write(formatAnthropicResponsesSseEvent(event));
+                  }
+                } catch {
+                  /* ignore malformed chunks */
+                }
+              }
+            }
+          });
+          proxyRes.on('end', () => {
+            if (buffer) {
+              for (const message of parseSseMessages(buffer)) {
+                try {
+                  const parsedChunk = JSON.parse(message.data) as Record<string, unknown>;
+                  for (const event of translator.consumeAnthropicEvent(message.event, parsedChunk)) {
+                    clientRes.write(formatAnthropicResponsesSseEvent(event));
+                  }
+                } catch {
+                  /* ignore malformed final chunk */
+                }
+              }
+            }
+            const completion = translator.completionEvent();
+            clientRes.write(formatAnthropicResponsesSseEvent(completion));
+            clientRes.end();
+            const responseBody =
+              completion.response && typeof completion.response === 'object'
+                ? completion.response as Record<string, unknown>
+                : null;
+            const usageInfo = responseBody
+              ? this.emitUsageFromResponseBody(responseBody, anthropicModel, targetUrl, urlPath)
+              : null;
+            this.emitLog({
+              ts: new Date().toISOString(),
+              method,
+              path: urlPath,
+              upstream: targetUrl,
+              status: 200,
+              ms: Date.now() - startTime,
+              model: usageInfo?.model || anthropicModel,
+              inputTokens: usageInfo?.inputTokens,
+              outputTokens: usageInfo?.outputTokens,
+            });
+            resolve({ ok: true, status: 200, canRetry: false });
+          });
+          proxyRes.on('error', () => {
+            clientRes.end();
+            resolve({ ok: false, status: 502, canRetry: false });
+          });
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
+        proxyRes.on('end', () => {
+          const rawBody = Buffer.concat(chunks);
+          try {
+            const parsedBody = JSON.parse(rawBody.toString('utf-8')) as Record<string, unknown>;
+            const translated = translateAnthropicMessageToResponses(parsedBody, responsesRequest);
+            const out = JSON.stringify(translated);
+            clientRes.writeHead(200, {
+              'content-type': 'application/json',
+              'content-length': Buffer.byteLength(out),
+            });
+            clientRes.end(out);
+            const usageInfo = this.emitUsageFromResponseBody(translated, anthropicModel, targetUrl, urlPath);
+            this.emitLog({
+              ts: new Date().toISOString(),
+              method,
+              path: urlPath,
+              upstream: targetUrl,
+              status: 200,
+              ms: Date.now() - startTime,
+              model: usageInfo?.model || anthropicModel,
+              inputTokens: usageInfo?.inputTokens,
+              outputTokens: usageInfo?.outputTokens,
+            });
+            resolve({ ok: true, status: 200, canRetry: false });
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.lastError = message;
+            this.writeJson(clientRes, 502, { error: 'translation_failed', message });
+            resolve({ ok: false, status: 502, canRetry: false, detail: message });
+          }
+        });
+        proxyRes.on('error', () => {
+          clientRes.end();
+          resolve({ ok: false, status: 502, canRetry: false });
+        });
+      });
+      proxyReq.on('error', (err) => {
+        this.lastError = err.message;
+        if (!clientRes.headersSent) {
+          resolve({ ok: false, status: 0, canRetry: true });
+          return;
+        }
+        clientRes.end();
+        resolve({ ok: false, status: 502, canRetry: false });
+      });
+      proxyReq.write(anthropicBody);
       proxyReq.end();
     });
   }

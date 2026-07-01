@@ -52,5 +52,6 @@ export interface ProviderUsageQueryResult {
 export type ProviderAvailabilityResult = {
   ok: boolean;
   models: number;
+  apiKind?: 'anthropic' | 'openai';
   error?: string;
 };

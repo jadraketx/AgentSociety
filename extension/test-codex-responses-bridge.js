@@ -25,12 +25,20 @@ const {
   OpenAiChatToAnthropicStreamTranslator,
 } = require('./out/services/anthropicOpenAiBridge');
 const {
+  translateResponsesRequestToAnthropicMessages,
+  translateAnthropicMessageToResponses,
+} = require('./out/services/responsesAnthropicBridge');
+const {
   normalizePricingModelId,
   selectObservedRemotePricing,
 } = require('./out/services/gatewayRemotePricing');
 const {
   calculateCost,
 } = require('./out/services/gatewayModelPricing');
+const {
+  extractTokenUsage,
+  parseSseMessages,
+} = require('./out/services/gatewayUsageTracker');
 
 function assertNearlyEqual(actual, expected, epsilon = 1e-9) {
   assert.ok(
@@ -230,6 +238,142 @@ test('translateChatCompletionToResponses builds response shell', () => {
   assert.equal(response.status, 'completed');
   assert.equal(response.model, 'glm-4.7');
   assert.ok(Array.isArray(response.output));
+});
+
+test('translateResponsesRequestToAnthropicMessages maps Codex Responses to Anthropic', () => {
+  const msg = translateResponsesRequestToAnthropicMessages(
+    {
+      model: 'gpt-5-codex',
+      instructions: 'You are helpful',
+      input: [{ role: 'user', content: [{ type: 'input_text', text: 'hello' }] }],
+      max_output_tokens: 100,
+      stream: false,
+      tools: [{ type: 'function', name: 'Read', parameters: { type: 'object' } }],
+    },
+    'claude-sonnet-4'
+  );
+  assert.equal(msg.model, 'claude-sonnet-4');
+  assert.equal(msg.system, 'You are helpful');
+  assert.equal(msg.messages[0].role, 'user');
+  assert.equal(msg.messages[0].content, 'hello');
+  assert.equal(msg.tools[0].name, 'Read');
+  assert.equal(msg.stream, false);
+});
+
+test('translateResponsesRequestToAnthropicMessages preserves tool call context and tool choice', () => {
+  const msg = translateResponsesRequestToAnthropicMessages(
+    {
+      model: 'gpt-5-codex',
+      input: [
+        { type: 'function_call', call_id: 'call_1', name: 'Read', arguments: '{"file_path":"README.md"}' },
+        { type: 'function_call_output', call_id: 'call_1', output: 'contents' },
+        { role: 'user', content: [{ type: 'input_text', text: 'continue' }] },
+      ],
+      tools: [{
+        type: 'function',
+        function: {
+          name: 'Read',
+          description: 'read a file',
+          parameters: { type: 'object', properties: { file_path: { type: 'string' } } },
+        },
+      }],
+      tool_choice: { type: 'function', function: { name: 'Read' } },
+      temperature: 0.2,
+      top_p: 0.8,
+      max_output_tokens: 123,
+    },
+    'claude-sonnet-4'
+  );
+  assert.equal(msg.max_tokens, 123);
+  assert.equal(msg.temperature, 0.2);
+  assert.equal(msg.top_p, 0.8);
+  assert.equal(msg.messages[0].role, 'assistant');
+  assert.equal(msg.messages[0].content[0].type, 'tool_use');
+  assert.equal(msg.messages[0].content[0].id, 'call_1');
+  assert.deepEqual(msg.messages[0].content[0].input, { file_path: 'README.md' });
+  assert.equal(msg.messages[1].content[0].type, 'tool_result');
+  assert.equal(msg.messages[1].content[0].tool_use_id, 'call_1');
+  assert.equal(msg.tools[0].input_schema.properties.file_path.type, 'string');
+  assert.deepEqual(msg.tool_choice, { type: 'tool', name: 'Read' });
+});
+
+test('translateAnthropicMessageToResponses maps text, tool use, and usage', () => {
+  const response = translateAnthropicMessageToResponses(
+    {
+      id: 'msg_1',
+      model: 'claude-sonnet-4',
+      content: [
+        { type: 'text', text: 'done' },
+        { type: 'tool_use', id: 'toolu_1', name: 'Read', input: { file_path: 'README.md' } },
+      ],
+      usage: { input_tokens: 7, output_tokens: 3, cache_read_input_tokens: 2 },
+    },
+    { model: 'gpt-5-codex', input: 'hello' }
+  );
+  assert.equal(response.status, 'completed');
+  assert.equal(response.model, 'claude-sonnet-4');
+  assert.equal(response.output[0].content[0].text, 'done');
+  assert.equal(response.output[1].type, 'function_call');
+  assert.equal(response.usage.input_tokens, 9);
+  assert.equal(response.usage.input_tokens_details.cached_tokens, 2);
+});
+
+test('parseSseMessages handles CRLF blocks and preserves usage chunks', () => {
+  const raw = [
+    'data: {"id":"chatcmpl_1","model":"glm-5.1","choices":[{"delta":{"content":"hi"}}]}',
+    '',
+    'data: {"id":"chatcmpl_1","model":"glm-5.1","choices":[],"usage":{"prompt_tokens":12,"completion_tokens":5,"prompt_tokens_details":{"cached_tokens":4}}}',
+    '',
+    'data: [DONE]',
+    '',
+  ].join('\r\n');
+  const messages = parseSseMessages(raw);
+  assert.equal(messages.length, 3);
+  const usage = extractTokenUsage(JSON.parse(messages[1].data));
+  assert.equal(usage.inputTokens, 12);
+  assert.equal(usage.outputTokens, 5);
+  assert.equal(usage.cacheReadTokens, 4);
+});
+
+test('extractTokenUsage recognizes OpenAI chat usage instead of swallowing it as Anthropic', () => {
+  const usage = extractTokenUsage({
+    id: 'chatcmpl_1',
+    model: 'glm-5.1',
+    usage: {
+      prompt_tokens: 12,
+      completion_tokens: 5,
+      prompt_tokens_details: { cached_tokens: 4 },
+    },
+  });
+  assert.equal(usage.inputTokens, 12);
+  assert.equal(usage.outputTokens, 5);
+  assert.equal(usage.cacheReadTokens, 4);
+});
+
+test('extractTokenUsage keeps Anthropic cache usage fields', () => {
+  const usage = extractTokenUsage({
+    id: 'msg_1',
+    model: 'claude-sonnet-4',
+    usage: {
+      input_tokens: 12,
+      output_tokens: 5,
+      cache_read_input_tokens: 7,
+      cache_creation_input_tokens: 3,
+    },
+  });
+  assert.equal(usage.inputTokens, 12);
+  assert.equal(usage.outputTokens, 5);
+  assert.equal(usage.cacheReadTokens, 7);
+  assert.equal(usage.cacheCreationTokens, 3);
+});
+
+test('parseSseMessages joins multi-line data payloads', () => {
+  const messages = parseSseMessages('event: message_delta\ndata: {"usage":\ndata: {"input_tokens":3,"output_tokens":2}}\n\n');
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].event, 'message_delta');
+  const usage = extractTokenUsage(JSON.parse(messages[0].data));
+  assert.equal(usage.inputTokens, 3);
+  assert.equal(usage.outputTokens, 2);
 });
 
 // --- Stream translator: multi-block index correctness ---------------------

@@ -18,6 +18,7 @@
 import * as vscode from 'vscode';
 import { getBackendAccessUrl } from './runtimeConfig';
 import { fetchCompat } from './shared/fetchCompat';
+import { getSharedOutputChannel } from './shared/outputChannels';
 
 const fetch = fetchCompat as unknown as typeof globalThis.fetch;
 
@@ -309,7 +310,7 @@ export class ApiClient {
   private outputChannel: vscode.OutputChannel;
 
   constructor(context: vscode.ExtensionContext) {
-    this.outputChannel = vscode.window.createOutputChannel('AI Social Scientist API');
+    this.outputChannel = getSharedOutputChannel('AI Social Scientist API');
   }
 
   /**

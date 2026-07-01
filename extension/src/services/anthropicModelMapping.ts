@@ -14,7 +14,7 @@ export function stripOneMContextMarker(model: string): string {
 /**
  * Map a Claude Code model name to the upstream provider's model name.
  *
- * Claude Code sends model names like `claude-sonnet-4-6-20250514`.
+ * Claude Code sends model names like `claude-sonnet-4-6`.
  * Third-party providers don't understand these names, so we map them:
  *
  * | Claude Code sends    | Resolves to                  |
