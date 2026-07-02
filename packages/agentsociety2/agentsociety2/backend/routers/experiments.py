@@ -19,6 +19,7 @@ from agentsociety2.backend.path_security import (
     resolve_artifact_path,
     resolve_experiment_dir,
     resolve_under_root,
+    require_safe_segment,
 )
 from agentsociety2.logger import get_logger
 from agentsociety2.storage.replay_metadata import AGENT_PROFILE_DATASET_CAPABILITY
@@ -143,6 +144,9 @@ async def get_experiment_info(
 
     返回指定实验的状态、开始/结束时间、Agent 数量和已执行 step 数。
     """
+    # Validate path parameters at the API boundary
+    require_safe_segment(hypothesis_id, field="hypothesis_id")
+    require_safe_segment(experiment_id, field="experiment_id")
     exp_path = _get_experiment_path(workspace_path, hypothesis_id, experiment_id)
 
     if not exp_path.exists():
@@ -194,6 +198,9 @@ async def list_artifacts(
 ) -> List[Dict[str, str]]:
     """列出实验运行过程中生成的 Markdown 产出文件。"""
 
+    # Validate path parameters at the API boundary
+    require_safe_segment(hypothesis_id, field="hypothesis_id")
+    require_safe_segment(experiment_id, field="experiment_id")
     exp_path = _get_experiment_path(workspace_path, hypothesis_id, experiment_id)
     artifacts_dir = resolve_under_root(exp_path, "run", "artifacts")
 

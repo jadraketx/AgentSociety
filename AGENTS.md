@@ -12,7 +12,7 @@ Only these paths are in active CI, security scanning, and Dependabot scope:
 | `extension/` | VS Code extension |
 | `frontend/` | React web UI |
 
-Legacy (`packages/agentsociety`, `agentsociety-community`, `agentsociety-benchmark`, `docs_v1`) is reference-only. See [`.github/agentsociety2-scope.yml`](./.github/agentsociety2-scope.yml).
+Legacy (`packages/agentsociety`, `agentsociety-community`, `agentsociety-benchmark`, `packages/agentsociety/docs`) is reference-only. See [`.github/agentsociety2-scope.yml`](./.github/agentsociety2-scope.yml).
 
 ## Repository layout
 
@@ -77,6 +77,6 @@ Or run each stack separately — see [CONTRIBUTING.md](./CONTRIBUTING.md).
 ## Docs
 
 - User docs (v2): [agentsociety2.readthedocs.io](https://agentsociety2.readthedocs.io/) — config in `packages/agentsociety2/.readthedocs.yaml`
-- v1 docs: root `.readthedocs.yaml` → `docs_v1/` (legacy)
+- v1 docs: root `.readthedocs.yaml` → `packages/agentsociety/docs/` (legacy)
 - Authoring guide: [READTHEDOCS.md](./READTHEDOCS.md)
 - Changelog: `git-cliff --unreleased` (see `cliff.toml`)

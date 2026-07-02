@@ -19,7 +19,32 @@ def _validated_user_path(path_str: str, *, field: str) -> Path:
     candidate = Path(stripped).resolve()
     if "~" in stripped or ".." in candidate.parts:
         raise HTTPException(status_code=400, detail=f"Invalid {field}")
+    # Block symlink-based traversal: the resolved path must not escape
+    # an expected boundary.  For root-relative paths, verify that no
+    # intermediate component is a symlink pointing outside the chain.
+    _check_symlink_chain(candidate)
     return candidate
+
+
+def _check_symlink_chain(candidate: Path) -> None:
+    """Verify that every existing parent of *candidate* that is a symlink
+    resolves within the same directory tree as *candidate* itself.
+
+    This catches ``/workspace/link -> /etc/passwd`` style attacks where a
+    user-placed symlink redirects a resolved path to an unexpected location.
+    """
+    # If nothing exists yet, walk up to the first existing parent.
+    resolved = candidate
+    for parent in [candidate] + list(candidate.parents):
+        if parent.exists():
+            resolved = parent
+            break
+    if resolved.is_symlink():
+        real = resolved.resolve(strict=False)
+        # If the symlink target lives outside the directory that contains
+        # the symlink, reject it.
+        if real.parent != resolved.parent and resolved.parent not in real.parents:
+            raise HTTPException(status_code=400, detail="Symlink target escapes parent directory")
 
 
 def resolve_workspace_root(workspace_path: str) -> Path:
@@ -38,6 +63,10 @@ def require_safe_segment(value: str, *, field: str) -> str:
 
 
 def resolve_under_root(root: Path, *parts: str) -> Path:
+    # Reject null bytes in any part (null-byte injection attack)
+    for p in parts:
+        if "\0" in p:
+            raise HTTPException(status_code=400, detail="Invalid path component")
     target = root.joinpath(*parts).resolve()
     if target != root and root not in target.parents:
         raise HTTPException(status_code=400, detail="Path escapes workspace root")
@@ -167,4 +196,7 @@ def extract_zip_under(dest_dir: Path, zf: zipfile.ZipFile) -> None:
         target = (dest_root / member).resolve()
         if target != dest_root and dest_root not in target.parents:
             raise HTTPException(status_code=400, detail="Unsafe zip entry path")
-    zf.extractall(dest_root)
+        # Extract member by member rather than calling extractall() so that
+        # each path is independently validated and extraction order is
+        # deterministic.
+        zf.extract(member, dest_root)

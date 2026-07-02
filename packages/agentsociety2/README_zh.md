@@ -146,3 +146,22 @@ uv run ruff format packages/agentsociety2
 ## 许可证
 
 Apache License 2.0，详见 [LICENSE](./LICENSE)。
+
+## 引用
+
+如果您在研究中使用了 AgentSociety 2，请引用：
+
+```bibtex
+@article{piao2025agentsociety,
+  title={AgentSociety: Large-Scale Simulation of LLM-Driven Generative Agents Advances Understanding of Human Behaviors and Society},
+  author={Piao, Jinghua and Yan, Yuwei and Zhang, Jun and Li, Nian and Yan, Junbo and Lan, Xiaochong and Lu, Zhihong and Zheng, Zhiheng and Wang, Jing Yi and Zhou, Di and others},
+  journal={arXiv preprint arXiv:2502.08691},
+  year={2025}
+}
+```
+
+## 联系我们
+
+- **问题反馈**：[GitHub Issues](https://github.com/tsinghua-fib-lab/AgentSociety/issues)
+- **讨论**：[GitHub Discussions](https://github.com/tsinghua-fib-lab/AgentSociety/discussions)
+- **邮件**：agentsociety.fiblab2025@gmail.com
