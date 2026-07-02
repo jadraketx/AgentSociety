@@ -1,4 +1,7 @@
-# AgentSociety: 社会中的 LLM 智能体
+<div style="text-align: center; background-color: white; padding: 20px; border-radius: 30px;">
+  <img src="./static/agentsociety_logo.png" alt="AgentSociety Logo" width="200" style="display: block; margin: 0 auto;">
+  <h1 style="color: black; margin: 0; font-size: 3em;">AgentSociety: 社会中的 LLM 智能体</h1>
+</div>
 
 <p align="center">
   <a href="./README.md">English</a> · <a href="./README_zh.md">中文</a>
@@ -115,7 +118,7 @@ AgentSociety/
 │   └── agentsociety-benchmark/
 ├── frontend/               # React 前端
 ├── extension/              # VS Code 扩展
-├── docs_v1/                # v1 文档
+├── packages/agentsociety/docs/                # v1 文档
 └── examples/               # 示例实验
 ```
 

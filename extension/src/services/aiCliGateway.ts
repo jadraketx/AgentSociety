@@ -1620,7 +1620,11 @@ export class AiCliGateway {
           } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             this.lastError = message;
-            this.writeJson(clientRes, 502, { error: 'translation_failed', message });
+            // Sanitize error message to avoid leaking stack traces or internal details
+            const sanitized = (error instanceof Error && error.stack)
+              ? message.split('\n')[0].trim()
+              : message;
+            this.writeJson(clientRes, 502, { error: 'translation_failed', message: sanitized });
             resolve({ ok: false, status: 502, canRetry: false, detail: message });
           }
         });
@@ -1644,11 +1648,36 @@ export class AiCliGateway {
   }
 
   private writeJson(res: ServerResponse, status: number, payload: unknown): void {
-    const body = JSON.stringify(payload);
+    // Strip stack traces from error payloads before sending
+    const sanitized = this.sanitizeErrorPayload(payload);
+    const body = JSON.stringify(sanitized);
     res.writeHead(status, {
       'Content-Type': 'application/json',
       'Content-Length': Buffer.byteLength(body),
     });
     res.end(body);
+  }
+
+  /** Recursively sanitize error payload: truncate suspicious 'message' fields */
+  private sanitizeErrorPayload(payload: unknown): unknown {
+    if (typeof payload !== 'object' || payload === null) {
+      return payload;
+    }
+    if (Array.isArray(payload)) {
+      return payload.map((item) => this.sanitizeErrorPayload(item));
+    }
+    const out: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
+      if (key === 'message' && typeof value === 'string') {
+        // Keep only the first line; full stack traces are never useful to the client
+        const firstLine = value.split('\n')[0].trim();
+        out[key] = firstLine.length > 280 ? firstLine.slice(0, 280) + '…' : firstLine;
+      } else if (typeof value === 'object' && value !== null) {
+        out[key] = this.sanitizeErrorPayload(value);
+      } else {
+        out[key] = value;
+      }
+    }
+    return out;
   }
 }

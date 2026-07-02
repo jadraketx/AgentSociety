@@ -75,7 +75,13 @@ class ReplayReader:
     """Read replay ``_schema.json`` + sharded JSONL rows via DuckDB."""
 
     def __init__(self, replay_dir: str | Path) -> None:
-        self.replay_dir = Path(replay_dir).expanduser().resolve()
+        _path = Path(replay_dir)
+        # Reject path traversal and null bytes
+        if "\0" in str(_path):
+            raise ValueError("Null byte in replay_dir")
+        if ".." in _path.parts:
+            raise ValueError("Path traversal in replay_dir")
+        self.replay_dir = _path.expanduser().resolve()
         if not self.replay_dir.is_dir():
             raise FileNotFoundError(f"Replay directory not found: {self.replay_dir}")
         self.schema_path = self.replay_dir / "_schema.json"

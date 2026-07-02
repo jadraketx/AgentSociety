@@ -608,12 +608,11 @@ async def list_available_classes(
         env_prefill = {}
         agent_prefill = {}
 
-        if prefill_file.exists():
+        if prefill_file.is_file():
             try:
-                with open(prefill_file, "r", encoding="utf-8") as f:
-                    prefill_params = json.load(f)
-                    env_prefill = prefill_params.get("env_modules", {})
-                    agent_prefill = prefill_params.get("agents", {})
+                prefill_params = json.loads(prefill_file.read_text(encoding="utf-8"))
+                env_prefill = prefill_params.get("env_modules", {})
+                agent_prefill = prefill_params.get("agents", {})
             except Exception as e:
                 logger.warning(f"Failed to load prefill params: {e}")
 

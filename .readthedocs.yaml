@@ -11,8 +11,8 @@ build:
 
 python:
   install:
-    - requirements: docs_v1/requirements.txt
+    - requirements: packages/agentsociety/docs/requirements.txt
 
 sphinx:
-  configuration: docs_v1/conf.py
+  configuration: packages/agentsociety/docs/conf.py
   fail_on_warning: false

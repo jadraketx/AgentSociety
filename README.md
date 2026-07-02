@@ -120,13 +120,21 @@ AgentSociety/
 │   └── agentsociety-benchmark/
 ├── frontend/               # React web frontend
 ├── extension/              # VSCode extension
-├── docs_v1/                # v1 Sphinx documentation
+├── packages/agentsociety/docs/   # v1 Sphinx documentation (legacy)
 └── examples/               # Example experiments
 ```
 
 ## Quick Start
 
 ### AgentSociety 2
+
+Before running the example, configure the LLM environment variables:
+
+```bash
+export AGENTSOCIETY_LLM_API_KEY="your-api-key"
+export AGENTSOCIETY_LLM_API_BASE="https://api.openai.com/v1"
+export AGENTSOCIETY_LLM_MODEL="gpt-5.5"
+```
 
 ```python
 import asyncio

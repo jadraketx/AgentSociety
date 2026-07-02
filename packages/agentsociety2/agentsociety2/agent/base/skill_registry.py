@@ -260,6 +260,12 @@ class SkillRegistry:
         base = root.resolve()
         if not base.is_dir():
             return added
+        # Ensure the resolved path hasn't escaped via symlink traversal.
+        try:
+            base.relative_to(root.resolve())
+        except ValueError:
+            # resolved path is outside the original root — reject
+            return added
 
         for child in sorted(base.iterdir()):
             if not child.is_dir() or child.name.startswith((".", "_")):

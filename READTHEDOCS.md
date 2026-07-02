@@ -2,7 +2,7 @@
 
 AgentSociety 2 的 ReadTheDocs 站点使用 **Sphinx + Furo + MyST** 构建，默认语言为中文，并通过 Sphinx i18n 维护英文翻译。它不是 Google Docs 风格的文档站；视觉和导航均以 Sphinx/Furo 主题为准。
 
-本仓库有多套 ReadTheDocs 站点。仓库根目录的 `.readthedocs.yaml` 保留给 `docs_v1/` 旧版文档；AgentSociety 2 的独立配置放在 `packages/agentsociety2/.readthedocs.yaml`，构建入口为 `packages/agentsociety2/docs/conf.py`。在 ReadTheDocs 的 AgentSociety 2 项目设置中，应把 config file 指向这份包内配置，避免影响旧站点。
+本仓库有多套 ReadTheDocs 站点。仓库根目录的 `.readthedocs.yaml` 保留给 `packages/agentsociety/docs/` 旧版文档；AgentSociety 2 的独立配置放在 `packages/agentsociety2/.readthedocs.yaml`，构建入口为 `packages/agentsociety2/docs/conf.py`。在 ReadTheDocs 的 AgentSociety 2 项目设置中，应把 config file 指向这份包内配置，避免影响旧站点。
 
 ## 文档结构
 

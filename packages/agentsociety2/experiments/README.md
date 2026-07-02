@@ -1,5 +1,9 @@
 # Experiments
 
+<p align="center">
+  <a href="./README.md">English</a> · <a href="./README_zh.md">中文</a>
+</p>
+
 This directory contains experiment scripts and entry points for running simulations with AgentSociety 2.
 
 ## Directory Structure

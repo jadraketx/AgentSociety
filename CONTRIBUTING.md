@@ -25,7 +25,7 @@ CI, security scanning, and dependency bots focus on **AgentSociety 2** only:
 - `extension/`
 - `frontend/`
 
-Legacy packages (`packages/agentsociety`, `agentsociety-community`, `agentsociety-benchmark`, `docs_v1`) are out of active CI scope. See [`.github/agentsociety2-scope.yml`](./.github/agentsociety2-scope.yml).
+Legacy packages (`packages/agentsociety`, `agentsociety-community`, `agentsociety-benchmark`, `packages/agentsociety/docs`) are out of active CI scope. See [`.github/agentsociety2-scope.yml`](./.github/agentsociety2-scope.yml).
 
 ## Development setup
 

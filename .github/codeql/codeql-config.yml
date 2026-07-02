@@ -11,7 +11,7 @@ paths-ignore:
   - packages/agentsociety
   - packages/agentsociety-community
   - packages/agentsociety-benchmark
-  - docs_v1
+  - packages/agentsociety/docs
   - "**/tests/**"
   - "**/node_modules/**"
   - "**/.venv/**"
