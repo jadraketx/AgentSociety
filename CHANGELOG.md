@@ -16,6 +16,33 @@ Git 发版标签：`agentsociety2-v{major}.{minor}.{patch}`（见 `CONTRIBUTING.
 
 <!-- 暂无待发布变更 -->
 
+## [2.8.0] - 2026-07-12
+
+- **agentsociety2** `2.8.0` · **extension** `1.6.0` · 标签 `agentsociety2-v2.8.0`
+
+### Added
+
+- **extension**：配置向导、就绪仪表盘与 Gateway 用量统计；恢复 EasyPaper 配置与 AgentSociety Web 导入。
+- **extension**：Claude Gateway 1M 对齐 CC Switch（Sonnet/Opus/Fable/Haiku 四角色表格 + 手动声明 1M）。
+- **extension**：技能市场 MCP 集成面板；`scripts/clean.js` 与 Gateway 单测。
+- **scripts**：`llm_benchmark` 支持环境变量与 CLI 配置 API Key/Base/Model。
+
+### Changed
+
+- **extension**：重构 Gateway 供应商编辑、Codex 目录、故障转移与 Responses↔Anthropic 桥接。
+- **agentsociety2**：示例与实验对齐 `agent_specs` / `enable_replay` 等新 API。
+- **backend**：自定义模块测试 API 由 `ScriptGenerator` 更名为 `SafeModuleTester`。
+
+### Fixed
+
+- **agentsociety2**：CodeQL / Protocol 类型与抽象方法等 18+ 处修复。
+- **scripts**：移除 benchmark 脚本中硬编码 API Key。
+- **frontend**：同步 `package-lock.json` 与 `package.json`。
+
+### Security
+
+- 依赖安全升级（Python / extension / frontend）。
+
 ## [2.6.1] - 2026-06-19
 
 - **extension** `1.5.5`
