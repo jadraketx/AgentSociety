@@ -57,7 +57,7 @@ class SkillRegistryLike(Protocol):
         Returns:
             Registered skill descriptors.
         """
-        ...
+        return []
 
     def get(self, skill_id: str) -> SkillDescriptor | None:
         """Return one skill descriptor by id.
@@ -68,7 +68,7 @@ class SkillRegistryLike(Protocol):
         Returns:
             Matching descriptor, or None.
         """
-        ...
+        return None
 
     def find_by_name(self, name: str) -> list[SkillDescriptor]:
         """Find skill descriptors by display name.
@@ -79,7 +79,7 @@ class SkillRegistryLike(Protocol):
         Returns:
             Matching descriptors.
         """
-        ...
+        return []
 
     def read_skill_doc(self, skill_id: str) -> str:
         """Read one skill's SKILL.md.
@@ -90,7 +90,7 @@ class SkillRegistryLike(Protocol):
         Returns:
             Skill document text, or an empty string.
         """
-        ...
+        return ""
 
     def read_skill_file(self, skill_id: str, relative_path: str) -> str:
         """Read one file inside a skill directory.
@@ -102,7 +102,7 @@ class SkillRegistryLike(Protocol):
         Returns:
             File text, or an empty string.
         """
-        ...
+        return ""
 
     def list_hooks(self, hook_type: str) -> list[SkillDescriptor]:
         """List skills declaring one hook.
@@ -113,7 +113,7 @@ class SkillRegistryLike(Protocol):
         Returns:
             Skill descriptors that declare the hook.
         """
-        ...
+        return []
 
 
 @dataclass(frozen=True)

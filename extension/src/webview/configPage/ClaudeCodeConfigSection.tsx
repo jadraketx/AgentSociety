@@ -32,6 +32,7 @@ export type ProviderSectionCommonProps = {
   onActivateProvider: (id: string, role: 'claude' | 'codex') => void;
   onRemoveProvider: (id: string) => void;
   onSpeedtestProvider: (baseUrl: string, apiKey: string, apiKind?: 'anthropic' | 'openai') => void;
+  isProviderChecking?: (baseUrl: string) => boolean;
   modelsByProvider: Record<string, ClaudeModelOption[]>;
   modelsLoadingByProvider: Record<string, boolean>;
   modelsErrorByProvider: Record<string, string | null>;
@@ -70,6 +71,7 @@ export function ClaudeCodeConfigSection({
   providerUsage,
   onQueryProviderUsage,
   onRestartCodex,
+  isProviderChecking,
 }: ClaudeCodeConfigSectionProps) {
   const providerGroupProps = {
     t,
@@ -81,6 +83,7 @@ export function ClaudeCodeConfigSection({
     onActivate: onActivateProvider,
     onRemove: onRemoveProvider,
     onCheckAvailability: onSpeedtestProvider,
+    isProviderChecking,
     availabilityResults: speedtestResults,
     providerUsage,
     onQueryProviderUsage,

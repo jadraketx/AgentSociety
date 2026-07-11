@@ -6,7 +6,7 @@ import type { VscodeThemePalette } from '../theme';
 import { ClaudeCodeConfigSection, type ProviderSectionCommonProps } from './ClaudeCodeConfigSection';
 import { GatewayUsagePanel } from './GatewayUsagePanel';
 import { tabBodyStyle } from './configPageStyles';
-import type { TokenUsageRecord, UsageAggregation } from './gatewayUsageTypes';
+import type { TokenUsageRecord } from './gatewayUsageTypes';
 import { providerHasApiUpstream } from './providerAuth';
 import type { ModelPricingMap } from './modelPricing';
 
@@ -19,7 +19,6 @@ export interface AiCliConfigSectionProps extends ProviderSectionCommonProps {
   onToggleFailoverProvider: (id: string, role: 'claude' | 'codex') => void;
   onShowGatewayLog: () => void;
   usageRecords: TokenUsageRecord[];
-  usageAggregation: UsageAggregation | null;
   usageLoading: boolean;
   onRefreshUsage: () => void;
   onClearUsage: () => void;
@@ -41,7 +40,6 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
     onFailoverToggle,
     onToggleFailoverProvider,
     usageRecords,
-    usageAggregation,
     usageLoading,
     onRefreshUsage,
     onClearUsage,
@@ -142,6 +140,53 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
           ))}
         </div>
       </div>
+
+      {gatewayRunning && gatewayStatus.stats ? (
+        <div
+          style={{
+            marginBottom: 12,
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))',
+            gap: 8,
+          }}
+        >
+          {[
+            {
+              key: 'requests',
+              label: t('claudeCodeConfig.gatewayStatsRequests'),
+              value: String(gatewayStatus.stats.totalRequests),
+            },
+            {
+              key: 'success',
+              label: t('claudeCodeConfig.gatewayStatsSuccessRate'),
+              value: `${gatewayStatus.stats.successRate}%`,
+            },
+            {
+              key: 'active',
+              label: t('claudeCodeConfig.gatewayStatsActive'),
+              value: String(gatewayStatus.stats.activeConnections),
+            },
+            {
+              key: 'uptime',
+              label: t('claudeCodeConfig.gatewayStatsUptime'),
+              value: `${Math.floor(gatewayStatus.stats.uptimeMs / 1000)}s`,
+            },
+          ].map((item) => (
+            <div
+              key={item.key}
+              style={{
+                border: `1px solid ${palette.panelBorder}`,
+                borderRadius: 8,
+                padding: '8px 10px',
+                background: palette.codeBlockBackground,
+              }}
+            >
+              <Text type="secondary" style={{ fontSize: 10, display: 'block' }}>{item.label}</Text>
+              <Text strong style={{ fontSize: 14 }}>{item.value}</Text>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       {/* Unified routing panel — Claude + Codex proxy toggles inline */}
       <div
@@ -314,7 +359,6 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
         t={t}
         palette={palette}
         records={usageRecords}
-        aggregation={usageAggregation}
         loading={usageLoading}
         onRefresh={onRefreshUsage}
         onClear={onClearUsage}

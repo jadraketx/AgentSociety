@@ -143,7 +143,6 @@ async def main_disaster_mobility(
 
     env_router = CodeGenRouter(
         env_modules=[mobility_env, event_space, global_info_env],
-        log_path=f"logs_disaster_ca/instruction_log_{datetime.now().strftime('%Y%m%d%H%M%S')}.pkl",
     )
 
     world_description = await env_router.generate_world_description_from_tools()
@@ -153,7 +152,8 @@ async def main_disaster_mobility(
 
     agents = [PersonAgent(**args) for args in agent_args]
     society = AgentSociety(
-        agents=agents,
+        agent_specs=[{"id": a.id, "profile": a._profile, "config": a._config} for a in agents],
+        agent_class_name="PersonAgent",
         env_router=env_router,
         start_t=start_time,
     )

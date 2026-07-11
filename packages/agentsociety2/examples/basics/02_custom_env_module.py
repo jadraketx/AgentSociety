@@ -69,7 +69,8 @@ async def main():
 
     # Create the society
     society = AgentSociety(
-        agents=agents,
+        agent_specs=[{"id": a.id, "profile": a._profile, "config": a._config} for a in agents],
+        agent_class_name="PersonAgent",
         env_router=env_router,
         start_t=datetime.now(),
     )

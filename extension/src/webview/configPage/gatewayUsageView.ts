@@ -1,0 +1,268 @@
+import type { TFunction } from 'i18next';
+import type { VscodeThemePalette } from '../theme';
+import { formatCost } from './modelPricing';
+import type { TokenUsageRecord, UsageAggregation, UsageModelStats } from './gatewayUsageTypes';
+
+export type UsageAppFilter = 'all' | 'claude' | 'codex';
+export type UsageRangeFilter = 'today' | '7d' | '30d' | 'all';
+export type UsageTrendMetric = 'requests' | 'tokens' | 'cost';
+
+export type UsageChartSeries = {
+  id: string;
+  label: string;
+  color: string;
+  values: number[];
+};
+
+export function formatTokenCount(n: number): string {
+  if (n >= 1_000_000_000) {
+    return `${(n / 1_000_000_000).toFixed(1)}B`;
+  }
+  if (n >= 1_000_000) {
+    return `${(n / 1_000_000).toFixed(1)}M`;
+  }
+  if (n >= 1_000) {
+    return `${(n / 1_000).toFixed(1)}K`;
+  }
+  return String(Math.round(n));
+}
+
+export function formatChartCost(cost: number): string {
+  if (cost <= 0) {
+    return '$0';
+  }
+  if (cost < 0.01) {
+    return `$${cost.toFixed(4)}`;
+  }
+  return formatCost(cost);
+}
+
+export function localDateKey(value: string | number | Date): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return '';
+  }
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function emptyStats(): UsageModelStats {
+  return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, requests: 0 };
+}
+
+export function addToStats(stats: UsageModelStats, record: TokenUsageRecord): void {
+  stats.input += record.inputTokens;
+  stats.output += record.outputTokens;
+  stats.cacheRead += record.cacheReadTokens;
+  stats.cacheCreation += record.cacheCreationTokens;
+  stats.requests += 1;
+}
+
+export function inferRecordApp(record: TokenUsageRecord): 'claude' | 'codex' {
+  if (record.app === 'claude' || record.app === 'codex') {
+    return record.app;
+  }
+  const id = record.model.toLowerCase();
+  return id.includes('codex') || id.startsWith('gpt-') || /^o\d/.test(id) ? 'codex' : 'claude';
+}
+
+export function filterRecordsByRange(
+  records: TokenUsageRecord[],
+  range: UsageRangeFilter
+): TokenUsageRecord[] {
+  if (range === 'all') {
+    return records;
+  }
+  if (range === 'today') {
+    const today = localDateKey(Date.now());
+    return records.filter((record) => localDateKey(record.ts) === today);
+  }
+  const days = range === '7d' ? 7 : 30;
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  return records.filter((record) => {
+    const ts = Date.parse(record.ts);
+    return Number.isFinite(ts) && ts >= cutoff;
+  });
+}
+
+export function filterRecordsByApp(
+  records: TokenUsageRecord[],
+  app: UsageAppFilter
+): TokenUsageRecord[] {
+  if (app === 'all') {
+    return records;
+  }
+  return records.filter((record) => inferRecordApp(record) === app);
+}
+
+export function aggregateGatewayUsage(records: TokenUsageRecord[]): UsageAggregation | null {
+  if (records.length === 0) {
+    return null;
+  }
+  const aggregation: UsageAggregation = {
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCacheReadTokens: 0,
+    totalCacheCreationTokens: 0,
+    totalRequests: records.length,
+    totalTokens: 0,
+    cacheHitRate: 0,
+    byModel: {},
+    byDay: {},
+    byApp: { claude: emptyStats(), codex: emptyStats() },
+    timeSeries: [],
+  };
+  const bucketMap = new Map<string, UsageAggregation['timeSeries'][number]>();
+  for (const record of records) {
+    aggregation.totalInputTokens += record.inputTokens;
+    aggregation.totalOutputTokens += record.outputTokens;
+    aggregation.totalCacheReadTokens += record.cacheReadTokens;
+    aggregation.totalCacheCreationTokens += record.cacheCreationTokens;
+
+    const model = record.model || 'unknown';
+    const modelStats = aggregation.byModel[model] ?? emptyStats();
+    addToStats(modelStats, record);
+    aggregation.byModel[model] = modelStats;
+
+    const day = localDateKey(record.ts);
+    const dayStats = aggregation.byDay[day] ?? emptyStats();
+    addToStats(dayStats, record);
+    aggregation.byDay[day] = dayStats;
+
+    addToStats(aggregation.byApp[inferRecordApp(record)], record);
+
+    const bucket = bucketMap.get(day) ?? {
+      key: day,
+      label: day.slice(5),
+      requests: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+    };
+    bucket.requests += 1;
+    bucket.inputTokens += record.inputTokens;
+    bucket.outputTokens += record.outputTokens;
+    bucket.cacheReadTokens += record.cacheReadTokens;
+    bucket.cacheCreationTokens += record.cacheCreationTokens;
+    bucketMap.set(day, bucket);
+  }
+  aggregation.totalTokens =
+    aggregation.totalInputTokens +
+    aggregation.totalOutputTokens +
+    aggregation.totalCacheReadTokens +
+    aggregation.totalCacheCreationTokens;
+  const cacheable = aggregation.totalInputTokens + aggregation.totalCacheReadTokens;
+  aggregation.cacheHitRate = cacheable > 0
+    ? Math.min(100, (aggregation.totalCacheReadTokens / cacheable) * 100)
+    : 0;
+  aggregation.timeSeries = [...bucketMap.values()]
+    .sort((a, b) => a.key.localeCompare(b.key))
+    .slice(-30);
+  return aggregation;
+}
+
+export function emptyAggregation(): UsageAggregation {
+  return {
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCacheReadTokens: 0,
+    totalCacheCreationTokens: 0,
+    totalRequests: 0,
+    totalTokens: 0,
+    cacheHitRate: 0,
+    byModel: {},
+    byDay: {},
+    byApp: { claude: emptyStats(), codex: emptyStats() },
+    timeSeries: [],
+  };
+}
+
+export function resolveGatewayUsageView(
+  records: TokenUsageRecord[],
+  options?: { range?: UsageRangeFilter; app?: UsageAppFilter }
+): UsageAggregation | null {
+  const range = options?.range ?? 'all';
+  const app = options?.app ?? 'all';
+  const ranged = filterRecordsByRange(records, range);
+  const filtered = filterRecordsByApp(ranged, app);
+  return aggregateGatewayUsage(filtered);
+}
+
+export function buildUsageChartSeries(
+  aggregation: UsageAggregation,
+  metric: UsageTrendMetric,
+  t: TFunction,
+  palette: VscodeThemePalette,
+  costValues?: number[]
+): { labels: string[]; series: UsageChartSeries[] } {
+  const labels = aggregation.timeSeries.map((bucket) => bucket.label);
+  if (metric === 'requests') {
+    return {
+      labels,
+      series: [
+        {
+          id: 'requests',
+          label: t('claudeCodeConfig.usageChartRequests'),
+          color: palette.linkForeground,
+          values: aggregation.timeSeries.map((bucket) => bucket.requests),
+        },
+      ],
+    };
+  }
+  if (metric === 'cost' && costValues) {
+    return {
+      labels,
+      series: [
+        {
+          id: 'cost',
+          label: t('claudeCodeConfig.usageEstCost'),
+          color: '#fa541c',
+          values: costValues,
+        },
+      ],
+    };
+  }
+  const tokenSeries: UsageChartSeries[] = [
+    {
+      id: 'input',
+      label: t('claudeCodeConfig.usageColInput'),
+      color: '#1677ff',
+      values: aggregation.timeSeries.map((bucket) => bucket.inputTokens),
+    },
+    {
+      id: 'output',
+      label: t('claudeCodeConfig.usageColOutput'),
+      color: '#52c41a',
+      values: aggregation.timeSeries.map((bucket) => bucket.outputTokens),
+    },
+    {
+      id: 'cacheRead',
+      label: t('claudeCodeConfig.usageCacheRead'),
+      color: '#722ed1',
+      values: aggregation.timeSeries.map((bucket) => bucket.cacheReadTokens),
+    },
+    {
+      id: 'cacheCreate',
+      label: t('claudeCodeConfig.usageCacheCreation'),
+      color: '#fa8c16',
+      values: aggregation.timeSeries.map((bucket) => bucket.cacheCreationTokens),
+    },
+  ].filter((item) => item.values.some((value) => value > 0));
+  return { labels, series: tokenSeries };
+}
+
+export function hasGatewayUsageData(aggregation: UsageAggregation | null): boolean {
+  if (!aggregation) {
+    return false;
+  }
+  return (
+    aggregation.totalRequests > 0 ||
+    aggregation.totalInputTokens > 0 ||
+    aggregation.totalOutputTokens > 0 ||
+    aggregation.totalCacheReadTokens > 0 ||
+    aggregation.totalCacheCreationTokens > 0
+  );
+}

@@ -23,7 +23,18 @@ import { EnvManager } from '../envManager';
 import { findAvailablePort, isPortAvailable } from '../portUtils';
 import { getBackendAccessUrl, getBackendBindHost, getBackendPort } from '../runtimeConfig';
 import { fetchCompat } from '../shared/fetchCompat';
-import { getSharedOutputChannel } from '../shared/outputChannels';
+import {
+  appendSharedOutputLine,
+  getSharedOutputChannel,
+  OUTPUT_CHANNEL_BACKEND,
+} from '../shared/outputChannels';
+import { formatDurationMs } from '../shared/formatDuration';
+import {
+  resolveAgentsocietyPython,
+  pythonHasAgentsociety2,
+  discoverPythonEnvironments,
+  type PythonEnvironmentCandidate,
+} from './agentsocietyPythonResolver';
 
 const fetch = fetchCompat as unknown as typeof globalThis.fetch;
 
@@ -41,6 +52,10 @@ export interface BackendConfig {
   env: Record<string, string>;
 }
 
+export interface BackendOperationOptions {
+  silent?: boolean;
+}
+
 export class BackendManager {
   private process: ChildProcess | null = null;
   private outputChannel: vscode.OutputChannel;
@@ -52,10 +67,12 @@ export class BackendManager {
   private allocatedPort: number | null = null; // Track dynamically allocated port
   private currentStatus: 'running' | 'stopped' | 'starting' | 'error' = 'stopped';
   private externalBackend = false;
+  private runningSinceMs: number | null = null;
+  private operationSilent = false;
 
   constructor(context: vscode.ExtensionContext) {
     this.context = context;
-    this.outputChannel = getSharedOutputChannel('AI Social Scientist Backend');
+    this.outputChannel = getSharedOutputChannel(OUTPUT_CHANNEL_BACKEND);
     this.statusBarItem = vscode.window.createStatusBarItem(
       vscode.StatusBarAlignment.Right,
       100
@@ -137,6 +154,8 @@ export class BackendManager {
               if (response.ok) {
                 this.log(`Existing backend process found (PID: ${pid}, Port: ${port})`);
                 this.allocatedPort = port;
+                this.externalBackend = true;
+                this.currentStatus = 'running';
                 this.updateStatusBar('running', port);
                 this.startHealthCheck();
               } else {
@@ -155,6 +174,8 @@ export class BackendManager {
                 if (retryResponse.ok) {
                   this.log(`Backend process recovered (PID: ${pid}, Port: ${port})`);
                   this.allocatedPort = port;
+                  this.externalBackend = true;
+                  this.currentStatus = 'running';
                   this.updateStatusBar('running', port);
                   this.startHealthCheck();
                 } else {
@@ -180,18 +201,99 @@ export class BackendManager {
   private log(message: string, level: 'info' | 'error' | 'warn' = 'info'): void {
     const timestamp = new Date().toISOString();
     const prefix = level === 'error' ? '[ERROR]' : level === 'warn' ? '[WARN]' : '[INFO]';
-    this.outputChannel.appendLine(`[${timestamp}] ${prefix} ${message}`);
+    appendSharedOutputLine(OUTPUT_CHANNEL_BACKEND, `[${timestamp}] ${prefix} ${message}`);
   }
 
   /**
    * 显示配置错误消息，并提供打开 .env 文件的选项
    */
   private async showConfigError(message: string): Promise<void> {
-    const openConfigLabel = 'Open Settings / 打开配置';
+    if (this.operationSilent) {
+      return;
+    }
+    const openConfigLabel = localize('backendManager.openSettings');
     const result = await vscode.window.showErrorMessage(message, openConfigLabel);
     if (result === openConfigLabel) {
       await vscode.commands.executeCommand('aiSocialScientist.openConfigPage');
     }
+  }
+
+  private notifyError(message: string): void {
+    if (this.operationSilent) {
+      return;
+    }
+    void vscode.window.showErrorMessage(message);
+  }
+
+  private notifyWarning(message: string): void {
+    if (this.operationSilent) {
+      return;
+    }
+    void vscode.window.showWarningMessage(message);
+  }
+
+  private formatPythonPickLabel(item: PythonEnvironmentCandidate): string {
+    const source = localize(`pythonEnvironment.sources.${item.source}`);
+    const versionBits = [
+      item.pythonVersion ? `Python ${item.pythonVersion}` : null,
+      item.as2Version ? `agentsociety2 ${item.as2Version}` : null,
+    ].filter(Boolean);
+    const detail = versionBits.length > 0 ? versionBits.join(' · ') : localize('pythonEnvironment.compatible');
+    return `${source} — ${detail}`;
+  }
+
+  private async promptPythonEnvironmentSelection(): Promise<string | null> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    const envManager = new EnvManager();
+    const envConfig = envManager.readEnv();
+    const environments = discoverPythonEnvironments({
+      configuredPath: envConfig.pythonPath,
+      workspacePath: workspaceFolder?.uri.fsPath,
+      extensionPath: this.context.extensionPath,
+    });
+    const compatible = environments.filter((item) => item.compatible);
+    if (compatible.length === 0) {
+      await vscode.commands.executeCommand('aiSocialScientist.openConfigPage');
+      const { ConfigPageViewProvider } = await import('../configPageViewProvider');
+      ConfigPageViewProvider.currentPanel?.navigateToAdvancedTab('python');
+      await this.showConfigError(localize('backendManager.pythonNotFound'));
+      return null;
+    }
+    if (compatible.length === 1) {
+      return compatible[0].path;
+    }
+    const pick = await vscode.window.showQuickPick(
+      compatible.map((item) => ({
+        label: this.formatPythonPickLabel(item),
+        description: item.path,
+        detail: localize('pythonEnvironment.compatible'),
+        path: item.path,
+      })),
+      {
+        title: localize('backendManager.pythonPickTitle'),
+        placeHolder: localize('backendManager.pythonPickPlaceholder'),
+        matchOnDescription: true,
+        matchOnDetail: true,
+      }
+    );
+    return pick?.path ?? null;
+  }
+
+  private async ensureCompatiblePython(): Promise<boolean> {
+    if (pythonHasAgentsociety2(this.config.pythonPath)) {
+      return true;
+    }
+    const selected = await this.promptPythonEnvironmentSelection();
+    if (!selected) {
+      this.isStarting = false;
+      this.updateStatusBar('error');
+      return false;
+    }
+    this.config.pythonPath = selected;
+    const envManager = new EnvManager();
+    envManager.writeEnv({ pythonPath: selected });
+    this.log(`Using Python environment: ${selected}`);
+    return true;
   }
 
   /**
@@ -217,8 +319,22 @@ export class BackendManager {
     const envManager = new EnvManager();
     const envConfig = envManager.readEnv();
 
-    // 检测 Python 路径
-    const pythonPath = envConfig.pythonPath || this.detectPythonPath();
+    const resolvedPython = resolveAgentsocietyPython({
+      configuredPath: envConfig.pythonPath,
+      workspacePath: workingDirectory,
+      extensionPath: this.context.extensionPath,
+    });
+    const configuredPython = envConfig.pythonPath?.trim();
+    let pythonPath = configuredPython || resolvedPython || this.detectPythonPath();
+    if (configuredPython && !pythonHasAgentsociety2(configuredPython) && resolvedPython) {
+      this.log(
+        `Configured PYTHON_PATH is incompatible (${configuredPython}); falling back to ${resolvedPython}`,
+        'warn'
+      );
+      pythonPath = resolvedPython;
+    } else if (configuredPython && !pythonHasAgentsociety2(configuredPython)) {
+      pythonPath = configuredPython;
+    }
 
     // 映射环境变量
     const env: Record<string, string> = {};
@@ -296,37 +412,52 @@ export class BackendManager {
 
     switch (status) {
       case 'running': {
-        // 运行时显示端口号，方便用户快速查看
-        this.statusBarItem.text = `$(check) Backend:${effectivePort ?? ''}`;
-        // 使用 Markdown 格式的 tooltip，显示更丰富的信息
+        if (this.runningSinceMs === null) {
+          this.runningSinceMs = Date.now();
+        }
+        const uptime =
+          this.runningSinceMs !== null
+            ? formatDurationMs(Date.now() - this.runningSinceMs)
+            : '';
+        this.statusBarItem.text = `$(server) :${effectivePort ?? ''}`;
         const runningTooltip = new vscode.MarkdownString();
-        runningTooltip.appendMarkdown(`**${localize('extension.backend.statusOn', String(effectivePort ?? '?'))}**\n\n`);
-        runningTooltip.appendMarkdown(`- URL: \`${backendUrl}\`\n`);
-        runningTooltip.appendMarkdown(`- API Docs: \`${backendUrl}/docs\`\n\n`);
-        runningTooltip.appendMarkdown(`*${localize('backendManager.statusBar.tooltip')}*`);
+        runningTooltip.appendMarkdown(`${localize('backendManager.statusBar.runningShort', String(effectivePort ?? '?'))}\n\n`);
+        if (uptime) {
+          runningTooltip.appendMarkdown(`${localize('backendManager.statusBar.uptime', uptime)}\n`);
+        }
+        runningTooltip.appendMarkdown(`\`${backendUrl}\``);
         this.statusBarItem.tooltip = runningTooltip;
         this.statusBarItem.backgroundColor = undefined;
         this.statusBarItem.show();
         break;
       }
       case 'starting':
-        this.statusBarItem.text = '$(sync~spin) Backend: Starting...';
-        this.statusBarItem.tooltip = localize('backendManager.statusBar.tooltip');
+        this.runningSinceMs = null;
+        this.statusBarItem.text = '$(sync~spin)';
+        this.statusBarItem.tooltip = localize('backendManager.statusBar.startingTooltip');
         this.statusBarItem.backgroundColor = undefined;
         this.statusBarItem.show();
         break;
       case 'error':
-        this.statusBarItem.text = '$(error) Backend: Error';
-        this.statusBarItem.tooltip = localize('backendManager.statusBar.tooltip');
+        this.runningSinceMs = null;
+        this.statusBarItem.text = '$(error)';
+        this.statusBarItem.tooltip = localize('backendManager.statusBar.errorTooltip');
         this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.errorBackground');
         this.statusBarItem.show();
         break;
       case 'stopped':
-        this.statusBarItem.text = '$(circle-slash) Backend: Stopped';
-        this.statusBarItem.tooltip = localize('backendManager.statusBar.tooltip');
+        this.runningSinceMs = null;
+        this.statusBarItem.text = '$(circle-slash)';
+        this.statusBarItem.tooltip = localize('backendManager.statusBar.stoppedTooltip');
         this.statusBarItem.backgroundColor = undefined;
         this.statusBarItem.show();
         break;
+    }
+
+    if (status === 'running' || status === 'stopped') {
+      void import('../configPageViewProvider').then(({ ConfigPageViewProvider }) => {
+        ConfigPageViewProvider.refreshBackendStatusIfOpen();
+      });
     }
   }
 
@@ -357,34 +488,15 @@ export class BackendManager {
   async healthCheck(): Promise<boolean> {
     const envManager = new EnvManager();
     const envConfig = envManager.readEnv();
-    const backendUrl = this.allocatedPort ? `http://localhost:${this.allocatedPort}` : getBackendAccessUrl(envConfig);
+    const port = this.allocatedPort ?? getBackendPort(envConfig);
+    const backendUrl = getBackendAccessUrl({ ...envConfig, backendPort: port });
 
     try {
       const response = await fetch(`${backendUrl}/health`, {
         method: 'GET',
-        signal: AbortSignal.timeout(3000), // 3秒超时
+        signal: AbortSignal.timeout(3000),
       });
       return response.ok;
-    } catch (error) {
-      return false;
-    }
-  }
-
-  private async detectExternalBackend(): Promise<boolean> {
-    const envManager = new EnvManager();
-    const envConfig = envManager.readEnv();
-    const configuredPort = getBackendPort(envConfig);
-    const url = `http://localhost:${configuredPort}`;
-    try {
-      const resp = await fetch(`${url}/health`, { method: 'GET', signal: AbortSignal.timeout(1200) });
-      if (!resp.ok) {
-        return false;
-      }
-      this.allocatedPort = configuredPort;
-      this.externalBackend = true;
-      this.updateStatusBar('running', configuredPort);
-      this.startHealthCheck();
-      return true;
     } catch {
       return false;
     }
@@ -393,26 +505,27 @@ export class BackendManager {
   /**
    * 启动后端服务
    */
-  async start(): Promise<boolean> {
-    if (this.isStarting) {
-      this.log('Backend is already starting...', 'warn');
-      return false;
-    }
-
-    this.reloadConfig('before start');
-
-    if (await this.isRunning()) {
-      this.log('Backend is already running', 'warn');
-      return true;
-    }
-
-    this.isStarting = true;
-    this.updateStatusBar('starting');
-
+  async start(options?: BackendOperationOptions): Promise<boolean> {
+    this.operationSilent = options?.silent ?? false;
     try {
+      if (this.isStarting) {
+        this.log('Backend is already starting...', 'warn');
+        return false;
+      }
+
+      this.reloadConfig('before start');
+
+      if (await this.isRunning()) {
+        this.log('Backend is already running', 'warn');
+        return true;
+      }
+
+      this.isStarting = true;
+      this.updateStatusBar('starting');
+
       // 验证 Python 路径
       if (!this.config.pythonPath) {
-        const errorMessage = localize('backendManager.configInsufficient') + ': Python path not found. Please set PYTHON_PATH in .env file';
+        const errorMessage = `${localize('backendManager.configInsufficient')}: ${localize('backendManager.pythonPathMissing')}`;
         this.log(errorMessage, 'error');
         this.isStarting = false;
         this.updateStatusBar('error');
@@ -420,9 +533,13 @@ export class BackendManager {
         return false;
       }
 
+      if (!(await this.ensureCompatiblePython())) {
+        return false;
+      }
+
       // 验证工作目录
       if (!fs.existsSync(this.config.workingDirectory)) {
-        const errorMessage = `Working directory does not exist: ${this.config.workingDirectory}`;
+        const errorMessage = localize('backendManager.workingDirectoryMissing', this.config.workingDirectory);
         this.log(errorMessage, 'error');
         this.isStarting = false;
         this.updateStatusBar('error');
@@ -432,7 +549,7 @@ export class BackendManager {
 
       // 验证必需的配置
       if (!this.config.env.AGENTSOCIETY_LLM_API_KEY) {
-        const errorMessage = localize('backendManager.configInsufficient') + ': LLM API key is required. Please set AGENTSOCIETY_LLM_API_KEY in .env file';
+        const errorMessage = `${localize('backendManager.configInsufficient')}: ${localize('backendManager.llmKeyRequired')}`;
         this.log(errorMessage, 'error');
         this.isStarting = false;
         this.updateStatusBar('error');
@@ -501,9 +618,7 @@ export class BackendManager {
 
         if (code !== 0 && code !== null) {
           this.updateStatusBar('error');
-          vscode.window.showErrorMessage(
-            `Backend service exited with code ${code}. Check the output panel for details.`
-          );
+          void vscode.window.showErrorMessage(localize('backendManager.exitedWithCode', String(code)));
         }
       });
 
@@ -519,7 +634,6 @@ export class BackendManager {
 
         this.updateStatusBar('error');
 
-        // 检查是否是配置相关的错误（如找不到 Python 可执行文件）
         const errorMessage = error.message || 'Unknown error';
         const isConfigError =
           errorMessage.includes('ENOENT') ||
@@ -528,17 +642,15 @@ export class BackendManager {
           errorMessage.includes('python');
 
         if (isConfigError) {
-          await this.showConfigError(`Failed to start backend service: ${errorMessage}`);
+          await this.showConfigError(localize('backendManager.startFailed', errorMessage));
         } else {
-          vscode.window.showErrorMessage(
-            `Failed to start backend service: ${errorMessage}`
-          );
+          this.notifyError(localize('backendManager.startFailed', errorMessage));
         }
       });
 
       // 等待服务启动（最多等待30秒）
-      const maxWaitTime = 30000; // 30秒
-      const checkInterval = 1000; // 每秒检查一次
+      const maxWaitTime = 30000;
+      const checkInterval = 1000;
       let elapsed = 0;
 
       while (elapsed < maxWaitTime) {
@@ -553,13 +665,11 @@ export class BackendManager {
           return true;
         }
 
-        // 检查进程是否已经退出
         if (!this.process || this.process.killed) {
           throw new Error('Backend process exited unexpectedly');
         }
       }
 
-      // 超时
       throw new Error('Backend service failed to start within 30 seconds');
     } catch (error: any) {
       this.log(`Failed to start backend: ${error.message}`, 'error');
@@ -567,10 +677,8 @@ export class BackendManager {
       this.allocatedPort = null;
       this.updateStatusBar('error');
 
-      // 清理.env文件中的PID和端口信息
       this.cleanupBackendEnv();
 
-      // 检查是否是配置相关的错误
       const errorMessage = error.message || 'Unknown error';
       const isConfigError =
         errorMessage.includes('Python path') ||
@@ -579,34 +687,33 @@ export class BackendManager {
         errorMessage.includes('.env');
 
       if (isConfigError) {
-        await this.showConfigError(`Failed to start backend service: ${errorMessage}`);
+        await this.showConfigError(localize('backendManager.startFailed', errorMessage));
       } else {
         this.outputChannel.show(true);
-        vscode.window.showErrorMessage(
-          `Failed to start backend service: ${errorMessage}`
-        );
+        this.notifyError(localize('backendManager.startFailed', errorMessage));
       }
 
-      // 清理进程
       if (this.process) {
-        this.stop();
+        await this.stop();
       }
 
       return false;
+    } finally {
+      this.operationSilent = false;
     }
   }
 
   /**
    * 停止后端服务
    */
-  async stop(): Promise<void> {
+  async stop(): Promise<boolean> {
     if (!this.process) {
       if (this.externalBackend) {
-        vscode.window.showWarningMessage('检测到后端并非由插件启动，插件无法停止该进程；请在终端中手动结束。');
+        this.notifyWarning(localize('backendManager.externalStop'));
       } else {
         this.log('Backend is not running', 'warn');
       }
-      return;
+      return false;
     }
 
     this.log('Stopping backend service...');
@@ -657,20 +764,21 @@ export class BackendManager {
     this.cleanupBackendEnv();
 
     this.log('Backend service stopped');
+    return true;
   }
 
   /**
    * 重启后端服务
    */
-  async restart(): Promise<boolean> {
+  async restart(options?: BackendOperationOptions): Promise<boolean> {
     this.log('Restarting backend service...');
     if (!this.process && this.externalBackend) {
-      vscode.window.showWarningMessage('检测到后端并非由插件启动，插件无法重启该进程；请在终端中手动重启，或在插件里“启动后端”启动一份新的后端实例。');
+      this.notifyWarning(localize('backendManager.externalRestart'));
       return false;
     }
     await this.stop();
-    await new Promise((resolve) => setTimeout(resolve, 1000)); // 等待1秒
-    return await this.start();
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+    return await this.start(options);
   }
 
   /**
@@ -690,8 +798,10 @@ export class BackendManager {
           this.updateStatusBar('stopped');
           this.stopHealthCheck();
         }
+      } else if (this.currentStatus === 'running') {
+        this.updateStatusBar('running', this.allocatedPort ?? undefined);
       }
-    }, 10000); // 每10秒检查一次
+    }, 10000);
   }
 
   /**
@@ -856,20 +966,41 @@ export class BackendManager {
    * 获取后端状态
    */
   async getStatus(): Promise<BackendStatus> {
-    let isRunning = await this.isRunning();
-    // 使用动态分配的端口，如果未分配则读取.env中的配置
-    let port = this.allocatedPort ?? await this.getPortFromEnv();
+    const port = this.allocatedPort ?? await this.getPortFromEnv();
 
-    if (!isRunning) {
-      const detected = await this.detectExternalBackend();
-      if (detected) {
-        isRunning = true;
-        port = this.allocatedPort ?? port;
+    if (this.process && !this.process.killed) {
+      try {
+        if (this.process.pid) {
+          process.kill(this.process.pid, 0);
+        }
+        if (await this.healthCheck()) {
+          this.currentStatus = 'running';
+          return {
+            isRunning: true,
+            pid: this.process.pid,
+            port: this.allocatedPort ?? port,
+          };
+        }
+      } catch {
+        // fall through to external probe
       }
     }
 
+    if (await this.healthCheck()) {
+      if (!this.process) {
+        this.externalBackend = true;
+      }
+      this.currentStatus = 'running';
+      this.updateStatusBar('running', this.allocatedPort ?? port);
+      return {
+        isRunning: true,
+        pid: this.process?.pid,
+        port: this.allocatedPort ?? port,
+      };
+    }
+
     return {
-      isRunning,
+      isRunning: false,
       pid: this.process?.pid,
       port,
     };

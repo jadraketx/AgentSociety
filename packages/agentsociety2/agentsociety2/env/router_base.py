@@ -531,7 +531,8 @@ class RouterBase(ABC):
         messages: list[AllMessageValues],
         stream: Literal[False] = False,
         **kwargs: Any,
-    ) -> ModelResponse: ...
+    ) -> ModelResponse:
+        ...
 
     @overload
     async def acompletion(
@@ -540,7 +541,8 @@ class RouterBase(ABC):
         messages: list[AllMessageValues],
         stream: Literal[True] = True,
         **kwargs: Any,
-    ) -> CustomStreamWrapper: ...
+    ) -> CustomStreamWrapper:
+        ...
 
     async def acompletion(
         self,

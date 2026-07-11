@@ -280,7 +280,8 @@ async def main():
 
     # Create society with specialist agent
     society1 = AgentSociety(
-        agents=[climate_specialist],
+        agent_specs=[{"id": climate_specialist.id, "profile": climate_specialist._profile, "config": climate_specialist._config}],
+        agent_class_name="SpecialistAgent",
         env_router=env_router,
         start_t=datetime.now(),
     )

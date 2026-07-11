@@ -15,6 +15,7 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { execFileSync } from 'child_process';
 import { SkillVersionManager } from './skillVersionManager';
+import { getMainOutputChannel } from './shared/outputChannels';
 
 export interface WorkspaceInitOptions {
   topic: string;
@@ -36,7 +37,7 @@ export class WorkspaceManager {
   private versionManager: SkillVersionManager;
 
   constructor(context: vscode.ExtensionContext) {
-    this.outputChannel = vscode.window.createOutputChannel('Workspace Manager');
+    this.outputChannel = getMainOutputChannel();
     this.skillsSourcePath = path.join(context.extensionPath, 'skills');
     this.pluginsSourcePath = path.join(context.extensionPath, 'plugins');
     this.runtimeSourcePath = path.join(context.extensionPath, 'runtime');
@@ -50,7 +51,7 @@ export class WorkspaceManager {
 
   private log(message: string): void {
     const timestamp = new Date().toISOString();
-    this.outputChannel.appendLine(`[${timestamp}] ${message}`);
+    this.outputChannel.appendLine(`[${timestamp}] [Workspace] ${message}`);
   }
 
   /**
@@ -1506,6 +1507,5 @@ Instead of using specialized discovery tools, you should:
    * Dispose
    */
   dispose(): void {
-    this.outputChannel.dispose();
   }
 }

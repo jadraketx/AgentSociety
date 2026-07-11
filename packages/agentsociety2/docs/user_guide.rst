@@ -216,13 +216,12 @@ Gateway 在转发过程中会做以下转换，确保第三方模型的行为尽
 - **费用估算**：定价来源优先级为 **自定义 > 远程（OpenRouter / LiteLLM）> 内置**，
   远程定价 24 小时缓存。对 Codex / OpenAI 兼容记录，会先从可计费输入中
   扣除缓存命中再计费，缓存读取单独计价。
-- **状态栏**：启用 Gateway 后，VS Code 状态栏会显示 ``AI Gateway`` 及当前
-  路由状态（Claude / Codex / Claude + Codex），点击即可回到配置页。
+- **状态栏**：启用 Gateway 后，VS Code 状态栏会显示 Gateway 端口及路由状态（Claude / Codex / Claude + Codex），点击可打开后端状态菜单或回到配置页。
 
 Gateway 排错
 """""""""""""
 
-- **查看日志**：打开 ``AI CLI Gateway Log`` 输出通道，每行记录请求路径、
+- **查看日志**：打开 ``AI CLI Gateway`` 输出通道，每行记录请求路径、
   上游地址、HTTP 状态码、耗时与模型名，形如
   ``POST /v1/messages → 200 (4183ms) [deepseek-v4-pro] [https://...]``。
 - **日志显示 ``in:0 out:0``**：表示该次响应未提取到 token 用量，常见于流
@@ -261,9 +260,9 @@ Gateway 排错
 配置向导
 ~~~~~~~~
 
-初次进入工作区时会弹出配置向导，包含以下步骤：
+首次打开工作区且尚未完成初始配置时，扩展会**自动打开配置页**并显示 **5 步向导**（不会同时弹出额外的欢迎 Toast）。向导步骤如下：
 
-**步骤 1：LLM 配置** — 填写大模型 API 信息：
+**步骤 1：仿真 LLM** — 填写默认大模型 API 信息并点击验证：
 
 .. list-table::
    :widths: 25 50 25
@@ -282,13 +281,11 @@ Gateway 排错
      - 使用的模型名称，默认 ``gpt-5.5``
      - 是
 
-.. image:: _static/images/user_guide/config_wizard_basic.png
-   :alt: 配置向导 - LLM 配置
-   :width: 80%
+验证通过后会自动进入下一步。AgentSociety 支持任何 OpenAI 接口兼容的大模型 API。
 
-AgentSociety 支持任何 OpenAI 接口兼容的大模型 API。环境变量的详细配置说明见 :doc:`installation`。
+**步骤 2：保存配置** — 查看摘要并保存到工作区 ``.env``。必须包含有效的 API Key 才会标记为「已完成初始配置」。
 
-**步骤 2：后端服务** — 配置后端服务地址和 Python 环境：
+**步骤 3：启动后端** — 选择或自动检测 ``PYTHON_PATH``，点击「保存并启动后端」。成功后状态栏显示 Backend 端口；向导会自动进入可选步骤。
 
 .. list-table::
    :widths: 25 50 25
@@ -298,13 +295,24 @@ AgentSociety 支持任何 OpenAI 接口兼容的大模型 API。环境变量的�
      - 说明
      - 推荐值
    * - Python 路径
-     - Python 运行环境路径，留空则自动检测
-     - ``which python3`` 查看
+     - Python 运行环境路径，留空则自动检测已安装 ``agentsociety2`` 的环境
+     - ``uv sync`` 后的 ``.venv/bin/python``
 
-**步骤 3：高级配置** — 展开配置页中的「高级配置」，按需填写专用模型与工具（均可留空，沿用默认 LLM）：
+**步骤 4：文献检索（可选）** — 配置学术文献 MCP 网关，可跳过。
 
-- ``专用模型`` 标签页：代码生成、高频操作、数据分析、Embedding
-- **运行与工具**：Python 路径、学术文献检索 MCP
+**步骤 5：CLI 网关（可选）** — 配置 Claude Code / Codex 本地 AI Gateway 供应商与路由，可跳过。
+
+完成或退出向导后，可随时通过配置页「打开向导」重新进入。向导退出状态保存在扩展全局状态中（非 Webview localStorage）。
+
+高级配置
+~~~~~~~~
+
+在配置页切换到完整模式后，可展开 **专用与运行** 标签页，按需填写（均可留空，沿用默认 LLM）：
+
+- **专用模型**：代码生成（Coder）、Embedding
+- **Python 环境**：扫描并选择解释器
+- **文献检索**：MCP URL 与 API Key
+- **Claude / Codex 路由**：本地 AI Gateway 供应商池
 
 .. list-table::
    :widths: 25 50 25
@@ -313,12 +321,6 @@ AgentSociety 支持任何 OpenAI 接口兼容的大模型 API。环境变量的�
    * - 参数
      - 说明
      - 推荐值
-   * - 数据分析 LLM
-     - 数据分析、洞察生成和报告撰写使用的模型
-     - 编程能力较强的模型
-   * - 高频操作 LLM
-     - 高频快速操作的轻量级模型
-     - 响应速度快的模型
    * - Embedding 模型
      - 文本嵌入模型
      - ``text-embedding-3-large``（维度 ``1024``）
@@ -326,24 +328,19 @@ AgentSociety 支持任何 OpenAI 接口兼容的大模型 API。环境变量的�
      - 学术文献检索 MCP 网关地址
      - ``https://llmapi.fiblab.net/mcp/``
 
-.. image:: _static/images/user_guide/config_wizard_advanced.png
-   :alt: 配置向导 - 高级功能
-   :width: 80%
+状态栏与输出
+~~~~~~~~~~~~
 
-**步骤 5：完成** — 配置保存到工作区的 ``.env`` 文件中。
+- **状态栏**：Backend（端口）、Gateway（路由状态/成功率）、LLM（验证通过时显示模型名）
+- **输出通道**：``AI Social Scientist``（主通道，含 ``[API]`` ``[Chat]`` 等前缀）、``AI Social Scientist Backend``、``AI CLI Gateway``
+- 扩展默认启用 ``python.terminal.useEnvFile``，集成终端会自动加载工作区 ``.env``
 
 启动后端
 ~~~~~~~~
 
-配置完成后点击"保存并启动后端"，系统会自动保存配置并启动后端服务。右下角状态栏显示后端运行状态（含端口号）表示启动成功。
+配置向导第 3 步或配置页中的「保存并启动后端」会自动保存配置并启动后端服务。也可通过状态栏 Backend 菜单或命令面板启动。从配置页启动时，成功/失败提示仅在配置页内显示，避免与命令 Toast 重复。
 
-.. image:: _static/images/user_guide/config_validation.png
-   :alt: 配置验证成功
-   :width: 60%
-
-.. image:: _static/images/user_guide/backend_running.png
-   :alt: 后端运行状态
-   :width: 60%
+右下角状态栏显示后端运行状态（含端口号）表示启动成功。
 
 .. _start-research:
 

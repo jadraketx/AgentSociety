@@ -30,6 +30,16 @@ export interface AiCliGatewayStatus {
   routeCodex?: boolean;
   claudeProxyAvailable?: boolean;
   codexProxyAvailable?: boolean;
+  stats?: {
+    startedAt: string;
+    uptimeMs: number;
+    totalRequests: number;
+    successfulRequests: number;
+    failedRequests: number;
+    activeConnections: number;
+    successRate: number;
+  };
+  failoverHealth?: Record<string, 'healthy' | 'degraded' | 'unhealthy'>;
 }
 
 export interface CodexRoutingStatus {

@@ -165,7 +165,7 @@ class SelfEnhancementEnv(EnvBase):
 
             # Validate percentile
             if not isinstance(percentile, int):
-                percentile = percentile
+                raise ValueError(f"Percentile must be an integer, got {type(percentile).__name__}")
             percentile = max(0, min(100, percentile))  # Clamp to 0-100
 
             # Check if already submitted

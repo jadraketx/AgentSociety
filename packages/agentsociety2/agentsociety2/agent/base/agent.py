@@ -540,7 +540,7 @@ class AgentBase(ABC):
 
     async def close(self):
         """Close the agent and release resources. Subclasses may override."""
-        ...
+        pass
 
     def get_profile(self) -> Dict[str, Any]:
         """Return the agent profile as a dict.

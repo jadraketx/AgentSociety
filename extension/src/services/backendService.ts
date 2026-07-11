@@ -9,7 +9,7 @@ import * as vscode from 'vscode';
 import type { SSEEvent } from '../shared/messages';
 import { getBackendAccessUrl } from '../runtimeConfig';
 import { fetchCompat } from '../shared/fetchCompat';
-import { getSharedOutputChannel } from '../shared/outputChannels';
+import { appendSharedOutputLine, OUTPUT_CHANNEL_BACKEND } from '../shared/outputChannels';
 
 const fetch = fetchCompat as unknown as typeof globalThis.fetch;
 
@@ -21,12 +21,10 @@ export interface BackendStatus {
 
 export class BackendService {
   private baseUrl: string;
-  private outputChannel: vscode.OutputChannel;
   private disposables: vscode.Disposable[] = [];
   private abortController: AbortController | null = null;
 
   constructor(context: vscode.ExtensionContext) {
-    this.outputChannel = getSharedOutputChannel('AI Social Scientist Backend');
     this.baseUrl = getBackendAccessUrl();
 
     // Monitor .env file changes for port updates
@@ -59,7 +57,7 @@ export class BackendService {
 
   private log(message: string): void {
     const timestamp = new Date().toISOString();
-    this.outputChannel.appendLine(`[${timestamp}] ${message}`);
+    appendSharedOutputLine(OUTPUT_CHANNEL_BACKEND, `[${timestamp}] ${message}`);
   }
 
   getBaseUrl(): string {

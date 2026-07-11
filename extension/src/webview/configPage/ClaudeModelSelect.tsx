@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { AutoComplete } from 'antd';
+import { Select } from 'antd';
 import type { ClaudeModelOption } from './claudeCodeTypes';
 
 export interface ClaudeModelSelectProps {
@@ -8,6 +8,7 @@ export interface ClaudeModelSelectProps {
   models: ClaudeModelOption[];
   placeholder: string;
   disabled?: boolean;
+  loading?: boolean;
 }
 
 export const ClaudeModelSelect: React.FC<ClaudeModelSelectProps> = ({
@@ -16,6 +17,7 @@ export const ClaudeModelSelect: React.FC<ClaudeModelSelectProps> = ({
   models,
   placeholder,
   disabled,
+  loading,
 }) => {
   const options = React.useMemo(
     () =>
@@ -27,23 +29,20 @@ export const ClaudeModelSelect: React.FC<ClaudeModelSelectProps> = ({
   );
 
   return (
-    <AutoComplete
-      value={value}
-      onChange={onChange}
-      options={options}
-      placeholder={placeholder}
-      disabled={disabled}
+    <Select
+      showSearch
       allowClear
+      placeholder={placeholder}
+      value={value?.trim() ? value : undefined}
+      onChange={(next) => onChange?.(next ?? '')}
+      disabled={disabled}
+      loading={loading}
+      options={options}
+      optionFilterProp="label"
       style={{ width: '100%' }}
-      filterOption={(input, option) => {
-        const needle = input.trim().toLowerCase();
-        if (!needle) {
-          return true;
-        }
-        const val = String(option?.value ?? '').toLowerCase();
-        const label = String(option?.label ?? '').toLowerCase();
-        return val.includes(needle) || label.includes(needle);
-      }}
+      popupMatchSelectWidth
+      listHeight={320}
+      notFoundContent={placeholder}
     />
   );
 };

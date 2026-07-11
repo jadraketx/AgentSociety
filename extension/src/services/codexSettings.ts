@@ -6,7 +6,16 @@ import {
   buildLocalGatewayBaseUrl,
   isLocalGatewayBaseUrl,
 } from './aiCliGatewayUpstream';
-import { resolveProviderBaseUrl } from './aiCliOfficialEndpoints';
+import { resolveProviderBaseUrl } from '../aiCli/officialEndpoints';
+import {
+  CODEX_ONE_M_AUTO_COMPACT_LIMIT,
+  inferCodexContextWindow,
+  writeCodexModelCatalog,
+} from './codexModelCatalog';
+import {
+  CODEX_WEB_SEARCH_DISABLED_VALUE,
+  shouldDisableCodexWebSearch,
+} from './codexWebSearchPolicy';
 
 export const CODEX_GATEWAY_PROVIDER_ID = 'agentsociety-gateway';
 export const CODEX_DIRECT_PROVIDER_ID = 'agentsociety-codex';
@@ -15,6 +24,9 @@ export type CodexProviderPatch = {
   baseUrl: string;
   apiKey: string;
   model?: string;
+  codexEnable1m?: boolean;
+  codexContextWindow?: number;
+  codexAutoCompactLimit?: number;
 };
 
 function resolveCodexHome(): string {
@@ -112,7 +124,7 @@ export function writeCodexAuth(entries: Record<string, string>): void {
   atomicWriteFile(authPath, `${JSON.stringify(merged, null, 2)}\n`);
 }
 
-function readCodexConfigText(): string {
+export function readCodexConfigText(): string {
   const configPath = resolveCodexConfigPath();
   if (!fs.existsSync(configPath)) {
     return '';
@@ -120,7 +132,7 @@ function readCodexConfigText(): string {
   return fs.readFileSync(configPath, 'utf-8');
 }
 
-function writeCodexConfigText(text: string): void {
+export function writeCodexConfigText(text: string): void {
   atomicWriteFile(resolveCodexConfigPath(), text.endsWith('\n') ? text : `${text}\n`);
 }
 
@@ -163,7 +175,68 @@ function codexBaseUrlForProvider(baseUrl: string): string {
   return resolved.endsWith('/v1') ? resolved : `${resolved}/v1`;
 }
 
-export function applyCodexGatewayConfig(port: number, model?: string): void {
+function upsertTopLevelTomlField(text: string, key: string, value: string): string {
+  const pattern = new RegExp(`^${key}\\s*=.*$`, 'm');
+  const line = `${key} = ${value}`;
+  if (pattern.test(text)) {
+    return text.replace(pattern, line);
+  }
+  return `${line}\n${text}`;
+}
+
+function removeTopLevelTomlField(text: string, key: string): string {
+  return text.replace(new RegExp(`^${key}\\s*=.*\\n?`, 'm'), '');
+}
+
+function applyCodexCatalogAndPolicy(text: string, provider: CodexProviderPatch): string {
+  const modelName = provider.model?.trim();
+  if (!modelName) {
+    return text;
+  }
+  const contextWindow =
+    provider.codexContextWindow && provider.codexContextWindow > 0
+      ? provider.codexContextWindow
+      : inferCodexContextWindow(modelName, provider.codexEnable1m);
+  const catalogPath = writeCodexModelCatalog({
+    entries: [
+      {
+        modelId: modelName,
+        displayName: modelName,
+        contextWindow,
+        effectiveContextPercent: provider.codexEnable1m ? 100 : undefined,
+      },
+    ],
+  });
+  let updated = upsertTopLevelTomlField(text, 'model_catalog_json', tomlString(catalogPath));
+  if (provider.codexEnable1m) {
+    const compactLimit =
+      provider.codexAutoCompactLimit && provider.codexAutoCompactLimit > 0
+        ? provider.codexAutoCompactLimit
+        : CODEX_ONE_M_AUTO_COMPACT_LIMIT;
+    updated = upsertTopLevelTomlField(
+      updated,
+      'model_auto_compact_token_limit',
+      String(compactLimit)
+    );
+  } else {
+    updated = removeTopLevelTomlField(updated, 'model_auto_compact_token_limit');
+  }
+  if (shouldDisableCodexWebSearch(provider.baseUrl, modelName)) {
+    updated = upsertTopLevelTomlField(
+      updated,
+      'web_search',
+      tomlString(CODEX_WEB_SEARCH_DISABLED_VALUE)
+    );
+  } else {
+    const current = updated.match(/^web_search\s*=\s*"([^"]*)"/m)?.[1];
+    if (current === CODEX_WEB_SEARCH_DISABLED_VALUE) {
+      updated = removeTopLevelTomlField(updated, 'web_search');
+    }
+  }
+  return updated;
+}
+
+export function applyCodexGatewayConfig(port: number, provider?: CodexProviderPatch): void {
   const gatewayUrl = `${buildLocalGatewayBaseUrl(port)}/v1`;
   let text = readCodexConfigText();
   text = removeProviderBlock(text, CODEX_DIRECT_PROVIDER_ID);
@@ -175,13 +248,21 @@ export function applyCodexGatewayConfig(port: number, model?: string): void {
     `experimental_bearer_token = ${tomlString(AI_CLI_GATEWAY_PLACEHOLDER_TOKEN)}`,
   ]);
   text = upsertModelProvider(text, CODEX_GATEWAY_PROVIDER_ID);
-  const modelName = model?.trim();
+  const modelName = provider?.model?.trim();
   if (modelName) {
     if (text.match(/^model\s*=/m)) {
       text = text.replace(/^model\s*=\s*"[^"]*"/m, `model = ${tomlString(modelName)}`);
     } else {
       text = `model = ${tomlString(modelName)}\n${text}`;
     }
+    text = applyCodexCatalogAndPolicy(text, {
+      baseUrl: gatewayUrl,
+      apiKey: AI_CLI_GATEWAY_PLACEHOLDER_TOKEN,
+      model: modelName,
+      codexEnable1m: provider?.codexEnable1m,
+      codexContextWindow: provider?.codexContextWindow,
+      codexAutoCompactLimit: provider?.codexAutoCompactLimit,
+    });
   }
   writeCodexConfigText(text);
 }
@@ -204,6 +285,7 @@ export function applyCodexDirectProvider(provider: CodexProviderPatch): void {
     } else {
       text = `model = ${tomlString(provider.model.trim())}\n${text}`;
     }
+    text = applyCodexCatalogAndPolicy(text, provider);
   }
   writeCodexConfigText(text);
 }

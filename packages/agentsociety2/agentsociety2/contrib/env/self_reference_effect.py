@@ -235,7 +235,7 @@ class SelfReferenceEffectEnv(EnvBase):
 
             # Validate rating
             if not isinstance(rating, int):
-                rating = rating
+                raise ValueError(f"Rating must be an integer, got {type(rating).__name__}")
             rating = max(1, min(5, rating))  # Clamp to 1-5
 
             # Check if this trait-identity combination exists in encoding traits

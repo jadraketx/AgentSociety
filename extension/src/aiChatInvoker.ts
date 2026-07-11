@@ -6,6 +6,7 @@
  */
 
 import * as vscode from 'vscode';
+import { getMainOutputChannel } from './shared/outputChannels';
 
 export type AIChatType = 'claude-code' | 'codex' | 'cursor' | 'vscode-chat' | 'none';
 
@@ -34,11 +35,11 @@ export class AIChatInvoker {
   private outputChannel: vscode.OutputChannel;
 
   constructor() {
-    this.outputChannel = vscode.window.createOutputChannel('AI Chat Invoker');
+    this.outputChannel = getMainOutputChannel();
   }
 
   private log(message: string): void {
-    this.outputChannel.appendLine(`${new Date().toISOString()} ${message}`);
+    this.outputChannel.appendLine(`${new Date().toISOString()} [Chat] ${message}`);
   }
 
   /**
@@ -173,6 +174,5 @@ export class AIChatInvoker {
   }
 
   dispose(): void {
-    this.outputChannel.dispose();
   }
 }

@@ -71,7 +71,7 @@ export class PrefillParamsViewProvider {
   ) {
     // 如果已经有一个面板打开，直接显示它（单例模式）
     if (PrefillParamsViewProvider.currentPanel) {
-      PrefillParamsViewProvider.currentPanel._panel.reveal(vscode.ViewColumn.Beside);
+      PrefillParamsViewProvider.currentPanel.revealAndRefresh();
       return;
     }
 
@@ -167,10 +167,21 @@ export class PrefillParamsViewProvider {
     }
   }
 
+  public revealAndRefresh(): void {
+    this._panel.reveal(vscode.ViewColumn.Beside);
+    void this._handleRequestData();
+  }
+
+  private _postToWebview(message: Record<string, unknown>): void {
+    if (this._panel.webview) {
+      void this._panel.webview.postMessage(message);
+    }
+  }
+
   private async _handleRequestData() {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
-      this._panel.webview.postMessage({
+      this._postToWebview({
         command: 'error',
         error: localize('prefillParamsViewProvider.noWorkspace'),
       });
@@ -178,19 +189,16 @@ export class PrefillParamsViewProvider {
     }
 
     try {
-      // 获取可用的类列表
       const classesResponse = await this._apiClient.getAvailableClasses(workspaceFolder.uri.fsPath);
-
-      // 获取所有预填充参数
       const prefillResponse = await this._apiClient.getPrefillParams(workspaceFolder.uri.fsPath);
 
-      this._panel.webview.postMessage({
+      this._postToWebview({
         command: 'initialData',
         classes: classesResponse,
         prefillParams: prefillResponse.data,
       });
     } catch (error: any) {
-      this._panel.webview.postMessage({
+      this._postToWebview({
         command: 'error',
         error: error.message || localize('prefillParams.errorMessages.loadFailed'),
       });
@@ -200,7 +208,7 @@ export class PrefillParamsViewProvider {
   private async _handleTestSingleModule(message: any) {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
-      this._panel.webview.postMessage({
+      this._postToWebview({
         command: 'testResult',
         moduleKey: message.moduleKey,
         success: false,
@@ -242,7 +250,7 @@ export class PrefillParamsViewProvider {
         moduleError = response.error || `未找到模块 "${moduleClassName}" 的测试结果`;
       }
 
-      this._panel.webview.postMessage({
+      this._postToWebview({
         command: 'testResult',
         moduleKey: moduleKey,
         success: moduleSuccess,
@@ -250,7 +258,7 @@ export class PrefillParamsViewProvider {
         error: moduleError,
       });
     } catch (error: any) {
-      this._panel.webview.postMessage({
+      this._postToWebview({
         command: 'testResult',
         moduleKey: moduleKey,
         success: false,

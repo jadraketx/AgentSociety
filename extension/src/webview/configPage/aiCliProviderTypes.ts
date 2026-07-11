@@ -16,7 +16,18 @@ export type AiCliProviderRecord = {
   model?: string;
   sonnetModel?: string;
   opusModel?: string;
+  fableModel?: string;
   haikuModel?: string;
+  sonnetDisplayName?: string;
+  opusDisplayName?: string;
+  fableDisplayName?: string;
+  haikuDisplayName?: string;
+  declareSonnet1m?: boolean;
+  declareOpus1m?: boolean;
+  declareFable1m?: boolean;
+  codexEnable1m?: boolean;
+  codexContextWindow?: number;
+  codexAutoCompactLimit?: number;
   permissionMode?: string;
 };
 
@@ -29,7 +40,18 @@ export const EMPTY_PROVIDER_DRAFT: Omit<AiCliProviderRecord, 'id' | 'activeClaud
   model: '',
   sonnetModel: '',
   opusModel: '',
+  fableModel: '',
   haikuModel: '',
+  sonnetDisplayName: '',
+  opusDisplayName: '',
+  fableDisplayName: '',
+  haikuDisplayName: '',
+  declareSonnet1m: false,
+  declareOpus1m: false,
+  declareFable1m: false,
+  codexEnable1m: false,
+  codexContextWindow: undefined,
+  codexAutoCompactLimit: undefined,
   permissionMode: '',
 };
 
@@ -44,13 +66,17 @@ export function isProviderActiveForRole(
   return role === 'claude' ? provider.activeClaude : provider.activeCodex;
 }
 
-const MODEL_ROLE_PATTERNS: Record<'sonnet' | 'opus' | 'haiku', RegExp> = {
+const MODEL_ROLE_PATTERNS: Record<'sonnet' | 'opus' | 'fable' | 'haiku', RegExp> = {
   sonnet: /sonnet/i,
   opus: /opus/i,
+  fable: /fable/i,
   haiku: /haiku/i,
 };
 
-function findModelIdByRole(models: ClaudeModelOption[], role: 'sonnet' | 'opus' | 'haiku'): string | undefined {
+function findModelIdByRole(
+  models: ClaudeModelOption[],
+  role: 'sonnet' | 'opus' | 'fable' | 'haiku'
+): string | undefined {
   const pattern = MODEL_ROLE_PATTERNS[role];
   return models.find((m) => pattern.test(m.id) || (m.label ? pattern.test(m.label) : false))?.id;
 }
@@ -59,21 +85,25 @@ export type ClaudeRoleModelMapping = {
   model: string;
   sonnetModel: string;
   opusModel: string;
+  fableModel: string;
   haikuModel: string;
 };
 
 export function autoMapClaudeRoleModels(
   models: ClaudeModelOption[],
-  current: Partial<Pick<AiCliProviderRecord, 'model' | 'sonnetModel' | 'opusModel' | 'haikuModel'>>
+  current: Partial<Pick<AiCliProviderRecord, 'model' | 'sonnetModel' | 'opusModel' | 'fableModel' | 'haikuModel'>>
 ): ClaudeRoleModelMapping {
   const sonnet = findModelIdByRole(models, 'sonnet');
   const opus = findModelIdByRole(models, 'opus');
+  const fable = findModelIdByRole(models, 'fable');
   const haiku = findModelIdByRole(models, 'haiku');
   const fallback = sonnet ?? opus ?? models[0]?.id ?? '';
+  const resolvedOpus = current.opusModel?.trim() ? current.opusModel : (opus ?? '');
   return {
     model: current.model?.trim() ? current.model : fallback,
     sonnetModel: current.sonnetModel?.trim() ? current.sonnetModel : (sonnet ?? ''),
-    opusModel: current.opusModel?.trim() ? current.opusModel : (opus ?? ''),
+    opusModel: resolvedOpus,
+    fableModel: current.fableModel?.trim() ? current.fableModel : (fable ?? resolvedOpus),
     haikuModel: current.haikuModel?.trim() ? current.haikuModel : (haiku ?? ''),
   };
 }

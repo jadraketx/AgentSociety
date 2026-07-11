@@ -10,6 +10,7 @@ import json
 import logging
 import os
 import shutil
+import sys
 import re
 from collections import defaultdict
 from datetime import datetime
@@ -677,7 +678,10 @@ async def main_commons_tragedy_with_person_agent(
         society = None
         try:
             society = AgentSociety(
-                agents=agents, env_router=env_router, start_t=start_time
+                agent_specs=[{"id": a.id, "profile": a._profile, "config": a._config} for a in agents],
+                agent_class_name="PersonAgent",
+                env_router=env_router,
+                start_t=start_time
             )
             await society.init()
 
@@ -1075,7 +1079,10 @@ async def main_prisoners_dilemma_with_person_agent(
         society = None
         try:
             society = AgentSociety(
-                agents=agents, env_router=env_router, start_t=start_time
+                agent_specs=[{"id": a.id, "profile": a._profile, "config": a._config} for a in agents],
+                agent_class_name="PersonAgent",
+                env_router=env_router,
+                start_t=start_time
             )
             await society.init()
 
@@ -1447,7 +1454,10 @@ async def main_public_goods_with_person_agent(
         society = None
         try:
             society = AgentSociety(
-                agents=agents, env_router=env_router, start_t=start_time
+                agent_specs=[{"id": a.id, "profile": a._profile, "config": a._config} for a in agents],
+                agent_class_name="PersonAgent",
+                env_router=env_router,
+                start_t=start_time
             )
             await society.init()
 
@@ -1891,7 +1901,10 @@ async def main_trust_game_with_person_agent(
         society = None
         try:
             society = AgentSociety(
-                agents=agents, env_router=env_router, start_t=start_time
+                agent_specs=[{"id": a.id, "profile": a._profile, "config": a._config} for a in agents],
+                agent_class_name="PersonAgent",
+                env_router=env_router,
+                start_t=start_time
             )
             await society.init()
 
@@ -2286,7 +2299,10 @@ async def main_volunteer_dilemma_with_person_agent(
         society = None
         try:
             society = AgentSociety(
-                agents=agents, env_router=env_router, start_t=start_time
+                agent_specs=[{"id": a.id, "profile": a._profile, "config": a._config} for a in agents],
+                agent_class_name="PersonAgent",
+                env_router=env_router,
+                start_t=start_time
             )
             await society.init()
 
@@ -2792,4 +2808,4 @@ if __name__ == "__main__":
         asyncio.run(run_all_games())
     else:
         print("无效的选择，程序退出。")
-        exit(1)
+        sys.exit(1)

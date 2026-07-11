@@ -17,6 +17,7 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { getMainOutputChannel } from './shared/outputChannels';
 
 const SKILL_PREFIX = 'agentsociety-';
 const PRESETS_RELATIVE = path.join('.agentsociety', 'skill-presets.json');
@@ -70,7 +71,7 @@ export class SkillVersionManager {
     this.extensionPath = context.extensionPath;
     this.skillsSourcePath = path.join(this.extensionPath, 'skills');
     this.outputChannel =
-      outputChannel ?? vscode.window.createOutputChannel('Skill Version Manager');
+      outputChannel ?? getMainOutputChannel();
   }
 
   // ============ Identification ============

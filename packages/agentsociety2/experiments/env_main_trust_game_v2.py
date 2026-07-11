@@ -248,7 +248,10 @@ async def main():
         society = None
         try:
             society = AgentSociety(
-                agents=agents, env_router=env_router, start_t=start_time
+                agent_specs=[{"id": a.id, "profile": a._profile, "config": a._config} for a in agents],
+                agent_class_name="TrustGameAgent",
+                env_router=env_router,
+                start_t=start_time
             )
             await society.init()
 

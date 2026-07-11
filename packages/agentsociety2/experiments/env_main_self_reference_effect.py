@@ -417,7 +417,8 @@ async def main(
     logger.info(f"\n[Step 5/5] Running experiment ({TOTAL_STEPS} steps, {TIME_STEP_SECONDS} seconds per step)...")
 
     society = AgentSociety(
-        agents=agents,
+        agent_specs=[{"id": a.id, "profile": a._profile, "config": a._config} for a in agents],
+        agent_class_name="PersonAgent",
         env_router=env_router,
         start_t=START_TIME,
     )

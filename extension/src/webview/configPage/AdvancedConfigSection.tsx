@@ -6,34 +6,27 @@ import {
   Tabs,
   Typography,
 } from 'antd';
+import { FileTextOutlined } from '@ant-design/icons';
 import type { FormInstance } from 'antd';
 import type { TFunction } from 'i18next';
 import type { VscodeThemePalette } from '../theme';
-import type {
-  AiCliGatewayStatus,
-  ClaudeCodeCliStatus,
-  ClaudeModelOption,
-} from './claudeCodeTypes';
-import type { AiCliProviderRecord } from './aiCliProviderTypes';
-import type { TokenUsageRecord, UsageAggregation } from './gatewayUsageTypes';
-import type { ModelPricingMap } from './modelPricing';
-import type { CodexRoutingStatus, ProviderUsageQueryResult } from './claudeCodeTypes';
-import type { ConfigValues, ValidationState } from './types';
-const AiCliConfigSection = React.lazy(() =>
-  import('./AiCliConfigSection').then((m) => ({ default: m.AiCliConfigSection }))
-);
+import type { ClaudeModelOption } from './claudeCodeTypes';
+import type { ConfigValues, ValidationState, EasyPaperConfigValues } from './types';
 import { ValidationAction } from './ValidationAction';
+import { PythonEnvironmentPicker, type PythonEnvironmentOption } from './PythonEnvironmentPicker';
+import { EnvLlmModelField } from './EnvLlmModelField';
+import { EasyPaperConfigSection } from './EasyPaperConfigSection';
 import { tabBodyStyle } from './configPageStyles';
 import {
   type AdvancedValidationKey,
   getAdvancedItemVisualStatus,
-  getClaudeConfigVisualStatus,
   statusColor,
 } from './advancedValidation';
+import { ENV_LLM_SLOT } from './envLlmSlots';
 
 const { Text } = Typography;
 
-export type AdvancedTopTab = 'models' | 'python' | 'literature' | 'claude';
+export type AdvancedTopTab = 'models' | 'python' | 'easypaper';
 
 type SpecializedLlmKind = 'coder' | 'embedding';
 
@@ -48,57 +41,19 @@ export interface AdvancedConfigSectionProps {
   validationState: Record<string, ValidationState>;
   validateDisabledByKind: Record<SpecializedLlmKind, string | null>;
   pythonValidateDisabledReason: string | null;
-  literatureValidateDisabledReason: string | null;
-  claudeValidateDisabledReason: string | null;
   onValidate: (llmType: string) => void;
   pythonSectionRef: React.RefObject<HTMLDivElement | null>;
-  literatureSectionRef: React.RefObject<HTMLDivElement | null>;
-  claudeSectionRef: React.RefObject<HTMLDivElement | null>;
-  claudeCliStatus: ClaudeCodeCliStatus;
-  claudeSettingsPath: string;
-  onResetClaude: () => void;
-  aiCliGatewayStatus: AiCliGatewayStatus;
-  gatewayToggling: boolean;
-  onRouteClaudeToggle: (enabled: boolean) => void;
-  onRouteCodexToggle: (enabled: boolean) => void;
-  claudeProviders: AiCliProviderRecord[];
-  claudeProvidersLoading: boolean;
-  providerAvailabilityResults: Record<string, import('./claudeCodeTypes').ProviderAvailabilityResult>;
-  onSaveClaudeProvider: (provider: AiCliProviderRecord) => void;
-  onAddClaudeProvider: (draft: Omit<AiCliProviderRecord, 'id'>) => void;
-  onRemoveClaudeProvider: (id: string) => void;
-  onActivateClaudeProvider: (id: string, role: 'claude' | 'codex') => void;
-  onToggleFailoverProvider: (id: string, role: 'claude' | 'codex') => void;
-  onCheckClaudeProvider: (baseUrl: string, apiKey: string, apiKind?: 'anthropic' | 'openai') => void;
-  onShowClaudeGatewayLog: () => void;
-  modelsByProvider: Record<string, ClaudeModelOption[]>;
-  modelsLoadingByProvider: Record<string, boolean>;
-  modelsErrorByProvider: Record<string, string | null>;
-  onFetchProviderModels: (
-    providerId: string,
-    baseUrl: string,
-    apiKey: string,
-    apiKind?: 'anthropic' | 'openai'
-  ) => void;
   form: FormInstance<ConfigValues>;
-  // Usage
-  usageRecords: TokenUsageRecord[];
-  usageAggregation: UsageAggregation | null;
-  usageLoading: boolean;
-  onRefreshUsage: () => void;
-  onClearUsage: () => void;
-  // Codex + Failover + Pricing
-  codexRouting: CodexRoutingStatus | null;
-  failoverEnabled: boolean;
-  onFailoverToggle: (enabled: boolean) => void;
-  customPricing: ModelPricingMap;
-  onGetPricing: () => void;
-  onRefreshPricing: () => void;
-  onSavePricing: (pricing: ModelPricingMap) => void;
-  onClearPricing: () => void;
-  providerUsage: Record<string, ProviderUsageQueryResult & { loading?: boolean }>;
-  onQueryProviderUsage: (id: string) => void;
-  onRestartCodex?: () => void;
+  modelsBySlot: Record<string, ClaudeModelOption[]>;
+  modelsLoadingBySlot: Record<string, boolean>;
+  modelsErrorBySlot: Record<string, string | null>;
+  onFetchSlotModels: (slotId: string, baseUrl: string, apiKey: string) => void;
+  effectiveValues: ConfigValues;
+  pythonEnvironmentOptions: PythonEnvironmentOption[];
+  pythonEnvironmentScanning: boolean;
+  onScanPythonEnvironments: () => void;
+  easyPaperForm: FormInstance<EasyPaperConfigValues>;
+  onSaveEasyPaper: () => void;
 }
 
 const MODEL_TAB_KEYS: SpecializedLlmKind[] = ['coder', 'embedding'];
@@ -114,50 +69,19 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   validationState,
   validateDisabledByKind,
   pythonValidateDisabledReason,
-  literatureValidateDisabledReason,
-  claudeValidateDisabledReason,
   onValidate,
   pythonSectionRef,
-  literatureSectionRef,
-  claudeSectionRef,
-  claudeCliStatus,
-  claudeSettingsPath,
-  onResetClaude,
-  aiCliGatewayStatus,
-  gatewayToggling,
-  onRouteClaudeToggle,
-  onRouteCodexToggle,
-  claudeProviders,
-  claudeProvidersLoading,
-  providerAvailabilityResults,
-  onSaveClaudeProvider,
-  onAddClaudeProvider,
-  onRemoveClaudeProvider,
-  onActivateClaudeProvider,
-  onToggleFailoverProvider,
-  onCheckClaudeProvider,
-  onShowClaudeGatewayLog,
-  modelsByProvider,
-  modelsLoadingByProvider,
-  modelsErrorByProvider,
-  onFetchProviderModels,
   form,
-  usageRecords,
-  usageAggregation,
-  usageLoading,
-  onRefreshUsage,
-  onClearUsage,
-  codexRouting,
-  failoverEnabled,
-  onFailoverToggle,
-  customPricing,
-  onGetPricing,
-  onRefreshPricing,
-  onSavePricing,
-  onClearPricing,
-  providerUsage,
-  onQueryProviderUsage,
-  onRestartCodex,
+  modelsBySlot,
+  modelsLoadingBySlot,
+  modelsErrorBySlot,
+  onFetchSlotModels,
+  effectiveValues,
+  pythonEnvironmentOptions,
+  pythonEnvironmentScanning,
+  onScanPythonEnvironments,
+  easyPaperForm,
+  onSaveEasyPaper,
 }) => {
   const linkedKeyPlaceholder = t('configPage.linkedPlaceholders.apiKey', {
     status: hasDefaultLlmKey
@@ -171,49 +95,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
     coder: validateDisabledByKind.coder,
     embedding: validateDisabledByKind.embedding,
     python: pythonValidateDisabledReason,
-    literature: literatureValidateDisabledReason,
-  };
-
-  const aiCliSectionProps = {
-    t,
-    palette,
-    cliStatus: claudeCliStatus,
-    settingsPath: claudeSettingsPath,
-    onResetClaude,
-    gatewayStatus: aiCliGatewayStatus,
-    gatewayToggling,
-    onRouteClaudeToggle,
-    onRouteCodexToggle,
-    providers: claudeProviders,
-    providersLoading: claudeProvidersLoading,
-    speedtestResults: providerAvailabilityResults,
-    onSaveProvider: onSaveClaudeProvider,
-    onAddProvider: onAddClaudeProvider,
-    onRemoveProvider: onRemoveClaudeProvider,
-    onActivateProvider: onActivateClaudeProvider,
-    onToggleFailoverProvider: onToggleFailoverProvider,
-    onSpeedtestProvider: onCheckClaudeProvider,
-    onShowGatewayLog: onShowClaudeGatewayLog,
-    modelsByProvider,
-    modelsLoadingByProvider,
-    modelsErrorByProvider,
-    onFetchProviderModels,
-    usageRecords,
-    usageAggregation,
-    usageLoading,
-    onRefreshUsage,
-    onClearUsage,
-    codexRouting,
-    failoverEnabled,
-    onFailoverToggle,
-    customPricing,
-    onGetPricing,
-    onRefreshPricing,
-    onSavePricing,
-    onClearPricing,
-    providerUsage,
-    onQueryProviderUsage,
-    onRestartCodex,
+    literature: null,
   };
 
   const tabLabelWithStatus = (label: string, kind: AdvancedValidationKey) => {
@@ -236,82 +118,61 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
     );
   };
 
-  const getDisabledReason = (kind: AdvancedValidationKey) => blockedByKind[kind];
-
-  const getValidateLabel = (kind: AdvancedValidationKey) => {
-    if (kind === 'literature') {
-      return t('configPage.literature.validateConfig');
-    }
-    return t('configPage.validate');
-  };
-
   const renderValidationAction = (kind: AdvancedValidationKey) => (
     <ValidationAction
       t={t}
       palette={palette}
       state={validationState[kind] ?? { validating: false, valid: null, error: null }}
-      disabledReason={getDisabledReason(kind)}
+      disabledReason={blockedByKind[kind]}
       onValidate={() => onValidate(kind)}
-      label={getValidateLabel(kind)}
+      label={t('configPage.validate')}
       size="small"
       primary={false}
     />
   );
 
-  const renderLlmFields = (
-    kind: 'coder',
-    hintKey: string,
-    fields: { key: string; label: string; placeholder?: string }[]
-  ) => (
-    <div style={tabBodyStyle}>
-      <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
-        {t(hintKey)}
-      </Text>
-      {fields.map((field) => (
-        <Form.Item key={field.key} name={field.key} label={field.label} style={{ marginBottom: 12 }}>
-          {field.key.includes('ApiKey') ? (
-            <Input.Password placeholder={field.placeholder ?? linkedKeyPlaceholder} autoComplete="off" />
-          ) : (
-            <Input placeholder={field.placeholder} />
-          )}
-        </Form.Item>
-      ))}
-      {renderValidationAction(kind)}
-    </div>
-  );
+  const slotFetchProps = (slotId: string, baseUrl: string | undefined, apiKey: string | undefined) => ({
+    models: modelsBySlot[slotId] ?? [],
+    loading: modelsLoadingBySlot[slotId] ?? false,
+    error: modelsErrorBySlot[slotId] ?? null,
+    canFetch: Boolean((baseUrl ?? '').trim() && (apiKey ?? '').trim()),
+    onFetch: () => onFetchSlotModels(slotId, baseUrl ?? '', apiKey ?? ''),
+  });
 
-  const modelsTabVisual = (): ReturnType<typeof getAdvancedItemVisualStatus> => {
-    const statuses = MODEL_TAB_KEYS.map((key) =>
-      getAdvancedItemVisualStatus(validationState[key], blockedByKind[key])
-    );
-    if (statuses.some((s) => s === 'validating')) {
-      return 'validating';
-    }
-    if (statuses.every((s) => s === 'ok')) {
-      return 'ok';
-    }
-    if (statuses.some((s) => s === 'error')) {
-      return 'error';
-    }
-    if (statuses.some((s) => s === 'blocked')) {
-      return 'blocked';
-    }
-    return 'idle';
-  };
+  const coderBase = (effectiveValues.coderLlmApiBase || effectiveValues.llmApiBase || '').trim();
+  const coderKey = (effectiveValues.coderLlmApiKey || effectiveValues.llmApiKey || '').trim();
+  const embeddingBase = (effectiveValues.embeddingApiBase || effectiveValues.llmApiBase || '').trim();
+  const embeddingKey = (effectiveValues.embeddingApiKey || effectiveValues.llmApiKey || '').trim();
 
   const modelTabItems = [
     {
       key: 'coder',
       label: tabLabelWithStatus(t('configPage.coder.shortTitle'), 'coder'),
-      children: renderLlmFields('coder', 'configPage.coder.hint', [
-        { key: 'coderLlmApiBase', label: t('configPage.coder.apiBase'), placeholder: linkedBasePlaceholder },
-        { key: 'coderLlmApiKey', label: t('configPage.coder.apiKey') },
-        {
-          key: 'coderLlmModel',
-          label: t('configPage.coder.model'),
-          placeholder: t('configPage.coder.modelPlaceholder', { model: defaultLlmModel }),
-        },
-      ]),
+      children: (
+        <div style={tabBodyStyle}>
+          <Text type="secondary" style={{ display: 'block', marginBottom: 12, fontSize: 12 }}>
+            {t('configPage.coder.hint')}
+          </Text>
+          <Form.Item name="coderLlmApiBase" label={t('configPage.coder.apiBase')} style={{ marginBottom: 12 }}>
+            <Input placeholder={linkedBasePlaceholder} />
+          </Form.Item>
+          <Form.Item name="coderLlmApiKey" label={t('configPage.coder.apiKey')} style={{ marginBottom: 12 }}>
+            <Input.Password placeholder={linkedKeyPlaceholder} autoComplete="off" />
+          </Form.Item>
+          <Form.Item
+            name="coderLlmModel"
+            label={t('configPage.coder.model')}
+            style={{ marginBottom: 12 }}
+          >
+            <EnvLlmModelField
+              t={t}
+              placeholder={t('configPage.coder.modelPlaceholder', { model: defaultLlmModel })}
+              {...slotFetchProps(ENV_LLM_SLOT.coder, coderBase, coderKey)}
+            />
+          </Form.Item>
+          {renderValidationAction('coder')}
+        </div>
+      ),
     },
     {
       key: 'embedding',
@@ -328,7 +189,11 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
             <Input.Password placeholder={linkedKeyPlaceholder} autoComplete="off" />
           </Form.Item>
           <Form.Item name="embeddingModel" label={t('configPage.advanced.embedding.model')}>
-            <Input placeholder={t('configPage.advanced.embedding.modelPlaceholder')} />
+            <EnvLlmModelField
+              t={t}
+              placeholder={t('configPage.advanced.embedding.modelPlaceholder')}
+              {...slotFetchProps(ENV_LLM_SLOT.embedding, embeddingBase, embeddingKey)}
+            />
           </Form.Item>
           <Form.Item name="embeddingDims" label={t('configPage.advanced.embedding.dims')}>
             <InputNumber
@@ -347,19 +212,7 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
   const topTabItems = [
     {
       key: 'models',
-      label: (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: '50%',
-              background: statusColor(modelsTabVisual(), palette),
-            }}
-          />
-          {t('configPage.sections.specializedModels')}
-        </span>
-      ),
+      label: t('configPage.sections.specializedModels'),
       children: (
         <>
           <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 8 }}>
@@ -377,65 +230,46 @@ export const AdvancedConfigSection: React.FC<AdvancedConfigSectionProps> = ({
           <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 12 }}>
             {t('configPage.python.hint')}
           </Text>
-          <Form.Item name="pythonPath" label={t('configPage.python.path')}>
-            <Input placeholder={t('configPage.python.pathPlaceholder')} />
-          </Form.Item>
+          <PythonEnvironmentPicker
+            t={t}
+            form={form}
+            options={pythonEnvironmentOptions}
+            scanning={pythonEnvironmentScanning}
+            onScan={onScanPythonEnvironments}
+          />
           {renderValidationAction('python')}
         </div>
       ),
     },
     {
-      key: 'literature',
-      label: tabLabelWithStatus(t('configPage.literature.title'), 'literature'),
-      children: (
-        <div ref={literatureSectionRef} style={tabBodyStyle}>
-          <Text type="secondary" style={{ display: 'block', fontSize: 12, marginBottom: 12 }}>
-            {t('configPage.literature.hint')}
-          </Text>
-          <Form.Item name="literatureSearchMcpUrl" label={t('configPage.advanced.literature.apiUrl')}>
-            <Input placeholder={t('configPage.advanced.literature.apiUrlPlaceholder')} />
-          </Form.Item>
-          <Form.Item name="literatureSearchApiKey" label={t('configPage.advanced.literature.apiKey')}>
-            <Input.Password placeholder={t('configPage.advanced.literature.apiKeyPlaceholder')} autoComplete="off" />
-          </Form.Item>
-          {renderValidationAction('literature')}
-        </div>
-      ),
-    },
-    {
-      key: 'claude',
+      key: 'easypaper',
       label: (
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <span
-            style={{
-              width: 6,
-              height: 6,
-              borderRadius: '50%',
-              background: statusColor(getClaudeConfigVisualStatus(claudeValidateDisabledReason), palette),
-            }}
-          />
-          {t('configPage.overview.claudeCode')}
+          <FileTextOutlined />
+          EasyPaper
         </span>
       ),
       children: (
-        <div ref={claudeSectionRef}>
-          <React.Suspense fallback={<Text type="secondary">{t('configPage.loading')}</Text>}>
-            <AiCliConfigSection {...aiCliSectionProps} />
-          </React.Suspense>
-        </div>
+        <EasyPaperConfigSection
+          t={t}
+          palette={palette}
+          form={easyPaperForm}
+          defaultLlmApiKey={hasDefaultLlmKey ? (effectiveValues.llmApiKey || '') : ''}
+          defaultLlmApiBase={defaultLlmApiBase}
+          defaultLlmModel={defaultLlmModel}
+          onSave={onSaveEasyPaper}
+        />
       ),
     },
   ];
 
   return (
-    <>
-      <Tabs
-        activeKey={activeTopTab}
-        onChange={(key) => onActiveTopTabChange(key as AdvancedTopTab)}
-        items={topTabItems}
-        size="middle"
-        destroyInactiveTabPane={false}
-      />
-    </>
+    <Tabs
+      activeKey={activeTopTab}
+      onChange={(key) => onActiveTopTabChange(key as AdvancedTopTab)}
+      items={topTabItems}
+      size="middle"
+      destroyInactiveTabPane={false}
+    />
   );
 };

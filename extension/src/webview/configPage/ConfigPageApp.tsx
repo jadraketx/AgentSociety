@@ -5,16 +5,16 @@ import {
   Form,
   Input,
   Button,
-  Card,
   Typography,
   Alert,
   Space,
   notification,
-  Collapse,
+  Tabs,
   Tooltip,
-  Tag,
+  Collapse,
+  Dropdown,
 } from 'antd';
-import { SaveOutlined, KeyOutlined, CheckCircleOutlined, RocketOutlined, ReloadOutlined, SettingOutlined, LinkOutlined, StopOutlined, CodeOutlined } from '@ant-design/icons';
+import { SaveOutlined, RocketOutlined, ReloadOutlined, SettingOutlined, MoreOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import type {
   AiCliGatewayStatus,
@@ -23,21 +23,36 @@ import type {
   ClaudeModelOption,
   ProviderAvailabilityResult,
 } from './claudeCodeTypes';
-import type { TokenUsageRecord, UsageAggregation } from './gatewayUsageTypes';
+import type { TokenUsageRecord } from './gatewayUsageTypes';
 import type { ModelPricingMap } from './modelPricing';
-import type { VSCodeAPI, ConfigValues, WorkspaceInfo, BackendStatus, ValidationState } from './types';
+import type { VSCodeAPI, ConfigValues, WorkspaceInfo, BackendStatus, ValidationState, ImportedModelOptions, EasyPaperConfigValues } from './types';
 import { AdvancedConfigSection, type AdvancedTopTab } from './AdvancedConfigSection';
+import type { PythonEnvironmentOption } from './PythonEnvironmentPicker';
+import { DefaultLlmConfigCard } from './DefaultLlmConfigCard';
+import { LiteratureConfigSection } from './LiteratureConfigSection';
+import { AiCliConfigSection } from './AiCliConfigSection';
+import {
+  WebConfigImportPanel,
+  type DeviceAuthState,
+  type PendingWebImport,
+} from './WebConfigImportPanel';
+import {
+  ConfigSetupWizard,
+  WIZARD_STEPS,
+  wizardStepIndex,
+} from './ConfigSetupWizard';
+import { ConfigReadinessOverview } from './ConfigReadinessOverview';
+import { ConfigStatusDashboard } from './ConfigStatusDashboard';
+import { ConfigWizardStepPanel } from './ConfigWizardStepPanel';
+import { ENV_LLM_SLOT } from './envLlmSlots';
 import { supportsProviderUsageQuery } from './providerUsageSupport';
+import { normalizeProviderBaseUrl } from './providerBaseUrl';
 import { autoMapClaudeRoleModels } from './aiCliProviderTypes';
-import { advancedPanelInnerStyle, glassCardStyle } from './configPageStyles';
-import { ValidationAction } from './ValidationAction';
+import { advancedPanelInnerStyle } from './configPageStyles';
 import {
   ADVANCED_VALIDATION_KEYS,
   type AdvancedValidationKey,
-  getAdvancedItemVisualStatus,
   getAdvancedKeyFingerprint,
-  getAdvancedValidationLabel,
-  statusColor,
 } from './advancedValidation';
 import { useVscodeTheme } from '../theme';
 import 'antd/dist/reset.css';
@@ -74,6 +89,18 @@ const DEFAULT_CLAUDE_VALUES: ClaudeCodeConfigValues = {
   permissionMode: '',
 };
 
+const DEFAULT_EASYPAPER_VALUES: EasyPaperConfigValues = {
+  llmModelName: '',
+  llmApiKey: '',
+  llmBaseUrl: '',
+  vlmEnabled: false,
+  vlmModel: '',
+  vlmApiKey: '',
+  vlmBaseUrl: '',
+};
+
+type ConfigPageTab = 'simulation' | 'specialized' | 'literature' | 'cli';
+
 interface ConfigPageAppProps {
   vscode: VSCodeAPI;
 }
@@ -83,6 +110,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
   const { isDark, palette, themeConfig } = useVscodeTheme();
   const [form] = Form.useForm<ConfigValues>();
   const [claudeForm] = Form.useForm<ClaudeCodeConfigValues>();
+  const [easyPaperForm] = Form.useForm<EasyPaperConfigValues>();
   const watchedValues = Form.useWatch([], form) as Partial<ConfigValues> | undefined;
   const watchedClaudeValues = Form.useWatch([], claudeForm) as Partial<ClaudeCodeConfigValues> | undefined;
   const currentValues = watchedValues || {};
@@ -221,23 +249,32 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
         ? t('claudeCodeConfig.baseUrlRequired')
         : null;
   const [gatewayUsageRecords, setGatewayUsageRecords] = React.useState<TokenUsageRecord[]>([]);
-  const [gatewayUsageAggregation, setGatewayUsageAggregation] = React.useState<UsageAggregation | null>(null);
   const [gatewayUsageLoading, setGatewayUsageLoading] = React.useState(false);
   const [codexRouting, setCodexRouting] = React.useState<{ configPath: string; routed: boolean; directUrl?: string } | null>(null);
   const [failoverEnabled, setFailoverEnabled] = React.useState(false);
   const [providerUsage, setProviderUsage] = React.useState<
     Record<string, import('./claudeCodeTypes').ProviderUsageQueryResult & { loading?: boolean }>
   >({});
+  const [providerCheckingUrls, setProviderCheckingUrls] = React.useState<Set<string>>(() => new Set());
   const [customPricing, setCustomPricing] = React.useState<ModelPricingMap>({});
   const [advancedTopTab, setAdvancedTopTab] = React.useState<AdvancedTopTab>('models');
-  const advancedSectionRef = React.useRef<HTMLDivElement>(null);
+  const [pageTab, setPageTab] = React.useState<ConfigPageTab>('simulation');
+  const [pythonEnvironmentOptions, setPythonEnvironmentOptions] = React.useState<PythonEnvironmentOption[]>([]);
+  const [pythonEnvironmentScanning, setPythonEnvironmentScanning] = React.useState(false);
+  const [configCollapseKeys, setConfigCollapseKeys] = React.useState<string[]>([]);
+  const [wizardMode, setWizardMode] = React.useState(false);
+  const [wizardStep, setWizardStep] = React.useState(0);
+  const [wizardFlowCompleted, setWizardFlowCompleted] = React.useState(false);
+  const [deviceAuth, setDeviceAuth] = React.useState<DeviceAuthState>({ status: 'idle' });
+  const [pendingWebImport, setPendingWebImport] = React.useState<PendingWebImport | null>(null);
+  const pageSectionRef = React.useRef<HTMLDivElement>(null);
   const pythonSectionRef = React.useRef<HTMLDivElement>(null);
   const literatureSectionRef = React.useRef<HTMLDivElement>(null);
   const claudeSectionRef = React.useRef<HTMLDivElement>(null);
-  const actionsSectionRef = React.useRef<HTMLDivElement>(null);
   const pendingSaveClaudeRef = React.useRef(false);
   const literatureValidateManualRef = React.useRef(false);
   const pendingStartBackendRef = React.useRef(false);
+  const wizardAutoAdvancedRef = React.useRef<string | null>(null);
   const advancedKeyPrevFingerprintRef = React.useRef<Partial<Record<AdvancedValidationKey, string>>>({});
   const advancedKeyValidFingerprintRef = React.useRef<Partial<Record<AdvancedValidationKey, string>>>({});
   const defaultValidFingerprintRef = React.useRef<string | null>(null);
@@ -302,22 +339,44 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     tab: AdvancedTopTab = 'models',
     scrollTarget?: React.RefObject<HTMLDivElement | null>
   ) => {
+    setPageTab('specialized');
     setAdvancedTopTab(tab);
     window.setTimeout(() => {
-      scrollToRef(scrollTarget ?? advancedSectionRef);
+      scrollToRef(scrollTarget ?? pageSectionRef);
     }, 200);
   };
 
-  const jumpToAdvanced = (tab: AdvancedTopTab = 'models') => {
+  const jumpToPage = (tab: ConfigPageTab, subTab?: AdvancedTopTab) => {
+    setPageTab(tab);
+    if (tab === 'specialized' && subTab) {
+      setAdvancedTopTab(subTab);
+    }
     const scrollTarget =
-      tab === 'python'
+      tab === 'specialized' && subTab === 'python'
         ? pythonSectionRef
         : tab === 'literature'
           ? literatureSectionRef
-          : tab === 'claude'
+          : tab === 'cli'
             ? claudeSectionRef
-            : advancedSectionRef;
-    expandAdvancedConfig(tab, scrollTarget);
+            : pageSectionRef;
+    window.setTimeout(() => scrollToRef(scrollTarget), 200);
+  };
+
+  const jumpToAdvanced = (tab: AdvancedTopTab | 'literature' | 'claude' = 'models') => {
+    if (tab === 'literature') {
+      jumpToPage('literature');
+      return;
+    }
+    if (tab === 'claude') {
+      jumpToPage('cli');
+      return;
+    }
+    jumpToPage('specialized', tab);
+  };
+
+  const openConfigEditor = (tab: ConfigPageTab = 'simulation') => {
+    jumpToPage(tab);
+    setConfigCollapseKeys(['config']);
   };
 
   const advancedBlockedByKind = React.useMemo(
@@ -335,109 +394,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     ]
   );
 
-  const claudeCredentialsReady =
-    hasText(effectiveClaudeValues.apiKey) && hasText(effectiveClaudeValues.baseUrl);
-
-  const advancedOverview = React.useMemo(() => {
-    const totalCount = ADVANCED_VALIDATION_KEYS.length;
-    const itemStatuses = ADVANCED_VALIDATION_KEYS.map((key) => ({
-      key,
-      visual: getAdvancedItemVisualStatus(validationState[key], advancedBlockedByKind[key]),
-    }));
-    const validCount = itemStatuses.filter((item) => item.visual === 'ok').length;
-    const checkedCount = itemStatuses.filter(
-      (item) => item.visual === 'ok' || item.visual === 'error'
-    ).length;
-    const validating = itemStatuses.some((item) => item.visual === 'validating');
-    const hasError = itemStatuses.some((item) => item.visual === 'error');
-
-    const summary = validating
-      ? t('configPage.advancedValidation.checkingShort', { done: validCount, total: totalCount })
-      : checkedCount === 0
-        ? t('configPage.advancedValidation.notCheckedShort')
-        : t('configPage.advancedValidation.passedShort', { done: validCount, total: totalCount });
-
-    let accent: string | undefined;
-    if (validating) {
-      accent = palette.linkForeground;
-    } else if (validCount >= totalCount) {
-      accent = palette.successForeground;
-    } else if (hasError) {
-      accent = palette.errorForeground;
-    } else if (checkedCount === 0) {
-      accent = palette.descriptionForeground;
-    } else {
-      accent = palette.warningForeground;
-    }
-
-    const issueItems = itemStatuses.filter(
-      (item) => item.visual === 'error' || item.visual === 'blocked'
-    );
-
-    const tooltip =
-      issueItems.length === 0 ? undefined : (
-        <div style={{ maxWidth: 240 }}>
-          {issueItems.map((item) => {
-            const color = statusColor(item.visual, palette);
-            const label = getAdvancedValidationLabel(item.key, t);
-            const detail =
-              item.visual === 'error'
-                ? t('configPage.advancedValidation.statusErrorShort')
-                : t('configPage.advancedValidation.statusBlockedShort');
-            return (
-              <div
-                key={item.key}
-                style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}
-              >
-                <span
-                  style={{
-                    width: 6,
-                    height: 6,
-                    borderRadius: '50%',
-                    background: color,
-                    flexShrink: 0,
-                  }}
-                />
-                <Text style={{ color: palette.editorForeground, whiteSpace: 'nowrap' }}>{label}</Text>
-                <Text style={{ color }}>{detail}</Text>
-              </div>
-            );
-          })}
-        </div>
-      );
-
-    return { summary, accent, tooltip };
-  }, [advancedBlockedByKind, palette, t, validationState]);
-
-  const claudeOverview = React.useMemo(() => {
-    const configured = claudeCredentialsReady || claudeCodeCustomized;
-    if (configured) {
-      return {
-        value: t('configPage.status.configured'),
-        accent: palette.successForeground,
-        tooltip: t('configPage.overview.claudeConfiguredHint'),
-      };
-    }
-    if (claudeValidateDisabledReason) {
-      return {
-        value: t('configPage.status.notConfigured'),
-        accent: palette.descriptionForeground,
-        tooltip: claudeValidateDisabledReason,
-      };
-    }
-    return {
-      value: t('configPage.status.default'),
-      accent: undefined,
-      tooltip: t('configPage.overview.jumpToClaudeCode'),
-    };
-  }, [
-    claudeCodeCustomized,
-    claudeCredentialsReady,
-    claudeValidateDisabledReason,
-    palette,
-    t,
-  ]);
-
   const saveDisabledReason = React.useMemo((): string | null => {
     if (!workspaceInfo.hasWorkspace) {
       return t('configPage.noWorkspaceHint');
@@ -453,6 +409,90 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
 
   const canSave = !saveDisabledReason;
   const canSaveAndStart = canSave && !startingBackend;
+
+  const hasPersistedLlmConfig =
+    hasDefaultLlmKey && hasText(effectiveConfigValues.llmApiBase);
+
+  const isReadyForDashboard = React.useMemo(
+    () =>
+      workspaceInfo.hasWorkspace &&
+      hasPersistedLlmConfig &&
+      validationState.default.valid === true,
+    [
+      effectiveConfigValues.llmApiBase,
+      hasDefaultLlmKey,
+      hasPersistedLlmConfig,
+      validationState.default.valid,
+      workspaceInfo.hasWorkspace,
+    ]
+  );
+
+  const isDashboardMode = React.useMemo(
+    () => !wizardMode && isReadyForDashboard,
+    [isReadyForDashboard, wizardMode]
+  );
+
+  const isConfigCollapsed = !configCollapseKeys.includes('config');
+  const showUsageChart =
+    wizardFlowCompleted &&
+    isDashboardMode &&
+    isConfigCollapsed &&
+    aiCliGatewayStatus.enabled;
+
+  const handleWizardStepChange = React.useCallback((nextStep: number) => {
+    const bounded = Math.max(0, Math.min(nextStep, WIZARD_STEPS.length - 1));
+    setWizardStep(bounded);
+  }, []);
+
+  const handleCompleteWizard = React.useCallback(() => {
+    setWizardFlowCompleted(true);
+    setWizardMode(false);
+    setConfigCollapseKeys([]);
+  }, []);
+
+  const handleExitWizard = React.useCallback(() => {
+    setWizardMode(false);
+  }, []);
+
+  React.useEffect(() => {
+    if (!workspaceInfo.hasWorkspace) {
+      return;
+    }
+    if (wizardFlowCompleted) {
+      setWizardMode(false);
+      setConfigCollapseKeys([]);
+      return;
+    }
+    setWizardMode(true);
+    handleWizardStepChange(0);
+  }, [handleWizardStepChange, wizardFlowCompleted, workspaceInfo.hasWorkspace]);
+
+  const requestBackendStatus = React.useCallback(() => {
+    vscode.postMessage({ command: 'requestBackendStatus' });
+  }, [vscode]);
+
+  React.useEffect(() => {
+    requestBackendStatus();
+    const intervalMs = startingBackend ? 1000 : 3000;
+    const intervalId = window.setInterval(requestBackendStatus, intervalMs);
+    return () => window.clearInterval(intervalId);
+  }, [requestBackendStatus, startingBackend]);
+
+  React.useEffect(() => {
+    if (!wizardMode || WIZARD_STEPS[wizardStep]?.key !== 'backend') {
+      return;
+    }
+    requestBackendStatus();
+  }, [requestBackendStatus, wizardMode, wizardStep]);
+
+  const handleScanPythonEnvironments = React.useCallback(() => {
+    setPythonEnvironmentScanning(true);
+    vscode.postMessage({ command: 'discoverPythonEnvironments' });
+  }, [vscode]);
+
+  React.useEffect(() => {
+    handleScanPythonEnvironments();
+  }, [handleScanPythonEnvironments]);
 
   const resetWorkspaceValidationState = () => {
     for (const key of ADVANCED_VALIDATION_KEYS) {
@@ -488,13 +528,125 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     setSavedClaudeConfig({});
     claudeForm.setFieldsValue(DEFAULT_CLAUDE_VALUES);
     setClaudeAvailableModels([]);
-    setClaudeModelsError(null);
     claudeModelsFetchFingerprintRef.current = null;
     notification.info({
       message: t('configPage.resetClaudeDefaults'),
       placement: 'top',
     });
   };
+
+  const toModelOptions = React.useCallback(
+    (names: string[]): ClaudeModelOption[] => names.map((id) => ({ id, name: id })),
+    []
+  );
+
+  const applyImportedWebConfig = React.useCallback(
+    (imported: PendingWebImport) => {
+      if (imported.modelOptions) {
+        setModelsByProvider((prev) => ({
+          ...prev,
+          [ENV_LLM_SLOT.default]: toModelOptions(imported.modelOptions!.openaiCompatible),
+        }));
+        setClaudeAvailableModels(toModelOptions(imported.modelOptions.claudeCode));
+      }
+      form.setFieldsValue({
+        ...form.getFieldsValue(),
+        ...imported.config,
+      });
+      easyPaperForm.setFieldsValue({
+        ...easyPaperForm.getFieldsValue(),
+        ...imported.easyPaperConfig,
+      });
+      if (imported.gatewayProvider) {
+        vscode.postMessage({
+          command: 'gatewayUpsertWebImportProvider',
+          provider: imported.gatewayProvider,
+        });
+        vscode.postMessage({ command: 'gatewayListProviders' });
+      }
+      resetWorkspaceValidationState();
+      setPendingWebImport(null);
+      setDeviceAuth({ status: 'idle', authPath: imported.authPath });
+      if (wizardMode && WIZARD_STEPS[wizardStep]?.key === 'import') {
+        handleWizardStepChange(wizardStepIndex('simulation'));
+      }
+      notification.success({
+        message: t('configPage.webImport.success'),
+        description: imported.gatewayProvider
+          ? t('configPage.webImport.successWithGateway', { name: imported.gatewayProvider.name })
+          : imported.authPath
+            ? t('configPage.webImport.successWithAuthPath', { path: imported.authPath })
+            : t('configPage.webImport.successDesc'),
+        placement: 'top',
+        duration: 6,
+      });
+    },
+    [easyPaperForm, form, handleWizardStepChange, t, toModelOptions, vscode, wizardMode, wizardStep]
+  );
+
+  const saveEasyPaperConfig = React.useCallback(() => {
+    easyPaperForm
+      .validateFields()
+      .then((values) => {
+        vscode.postMessage({ command: 'saveEasyPaperConfig', config: values });
+      })
+      .catch(() => {
+        notification.warning({
+          message: t('easyPaperConfig.validationFailed'),
+          placement: 'top',
+        });
+      });
+  }, [easyPaperForm, t, vscode]);
+
+  const handleStartWebConfigImport = React.useCallback(() => {
+    setDeviceAuth({ status: 'starting' });
+    vscode.postMessage({ command: 'startCasdoorDeviceAuth' });
+  }, [vscode]);
+
+  const handleCancelWebConfigImport = React.useCallback(() => {
+    vscode.postMessage({ command: 'cancelCasdoorDeviceAuth' });
+    setDeviceAuth({ status: 'idle' });
+  }, [vscode]);
+
+  const webImportPanel = React.useMemo(
+    () => (
+      <WebConfigImportPanel
+        t={t}
+        palette={palette}
+        vscode={vscode}
+        deviceAuth={deviceAuth}
+        pendingImport={pendingWebImport}
+        onStart={handleStartWebConfigImport}
+        onCancel={handleCancelWebConfigImport}
+        onConfirm={applyImportedWebConfig}
+        prominent={wizardMode && WIZARD_STEPS[wizardStep]?.key === 'import'}
+        onDismissConfirm={() => {
+          const authPath = pendingWebImport?.authPath;
+          setPendingWebImport(null);
+          setDeviceAuth({ status: 'idle', authPath });
+        }}
+        notify={(type, message, description) => {
+          if (type === 'success') {
+            notification.success({ message, description, placement: 'top', duration: 2 });
+          } else {
+            notification.error({ message, description, placement: 'top', duration: 8 });
+          }
+        }}
+      />
+    ),
+    [
+      applyImportedWebConfig,
+      deviceAuth,
+      handleCancelWebConfigImport,
+      handleStartWebConfigImport,
+      palette,
+      pendingWebImport,
+      t,
+      vscode,
+      wizardMode,
+      wizardStep,
+    ]
+  );
 
   const resolveClaudeModelsFetchError = React.useCallback(
     (code: string) => {
@@ -537,12 +689,26 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     [vscode]
   );
 
+  const handleQueryProviderUsage = React.useCallback(
+    (providerId: string) => {
+      setProviderUsage((prev) => ({
+        ...prev,
+        [providerId]: { ...(prev[providerId] ?? { ok: false }), loading: true },
+      }));
+      vscode.postMessage({ command: 'gatewayQueryProviderUsage', providerId });
+    },
+    [vscode]
+  );
+
   const handleSaveClaudeProvider = React.useCallback(
     (provider: import('./aiCliProviderTypes').AiCliProviderRecord) => {
       setClaudeProvidersLoading(true);
       vscode.postMessage({ command: 'gatewayUpdateProvider', provider });
+      if (provider.id) {
+        handleQueryProviderUsage(provider.id);
+      }
     },
-    [vscode]
+    [vscode, handleQueryProviderUsage]
   );
 
   const handleAddClaudeProvider = React.useCallback(
@@ -578,7 +744,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
 
   const handleFetchProviderModels = React.useCallback(
     (providerId: string, baseUrl: string, apiKey: string, apiKind?: 'anthropic' | 'openai') => {
-      if (!apiKey.trim()) {
+      if (!apiKey.trim() || !baseUrl.trim()) {
         return;
       }
       setModelsLoadingByProvider((prev) => ({ ...prev, [providerId]: true }));
@@ -588,11 +754,52 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     [vscode]
   );
 
+  const handleFetchEnvModels = React.useCallback(
+    (slotId: string, baseUrl: string, apiKey: string) => {
+      handleFetchProviderModels(slotId, baseUrl, apiKey, 'openai');
+    },
+    [handleFetchProviderModels]
+  );
+
+  const handleFetchDefaultLlmModels = React.useCallback(() => {
+    handleFetchEnvModels(
+      ENV_LLM_SLOT.default,
+      effectiveConfigValues.llmApiBase,
+      effectiveConfigValues.llmApiKey
+    );
+  }, [effectiveConfigValues.llmApiBase, effectiveConfigValues.llmApiKey, handleFetchEnvModels]);
+
+  const providerModelsFetchedRef = React.useRef(new Set<string>());
+
+  React.useEffect(() => {
+    for (const provider of claudeProviders) {
+      if (!provider.apiKey?.trim() || !provider.baseUrl?.trim()) {
+        continue;
+      }
+      if (provider.authMode === 'subscription') {
+        continue;
+      }
+      const fingerprint = `${provider.id}::${provider.baseUrl.trim()}::${provider.apiKey.slice(-4)}`;
+      if (providerModelsFetchedRef.current.has(fingerprint)) {
+        continue;
+      }
+      providerModelsFetchedRef.current.add(fingerprint);
+      handleFetchProviderModels(provider.id, provider.baseUrl, provider.apiKey, provider.apiKind);
+    }
+  }, [claudeProviders, handleFetchProviderModels]);
+
   const handleCheckClaudeProvider = React.useCallback(
     (baseUrl: string, apiKey: string, apiKind?: 'anthropic' | 'openai') => {
+      const key = normalizeProviderBaseUrl(baseUrl);
+      setProviderCheckingUrls((prev) => new Set(prev).add(key));
       vscode.postMessage({ command: 'gatewayCheckProvider', baseUrl, apiKey, apiKind });
     },
     [vscode]
+  );
+
+  const isProviderChecking = React.useCallback(
+    (baseUrl: string) => providerCheckingUrls.has(normalizeProviderBaseUrl(baseUrl)),
+    [providerCheckingUrls]
   );
 
   const handleShowClaudeGatewayLog = React.useCallback(() => {
@@ -604,6 +811,17 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     vscode.postMessage({ command: 'gatewayGetUsage' });
   }, [vscode]);
 
+  React.useEffect(() => {
+    if (!aiCliGatewayStatus.enabled) {
+      return;
+    }
+    handleRefreshUsage();
+    const timer = window.setInterval(() => {
+      handleRefreshUsage();
+    }, 30_000);
+    return () => window.clearInterval(timer);
+  }, [aiCliGatewayStatus.enabled, handleRefreshUsage]);
+
   const handleClearUsage = React.useCallback(() => {
     vscode.postMessage({ command: 'gatewayClearUsage' });
   }, [vscode]);
@@ -612,14 +830,6 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     vscode.postMessage({ command: 'gatewaySetFailover', enabled });
     setFailoverEnabled(enabled);
   }, [vscode]);
-
-  const handleQueryProviderUsage = React.useCallback(
-    (providerId: string) => {
-      setProviderUsage((prev) => ({ ...prev, [providerId]: { ok: false, loading: true } }));
-      vscode.postMessage({ command: 'gatewayQueryProviderUsage', providerId });
-    },
-    [vscode]
-  );
 
   const _handleQueryAllProviderUsage = React.useCallback(() => {
     for (const p of claudeProviders) {
@@ -782,6 +992,52 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     }
     submitValidation(llmType, configValues, { silent: false });
   };
+
+  const handleValidateDefault = React.useCallback(() => {
+    submitValidation('default', getConfigValuesForValidation(), { silent: false });
+  }, [getConfigValuesForValidation, submitValidation]);
+
+  React.useEffect(() => {
+    if (!wizardMode) {
+      return;
+    }
+    const stepKey = WIZARD_STEPS[wizardStep]?.key;
+    if (stepKey !== 'simulation') {
+      return;
+    }
+    if (!hasDefaultLlmKey || validationState.default.valid !== true || validationState.default.validating) {
+      return;
+    }
+    const marker = `simulation:${getDefaultLlmFingerprint()}`;
+    if (wizardAutoAdvancedRef.current === marker) {
+      return;
+    }
+    wizardAutoAdvancedRef.current = marker;
+    handleWizardStepChange(wizardStepIndex('save'));
+  }, [
+    validationState.default.valid,
+    validationState.default.validating,
+    getDefaultLlmFingerprint,
+    handleWizardStepChange,
+    hasDefaultLlmKey,
+    wizardMode,
+    wizardStep,
+  ]);
+
+  React.useEffect(() => {
+    if (!wizardMode) {
+      return;
+    }
+    const stepKey = WIZARD_STEPS[wizardStep]?.key;
+    if (stepKey !== 'backend' || !backendStatus.isRunning) {
+      return;
+    }
+    if (wizardAutoAdvancedRef.current === 'backend:running') {
+      return;
+    }
+    wizardAutoAdvancedRef.current = 'backend:running';
+    handleWizardStepChange(wizardStepIndex('literature'));
+  }, [backendStatus.isRunning, handleWizardStepChange, wizardMode, wizardStep]);
 
   const saveClaudeConfig = () => {
     vscode.postMessage({
@@ -959,12 +1215,107 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
         message.command === 'gatewaySpeedtestResult'
       ) {
         const stMsg = message as { baseUrl: string; result: ProviderAvailabilityResult };
-        setProviderAvailabilityResults((prev) => ({ ...prev, [stMsg.baseUrl]: stMsg.result }));
+        const key = normalizeProviderBaseUrl(stMsg.baseUrl);
+        setProviderCheckingUrls((prev) => {
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
+        setProviderAvailabilityResults((prev) => ({ ...prev, [key]: stMsg.result }));
+        if (stMsg.result.ok) {
+          notification.success({
+            message: t('claudeCodeConfig.providerCheckSuccess'),
+            description: t('claudeCodeConfig.providerAvailableWithProtocol', {
+              count: stMsg.result.models,
+              protocol:
+                stMsg.result.apiKind === 'openai'
+                  ? t('claudeCodeConfig.providerProtocolOpenAiDetected')
+                  : t('claudeCodeConfig.providerProtocolAnthropicDetected'),
+            }),
+            placement: 'top',
+            duration: 3,
+          });
+        } else {
+          const errorKey = stMsg.result.error
+            ? `claudeCodeConfig.modelsFetchErrors.${stMsg.result.error}`
+            : '';
+          const errorText =
+            errorKey && t(errorKey) !== errorKey
+              ? t(errorKey)
+              : stMsg.result.error ?? t('claudeCodeConfig.providerUnavailable');
+          notification.error({
+            message: t('claudeCodeConfig.providerCheckFailed'),
+            description: errorText,
+            placement: 'top',
+          });
+        }
+      } else if (message.command === 'casdoorDeviceAuthStarted') {
+        const authMsg = message as {
+          userCode?: string;
+          verificationUri?: string;
+          verificationUriComplete?: string;
+          expiresIn?: number;
+        };
+        setDeviceAuth({
+          status: 'waiting',
+          userCode: authMsg.userCode,
+          verificationUri: authMsg.verificationUri,
+          verificationUriComplete: authMsg.verificationUriComplete,
+          expiresIn: authMsg.expiresIn,
+        });
+      } else if (message.command === 'casdoorDeviceAuthPolling') {
+        setDeviceAuth((prev) => ({ ...prev, status: 'polling' }));
+      } else if (message.command === 'casdoorDeviceAuthFailed') {
+        const msg = message as { error?: string };
+        setDeviceAuth({ status: 'idle' });
+        notification.error({
+          message: t('configPage.webImport.failed'),
+          description: msg.error,
+          placement: 'top',
+          duration: 8,
+        });
+      } else if (message.command === 'webConfigImported') {
+        const msg = message as {
+          config?: Partial<ConfigValues>;
+          claudeConfig?: Partial<ClaudeCodeConfigValues>;
+          easyPaperConfig?: Partial<EasyPaperConfigValues>;
+          gatewayProvider?: PendingWebImport['gatewayProvider'];
+          modelOptions?: ImportedModelOptions;
+          authPath?: string;
+        };
+        setPendingWebImport({
+          config: msg.config,
+          claudeConfig: msg.claudeConfig,
+          easyPaperConfig: msg.easyPaperConfig,
+          gatewayProvider: msg.gatewayProvider,
+          modelOptions: msg.modelOptions,
+          authPath: msg.authPath,
+        });
+        setDeviceAuth({ status: 'idle', authPath: msg.authPath });
+      } else if (message.command === 'initialEasyPaperConfig') {
+        const msg = message as { config?: EasyPaperConfigValues };
+        easyPaperForm.setFieldsValue({
+          ...DEFAULT_EASYPAPER_VALUES,
+          ...msg.config,
+        });
+      } else if (message.command === 'easyPaperSaveResult') {
+        const msg = message as { success?: boolean; error?: string };
+        if (msg.success) {
+          notification.success({
+            message: t('easyPaperConfig.saveSuccess'),
+            placement: 'top',
+          });
+        } else {
+          notification.error({
+            message: t('easyPaperConfig.saveFailed'),
+            description: msg.error,
+            placement: 'top',
+          });
+        }
       } else if (message.command === 'gatewayUsageData') {
         setGatewayUsageLoading(false);
-        const usageMsg = message as { records?: TokenUsageRecord[]; aggregation?: UsageAggregation | null };
+        const usageMsg = message as { records?: TokenUsageRecord[] };
         setGatewayUsageRecords(usageMsg.records ?? []);
-        setGatewayUsageAggregation(usageMsg.aggregation ?? null);
         vscode.postMessage({ command: 'gatewayGetPricing' });
       } else if (message.command === 'gatewayPricingData') {
         const priceMsg = message as { custom?: ModelPricingMap };
@@ -1013,7 +1364,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
           apiKind?: 'anthropic' | 'openai';
           baseUrl?: string;
         };
-        const pid = msg.providerId ?? claudeProviders.find((p) => p.activeClaude)?.id;
+        const pid = msg.providerId;
         if (!pid) {
           return;
         }
@@ -1022,27 +1373,45 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
           setModelsByProvider((prev) => ({ ...prev, [pid]: msg.models! }));
           setModelsErrorByProvider((prev) => ({ ...prev, [pid]: null }));
           if (msg.baseUrl && msg.apiKind) {
+            const normalizedBaseUrl = String(msg.baseUrl).trim().replace(/\/+$/, '');
             setProviderAvailabilityResults((prev) => ({
               ...prev,
-              [msg.baseUrl!]: { ok: true, models: msg.models?.length ?? 0, apiKind: msg.apiKind },
+              [normalizedBaseUrl]: { ok: true, models: msg.models?.length ?? 0, apiKind: msg.apiKind },
             }));
           }
         } else {
-          setModelsByProvider((prev) => ({ ...prev, [pid]: [] }));
           setModelsErrorByProvider((prev) => ({
             ...prev,
             [pid]: resolveClaudeModelsFetchError(String(msg.error ?? 'unknown')),
           }));
         }
+      } else if (message.command === 'pythonEnvironmentsResult') {
+        const envMsg = message as { environments?: PythonEnvironmentOption[]; error?: string };
+        setPythonEnvironmentScanning(false);
+        setPythonEnvironmentOptions(envMsg.environments ?? []);
+        if (envMsg.error) {
+          notification.warning({
+            message: t('configPage.python.scanFailed'),
+            description: envMsg.error,
+            placement: 'top',
+          });
+        }
       } else if (message.command === 'saveResult') {
         const msg = message as { success?: boolean; error?: string };
         setLoading(false);
         if (msg.success) {
+          if (wizardMode && WIZARD_STEPS[wizardStep]?.key === 'save') {
+            handleWizardStepChange(wizardStep + 1);
+          }
+          if (!wizardMode && isReadyForDashboard) {
+            setConfigCollapseKeys([]);
+            handleRefreshUsage();
+          }
           if (pendingStartBackendRef.current) {
             pendingStartBackendRef.current = false;
             vscode.postMessage({
               command: 'startBackend',
-              config: form.getFieldsValue(),
+              config: getConfigValuesForValidation(),
             });
           } else {
             notification.success({
@@ -1068,13 +1437,14 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
         const msg = message as { success?: boolean; error?: string };
         setStartingBackend(false);
         if (msg.success) {
-          notification.success({
-            message: t('configPage.notifications.backendStarted', { defaultValue: 'Backend started successfully' }),
-            placement: 'top',
-          });
-          setTimeout(() => {
-            vscode.postMessage({ command: 'closeConfigPage' });
-          }, 1500);
+          requestBackendStatus();
+          const onBackendStep = wizardMode && WIZARD_STEPS[wizardStep]?.key === 'backend';
+          if (!onBackendStep) {
+            notification.success({
+              message: t('configPage.notifications.backendStarted', { defaultValue: 'Backend started successfully' }),
+              placement: 'top',
+            });
+          }
         } else if (msg.error) {
           notification.error({
             message: t('configPage.notifications.backendStartFailed', { defaultValue: 'Failed to start backend' }),
@@ -1116,7 +1486,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [claudeForm, form, jumpToAdvanced, markValidFingerprint, t, vscode]);
+  }, [claudeForm, form, handleWizardStepChange, jumpToAdvanced, markValidFingerprint, requestBackendStatus, t, vscode, claudeProviders, handleFetchProviderModels, resolveClaudeModelsFetchError, wizardMode, wizardStep]);
 
   const handleSave = async () => {
     if (!workspaceInfo.hasWorkspace) {
@@ -1127,17 +1497,17 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
       return;
     }
 
-    const values = form.getFieldsValue();
+    const values = getConfigValuesForValidation();
 
     // Require LLM API key/base to save
-    if (!values.llmApiKey) {
+    if (!hasText(values.llmApiKey)) {
       notification.warning({
         message: t('configPage.notifications.llmKeyRequired'),
         description: t('configPage.notifications.llmKeyRequiredDesc'),
       });
       return;
     }
-    if (!values.llmApiBase) {
+    if (!hasText(values.llmApiBase)) {
       notification.warning({
         message: t('configPage.validationFailed'),
         description: t('configPage.notifications.apiBaseMissing'),
@@ -1157,6 +1527,41 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     });
   };
 
+  const handleStartBackend = React.useCallback(() => {
+    if (!workspaceInfo.hasWorkspace) {
+      notification.warning({
+        message: t('configPage.noWorkspace'),
+        description: t('configPage.noWorkspaceHint'),
+      });
+      return;
+    }
+
+    const values = getConfigValuesForValidation();
+    if (!hasText(values.llmApiKey)) {
+      notification.warning({
+        message: t('configPage.notifications.llmKeyRequired'),
+        description: t('configPage.notifications.llmKeyRequiredDesc'),
+      });
+      openConfigEditor('simulation');
+      return;
+    }
+    if (!hasText(values.llmApiBase)) {
+      notification.warning({
+        message: t('configPage.validationFailed'),
+        description: t('configPage.notifications.apiBaseMissing'),
+        placement: 'top',
+      });
+      openConfigEditor('simulation');
+      return;
+    }
+
+    setStartingBackend(true);
+    vscode.postMessage({
+      command: 'startBackend',
+      config: values,
+    });
+  }, [getConfigValuesForValidation, openConfigEditor, t, vscode, workspaceInfo.hasWorkspace]);
+
   const handleSaveAndStart = async () => {
     if (!workspaceInfo.hasWorkspace) {
       notification.warning({
@@ -1166,17 +1571,17 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
       return;
     }
 
-    const values = form.getFieldsValue();
+    const values = getConfigValuesForValidation();
 
     // Require LLM API key
-    if (!values.llmApiKey) {
+    if (!hasText(values.llmApiKey)) {
       notification.warning({
         message: t('configPage.notifications.llmKeyRequired'),
         description: t('configPage.notifications.llmKeyRequiredDesc'),
       });
       return;
     }
-    if (!values.llmApiBase) {
+    if (!hasText(values.llmApiBase)) {
       notification.warning({
         message: t('configPage.validationFailed'),
         description: t('configPage.notifications.apiBaseMissing'),
@@ -1200,84 +1605,13 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     });
   };
 
-  const handleOverviewStartBackend = () => {
-    if (backendStatus.isRunning || startingBackend || !canSaveAndStart) {
-      return;
-    }
-    void handleSaveAndStart();
-  };
-
-  // 玻璃态样式常量
-  const _glassStyle = {
-    background: isDark
-      ? 'rgba(37, 37, 38, 0.75)'
-      : 'rgba(255, 255, 255, 0.72)',
-    backdropFilter: 'blur(20px)',
-    WebkitBackdropFilter: 'blur(20px)',
-  };
-
-  // 统计卡片
-  const statPill = (
-    label: string,
-    value: string | number,
-    icon: React.ReactNode,
-    accent?: string,
-    onClick?: () => void,
-    tooltipTitle?: React.ReactNode
-  ) => {
-    const pill = (
-      <div
-        role={onClick ? 'button' : undefined}
-        tabIndex={onClick ? 0 : undefined}
-        onClick={onClick}
-        onKeyDown={
-          onClick
-            ? (event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault();
-                onClick();
-              }
-            }
-            : undefined
-        }
-        style={{
-          flex: '1 1 100px',
-          minWidth: 90,
-          padding: '12px 16px',
-          borderRadius: 10,
-          border: `1px solid ${palette.panelBorder}`,
-          background: isDark
-            ? 'rgba(37, 37, 38, 0.6)'
-            : 'rgba(255, 255, 255, 0.55)',
-          backdropFilter: 'blur(16px)',
-          WebkitBackdropFilter: 'blur(16px)',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-          transition: 'all 0.2s ease',
-          cursor: onClick ? 'pointer' : undefined,
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-          <span style={{ color: accent ?? palette.linkForeground }}>{icon}</span>
-          <span style={{ fontSize: 11, color: palette.descriptionForeground, fontWeight: 500 }}>{label}</span>
-        </div>
-        <div style={{ fontSize: 20, fontWeight: 700, color: accent ?? palette.editorForeground, lineHeight: 1 }}>
-          {value}
-        </div>
-      </div>
-    );
-    if (!tooltipTitle) {
-      return pill;
-    }
-    return <Tooltip title={tooltipTitle}>{pill}</Tooltip>;
-  };
-
   return (
     <ConfigProvider theme={themeConfig}>
       <Layout style={{ minHeight: '100vh', background: palette.editorBackground }}>
         <Content
           style={{
             padding: '20px 24px',
-            maxWidth: 920,
+            maxWidth: 1000,
             margin: '0 auto',
             width: '100%',
             color: palette.editorForeground,
@@ -1317,117 +1651,96 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                   <SettingOutlined style={{ fontSize: 18 }} />
                 </span>
                 <div>
-                  <Title level={4} style={{ margin: 0 }}>{t('configPage.title')}</Title>
+                  <Title level={4} style={{ margin: 0 }}>
+                    {wizardMode ? t('configPage.setupGuide.wizardTitle') : t('configPage.title')}
+                  </Title>
                   <Text type="secondary" style={{ fontSize: 12, display: 'block' }}>
-                    {workspaceInfo.envFilePath
-                      ? t('configPage.envFileLoaded', { path: workspaceInfo.envFilePath })
-                      : t('configPage.subtitle')}
+                    {wizardMode
+                      ? t('configPage.setupGuide.wizardSubtitle')
+                      : workspaceInfo.envFilePath
+                        ? t('configPage.envFileLoaded', { path: workspaceInfo.envFilePath })
+                        : t('configPage.subtitle')}
                   </Text>
                 </div>
               </div>
+              {!wizardMode ? (
+                <Space wrap>
+                  <Tooltip title={saveDisabledReason || ''}>
+                    <Button
+                      type="primary"
+                      icon={<RocketOutlined />}
+                      onClick={() => void handleSaveAndStart()}
+                      disabled={!canSaveAndStart}
+                      loading={loading || startingBackend}
+                    >
+                      {startingBackend ? t('configPage.starting') : t('configPage.saveAndStart')}
+                    </Button>
+                  </Tooltip>
+                  <Dropdown
+                    menu={{
+                      items: [
+                        {
+                          key: 'save',
+                          label: t('configPage.save'),
+                          icon: <SaveOutlined />,
+                          disabled: !canSave || loading,
+                          onClick: () => void handleSave(),
+                        },
+                        {
+                          key: 'reset',
+                          label: t('configPage.resetWorkspaceDefaults'),
+                          icon: <ReloadOutlined />,
+                          onClick: handleResetWorkspaceDefaults,
+                        },
+                      ],
+                    }}
+                  >
+                    <Button icon={<MoreOutlined />} />
+                  </Dropdown>
+                </Space>
+              ) : null}
             </div>
 
-            {/* 统计卡片 - 显示后端状态和配置概览 */}
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
-              {/* 后端状态卡片 */}
-              <Tooltip
-                title={
-                  backendStatus.isRunning
-                    ? undefined
-                    : (saveDisabledReason ?? t('configPage.overview.startBackendOnClick'))
-                }
-              >
-                <div
-                  role={!backendStatus.isRunning ? 'button' : undefined}
-                  tabIndex={!backendStatus.isRunning && canSaveAndStart ? 0 : undefined}
-                  onClick={!backendStatus.isRunning ? handleOverviewStartBackend : undefined}
-                  onKeyDown={
-                    !backendStatus.isRunning
-                      ? (event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          handleOverviewStartBackend();
-                        }
-                      }
-                      : undefined
-                  }
-                  style={{
-                    flex: '1 1 140px',
-                    minWidth: 120,
-                    padding: '12px 16px',
-                    borderRadius: 10,
-                    border: `1px solid ${palette.panelBorder}`,
-                    background: backendStatus.isRunning
-                      ? (isDark ? 'rgba(34, 139, 34, 0.15)' : 'rgba(34, 139, 34, 0.08)')
-                      : (isDark ? 'rgba(37, 37, 38, 0.6)' : 'rgba(255, 255, 255, 0.55)'),
-                    backdropFilter: 'blur(16px)',
-                    WebkitBackdropFilter: 'blur(16px)',
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
-                    transition: 'all 0.2s ease',
-                    cursor: !backendStatus.isRunning
-                      ? (canSaveAndStart && !startingBackend ? 'pointer' : 'not-allowed')
-                      : undefined,
-                    opacity: !backendStatus.isRunning && !canSaveAndStart ? 0.65 : 1,
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-                    <span style={{ color: backendStatus.isRunning ? palette.successForeground : palette.descriptionForeground }}>
-                      {backendStatus.isRunning ? <CheckCircleOutlined /> : <StopOutlined />}
-                    </span>
-                    <span style={{ fontSize: 11, color: palette.descriptionForeground, fontWeight: 500 }}>
-                      {t('configPage.overview.backend')}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: backendStatus.isRunning ? palette.successForeground : palette.editorForeground, lineHeight: 1 }}>
-                    {backendStatus.isRunning
-                      ? t('configPage.overview.backendRunning', { port: backendStatus.port ?? '' })
-                      : startingBackend
-                        ? t('configPage.starting')
-                        : t('configPage.overview.backendStopped')}
-                  </div>
-                  {!backendStatus.isRunning && !startingBackend && (
-                    <Tooltip title={t('configPage.overview.backendStoppedDetail')}>
-                      <div style={{ marginTop: 4, fontSize: 11, color: palette.descriptionForeground, width: 'fit-content' }}>
-                        {t('configPage.overview.backendStoppedHint')}
-                      </div>
-                    </Tooltip>
-                  )}
-                  {backendStatus.isRunning && backendStatus.url && (
-                    <div
-                      style={{ marginTop: 4, fontSize: 11, color: palette.linkForeground, cursor: 'pointer' }}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        if (backendStatus.url) {
-                          vscode.postMessage({ command: 'openUrl', url: backendStatus.url });
-                        }
-                      }}
-                    >
-                      <LinkOutlined style={{ marginRight: 4 }} />{backendStatus.url}
-                    </div>
-                  )}
-                </div>
-              </Tooltip>
-              {/* LLM 配置状态 */}
-              {statPill(
-                t('configPage.overview.advanced'),
-                advancedOverview.summary,
-                <SettingOutlined />,
-                advancedOverview.accent,
-                () => {
-                  jumpToAdvanced('models');
-                  validateAllAdvanced({ manual: true });
-                },
-                advancedOverview.tooltip
-              )}
-              {statPill(
-                t('configPage.overview.claudeCode'),
-                claudeOverview.value,
-                <CodeOutlined />,
-                claudeOverview.accent,
-                () => jumpToAdvanced('claude'),
-                claudeOverview.tooltip
-              )}
-            </div>
+            {!wizardMode ? (
+              isDashboardMode ? (
+                <ConfigStatusDashboard
+                  t={t}
+                  palette={palette}
+                  isDark={isDark}
+                  hasWorkspace={workspaceInfo.hasWorkspace}
+                  hasLlmKey={hasDefaultLlmKey}
+                  llmModel={defaultLlmModel}
+                  defaultValidation={validationState.default}
+                  backendStatus={backendStatus}
+                  gatewayStatus={aiCliGatewayStatus}
+                  gatewayUsageRecords={gatewayUsageRecords}
+                  showUsageChart={showUsageChart}
+                  usageLoading={gatewayUsageLoading}
+                  onOpenSimulation={() => openConfigEditor('simulation')}
+                  onOpenBackendUrl={(url) => vscode.postMessage({ command: 'openUrl', url })}
+                  onStartBackend={handleStartBackend}
+                  backendStarting={startingBackend}
+                  onOpenCli={() => openConfigEditor('cli')}
+                />
+              ) : (
+                <ConfigReadinessOverview
+                  t={t}
+                  palette={palette}
+                  isDark={isDark}
+                  hasWorkspace={workspaceInfo.hasWorkspace}
+                  hasLlmKey={hasDefaultLlmKey}
+                  llmModel={defaultLlmModel}
+                  defaultValidation={validationState.default}
+                  backendStatus={backendStatus}
+                  gatewayStatus={aiCliGatewayStatus}
+                  onOpenSimulation={() => jumpToPage('simulation')}
+                  onOpenBackendUrl={(url) => vscode.postMessage({ command: 'openUrl', url })}
+                  onStartBackend={handleStartBackend}
+                  backendStarting={startingBackend}
+                  onOpenCli={() => jumpToPage('cli')}
+                />
+              )
+            ) : null}
           </div>
 
           {!workspaceInfo.hasWorkspace && (
@@ -1440,192 +1753,399 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
             />
           )}
 
-          <Form form={form} style={{ marginBottom: 20 }}>
-            {/* ========== 默认 LLM（必填）========== */}
-            <Card
-              title={
-                <Space>
-                  <KeyOutlined style={{ color: palette.errorForeground }} />
-                  <span>{t('configPage.llm.cardTitle')}</span>
-                  <Tag color="red" style={{ marginLeft: 4 }}>{t('configPage.llm.requiredTag')}</Tag>
-                </Space>
-              }
-              style={glassCardStyle(isDark, palette)}
-              styles={{ body: { padding: '16px 20px' } }}
-            >
-              <Form.Item name="llmApiBase" label={t('configPage.llm.apiBase')}>
-                <Input placeholder={t('configPage.llm.apiBasePlaceholder')} />
-              </Form.Item>
-              <Form.Item
-                name="llmApiKey"
-                label={t('configPage.llm.apiKeyRequired')}
-                rules={[{ required: true, message: t('configPage.notifications.apiKeyMissing') }]}
-                tooltip={t('configPage.llm.apiKeyRequiredHint')}
-              >
-                <Input.Password placeholder={t('configPage.llm.apiKeyPlaceholder')} autoComplete="off" />
-              </Form.Item>
-              <Form.Item name="llmModel" label={t('configPage.llm.modelName')}>
-                <Input placeholder={t('configPage.llm.modelPlaceholder')} />
-              </Form.Item>
-              <ValidationAction
-                t={t}
-                palette={palette}
-                state={validationState.default}
-                disabledReason={defaultValidateDisabledReason}
-                onValidate={() => handleValidate('default')}
-              />
-            </Card>
+          {wizardMode ? (
+            <ConfigSetupWizard
+              t={t}
+              palette={palette}
+              step={wizardStep}
+              hasWorkspace={workspaceInfo.hasWorkspace}
+              hasLlmKey={hasDefaultLlmKey}
+              defaultValidation={validationState.default}
+              backendStatus={backendStatus}
+              canSave={canSave}
+              canSaveAndStart={canSaveAndStart}
+              saving={loading}
+              startingBackend={startingBackend}
+              onStepChange={handleWizardStepChange}
+              onExitWizard={handleExitWizard}
+              onCompleteWizard={handleCompleteWizard}
+              onSave={() => void handleSave()}
+              onSaveAndStart={() => void handleSaveAndStart()}
+              onValidateDefault={handleValidateDefault}
+            />
+          ) : null}
 
-            {/* ========== 高级配置（折叠）========== */}
-            <div ref={advancedSectionRef}>
-              <Collapse
-                bordered={false}
-                activeKey={['advanced']}
-                style={{ marginBottom: 16, background: 'transparent' }}
-                expandIcon={() => null}
-                items={[
-                  {
-                    key: 'advanced',
-                    forceRender: true,
-                    collapsible: 'disabled',
-                    label: (
-                      <span style={{ fontWeight: 500, color: palette.editorForeground }}>
-                        {t('configPage.advancedConfig')}
-                      </span>
-                    ),
-                    style: {
-                      marginBottom: 8,
-                      borderRadius: 10,
-                      border: `1px solid ${palette.panelBorder}`,
-                      background: isDark ? 'rgba(37, 37, 38, 0.45)' : 'rgba(255, 255, 255, 0.4)',
-                      overflow: 'hidden',
+          <Form form={form} style={{ marginBottom: 20 }}>
+            <div ref={pageSectionRef}>
+              {wizardMode ? (
+                <ConfigWizardStepPanel
+                  stepKey={WIZARD_STEPS[wizardStep]?.key ?? 'simulation'}
+                  t={t}
+                  palette={palette}
+                  isDark={isDark}
+                  form={form}
+                  effectiveConfigValues={effectiveConfigValues}
+                  hasDefaultLlmKey={hasDefaultLlmKey}
+                  backendStatus={backendStatus}
+                  backendStarting={startingBackend}
+                  validationState={validationState}
+                  defaultValidateDisabledReason={defaultValidateDisabledReason}
+                  literatureValidateDisabledReason={literatureValidateDisabledReason}
+                  pythonValidateDisabledReason={pythonValidateDisabledReason}
+                  onValidate={handleValidate}
+                  onFetchDefaultLlmModels={handleFetchDefaultLlmModels}
+                  modelsByProvider={modelsByProvider}
+                  modelsLoadingByProvider={modelsLoadingByProvider}
+                  modelsErrorByProvider={modelsErrorByProvider}
+                  webImportPanel={webImportPanel}
+                  pythonEnvironmentOptions={pythonEnvironmentOptions}
+                  pythonEnvironmentScanning={pythonEnvironmentScanning}
+                  onScanPythonEnvironments={handleScanPythonEnvironments}
+                  literatureSectionRef={literatureSectionRef}
+                  claudeSectionRef={claudeSectionRef}
+                  claudeCliStatus={claudeCliStatus}
+                  claudeSettingsPath={claudeSettingsPath}
+                  onResetClaude={handleResetClaudeDefaults}
+                  gatewayStatus={aiCliGatewayStatus}
+                  gatewayToggling={gatewayToggling}
+                  onRouteClaudeToggle={(enabled) => handleGatewayRouteToggle('claude', enabled)}
+                  onRouteCodexToggle={(enabled) => handleGatewayRouteToggle('codex', enabled)}
+                  claudeProviders={claudeProviders}
+                  claudeProvidersLoading={claudeProvidersLoading}
+                  providerAvailabilityResults={providerAvailabilityResults}
+                  onSaveProvider={handleSaveClaudeProvider}
+                  onAddProvider={handleAddClaudeProvider}
+                  onRemoveProvider={handleRemoveClaudeProvider}
+                  onActivateProvider={handleActivateClaudeProvider}
+                  onToggleFailoverProvider={handleToggleFailoverProvider}
+                  onSpeedtestProvider={handleCheckClaudeProvider}
+                  isProviderChecking={isProviderChecking}
+                  onShowGatewayLog={handleShowClaudeGatewayLog}
+                  onFetchProviderModels={handleFetchProviderModels}
+                  gatewayUsageRecords={gatewayUsageRecords}
+                  gatewayUsageLoading={gatewayUsageLoading}
+                  onRefreshUsage={handleRefreshUsage}
+                  onClearUsage={handleClearUsage}
+                  codexRouting={codexRouting}
+                  failoverEnabled={failoverEnabled}
+                  onFailoverToggle={handleFailoverToggle}
+                  customPricing={customPricing}
+                  onGetPricing={handleGetPricing}
+                  onRefreshPricing={handleRefreshPricing}
+                  onSavePricing={handleSavePricing}
+                  onClearPricing={handleClearPricing}
+                  providerUsage={providerUsage}
+                  onQueryProviderUsage={handleQueryProviderUsage}
+                  onRestartCodex={handleRestartCodex}
+                  easyPaperForm={easyPaperForm}
+                  onSaveEasyPaper={saveEasyPaperConfig}
+                />
+              ) : isDashboardMode ? (
+                <Collapse
+                  bordered={false}
+                  activeKey={configCollapseKeys}
+                  onChange={(keys) => setConfigCollapseKeys(Array.isArray(keys) ? keys : [keys])}
+                  style={{ background: 'transparent' }}
+                  items={[
+                    {
+                      key: 'config',
+                      label: (
+                        <Space direction="vertical" size={0}>
+                          <Text strong>{t('configPage.dashboard.editConfig')}</Text>
+                          <Text type="secondary" style={{ fontSize: 12, fontWeight: 400 }}>
+                            {t('configPage.dashboard.editConfigHint')}
+                          </Text>
+                        </Space>
+                      ),
+                      children: (
+                        <Tabs
+                          activeKey={pageTab}
+                          onChange={(key) => setPageTab(key as ConfigPageTab)}
+                          size="middle"
+                          destroyInactiveTabPane={false}
+                          style={{ marginBottom: 8 }}
+                          items={[
+                            {
+                              key: 'simulation',
+                              label: t('configPage.pageTabs.simulation'),
+                              children: (
+                                <DefaultLlmConfigCard
+                                  t={t}
+                                  palette={palette}
+                                  isDark={isDark}
+                                  form={form}
+                                  baseUrl={effectiveConfigValues.llmApiBase ?? ''}
+                                  apiKey={effectiveConfigValues.llmApiKey ?? ''}
+                                  models={modelsByProvider[ENV_LLM_SLOT.default] ?? []}
+                                  modelsLoading={modelsLoadingByProvider[ENV_LLM_SLOT.default] ?? false}
+                                  modelsError={modelsErrorByProvider[ENV_LLM_SLOT.default] ?? null}
+                                  onFetchModels={handleFetchDefaultLlmModels}
+                                  validationState={validationState.default}
+                                  validateDisabledReason={defaultValidateDisabledReason}
+                                  onValidate={() => handleValidate('default')}
+                                  showIntro={false}
+                                  webImportPanel={webImportPanel}
+                                />
+                              ),
+                            },
+                            {
+                              key: 'specialized',
+                              label: t('configPage.pageTabs.specialized'),
+                              children: (
+                                <div style={advancedPanelInnerStyle(isDark, palette)}>
+                                  <AdvancedConfigSection
+                                    t={t}
+                                    palette={palette}
+                                    hasDefaultLlmKey={hasDefaultLlmKey}
+                                    defaultLlmApiBase={defaultLlmApiBase}
+                                    defaultLlmModel={defaultLlmModel}
+                                    activeTopTab={advancedTopTab}
+                                    onActiveTopTabChange={setAdvancedTopTab}
+                                    validationState={validationState}
+                                    validateDisabledByKind={{
+                                      coder: coderValidateDisabledReason,
+                                      embedding: embeddingValidateDisabledReason,
+                                    }}
+                                    pythonValidateDisabledReason={pythonValidateDisabledReason}
+                                    onValidate={handleValidate}
+                                    pythonSectionRef={pythonSectionRef}
+                                    form={form}
+                                    modelsBySlot={modelsByProvider}
+                                    modelsLoadingBySlot={modelsLoadingByProvider}
+                                    modelsErrorBySlot={modelsErrorByProvider}
+                                    onFetchSlotModels={handleFetchEnvModels}
+                                    effectiveValues={effectiveConfigValues}
+                                    pythonEnvironmentOptions={pythonEnvironmentOptions}
+                                    pythonEnvironmentScanning={pythonEnvironmentScanning}
+                                    onScanPythonEnvironments={handleScanPythonEnvironments}
+                                    easyPaperForm={easyPaperForm}
+                                    onSaveEasyPaper={saveEasyPaperConfig}
+                                  />
+                                </div>
+                              ),
+                            },
+                            {
+                              key: 'literature',
+                              label: t('configPage.pageTabs.literature'),
+                              children: (
+                                <div style={advancedPanelInnerStyle(isDark, palette)}>
+                                  <LiteratureConfigSection
+                                    t={t}
+                                    palette={palette}
+                                    validationState={validationState.literature}
+                                    disabledReason={literatureValidateDisabledReason}
+                                    onValidate={() => handleValidate('literature')}
+                                    sectionRef={literatureSectionRef}
+                                    showIntro={false}
+                                  >
+                                    <Form.Item name="literatureSearchMcpUrl" label={t('configPage.advanced.literature.apiUrl')}>
+                                      <Input placeholder={t('configPage.advanced.literature.apiUrlPlaceholder')} />
+                                    </Form.Item>
+                                    <Form.Item name="literatureSearchApiKey" label={t('configPage.advanced.literature.apiKey')}>
+                                      <Input.Password placeholder={t('configPage.advanced.literature.apiKeyPlaceholder')} autoComplete="off" />
+                                    </Form.Item>
+                                  </LiteratureConfigSection>
+                                </div>
+                              ),
+                            },
+                            {
+                              key: 'cli',
+                              label: t('configPage.pageTabs.cli'),
+                              children: (
+                                <div ref={claudeSectionRef} style={advancedPanelInnerStyle(isDark, palette)}>
+                                  <AiCliConfigSection
+                                    t={t}
+                                    palette={palette}
+                                    cliStatus={claudeCliStatus}
+                                    settingsPath={claudeSettingsPath}
+                                    onResetClaude={handleResetClaudeDefaults}
+                                    gatewayStatus={aiCliGatewayStatus}
+                                    gatewayToggling={gatewayToggling}
+                                    onRouteClaudeToggle={(enabled) => handleGatewayRouteToggle('claude', enabled)}
+                                    onRouteCodexToggle={(enabled) => handleGatewayRouteToggle('codex', enabled)}
+                                    providers={claudeProviders}
+                                    providersLoading={claudeProvidersLoading}
+                                    speedtestResults={providerAvailabilityResults}
+                                    onSaveProvider={handleSaveClaudeProvider}
+                                    onAddProvider={handleAddClaudeProvider}
+                                    onRemoveProvider={handleRemoveClaudeProvider}
+                                    onActivateProvider={handleActivateClaudeProvider}
+                                    onToggleFailoverProvider={handleToggleFailoverProvider}
+                                    onSpeedtestProvider={handleCheckClaudeProvider}
+                                    isProviderChecking={isProviderChecking}
+                                    onShowGatewayLog={handleShowClaudeGatewayLog}
+                                    modelsByProvider={modelsByProvider}
+                                    modelsLoadingByProvider={modelsLoadingByProvider}
+                                    modelsErrorByProvider={modelsErrorByProvider}
+                                    onFetchProviderModels={handleFetchProviderModels}
+                                    usageRecords={gatewayUsageRecords}
+                                    usageLoading={gatewayUsageLoading}
+                                    onRefreshUsage={handleRefreshUsage}
+                                    onClearUsage={handleClearUsage}
+                                    codexRouting={codexRouting}
+                                    failoverEnabled={failoverEnabled}
+                                    onFailoverToggle={handleFailoverToggle}
+                                    customPricing={customPricing}
+                                    onGetPricing={handleGetPricing}
+                                    onRefreshPricing={handleRefreshPricing}
+                                    onSavePricing={handleSavePricing}
+                                    onClearPricing={handleClearPricing}
+                                    providerUsage={providerUsage}
+                                    onQueryProviderUsage={handleQueryProviderUsage}
+                                    onRestartCodex={handleRestartCodex}
+                                  />
+                                </div>
+                              ),
+                            },
+                          ]}
+                        />
+                      ),
                     },
-                    children: (
-                      <div style={advancedPanelInnerStyle(isDark, palette)}>
-                        <AdvancedConfigSection
+                  ]}
+                />
+              ) : (
+                <Tabs
+                  activeKey={pageTab}
+                  onChange={(key) => setPageTab(key as ConfigPageTab)}
+                  size="middle"
+                  destroyInactiveTabPane={false}
+                  style={{ marginBottom: 8 }}
+                  items={[
+                    {
+                      key: 'simulation',
+                      label: t('configPage.pageTabs.simulation'),
+                      children: (
+                        <DefaultLlmConfigCard
                           t={t}
                           palette={palette}
-                          hasDefaultLlmKey={hasDefaultLlmKey}
-                          defaultLlmApiBase={defaultLlmApiBase}
-                          defaultLlmModel={defaultLlmModel}
-                          activeTopTab={advancedTopTab}
-                          onActiveTopTabChange={setAdvancedTopTab}
-                          validationState={validationState}
-                          validateDisabledByKind={{
-                            coder: coderValidateDisabledReason,
-                            embedding: embeddingValidateDisabledReason,
-                          }}
-                          pythonValidateDisabledReason={pythonValidateDisabledReason}
-                          literatureValidateDisabledReason={literatureValidateDisabledReason}
-                          claudeValidateDisabledReason={claudeValidateDisabledReason}
-                          onValidate={handleValidate}
-                          pythonSectionRef={pythonSectionRef}
-                          literatureSectionRef={literatureSectionRef}
-                          claudeSectionRef={claudeSectionRef}
-                          claudeCliStatus={claudeCliStatus}
-                          claudeSettingsPath={claudeSettingsPath}
-                          onResetClaude={handleResetClaudeDefaults}
-                          aiCliGatewayStatus={aiCliGatewayStatus}
-                          gatewayToggling={gatewayToggling}
-                          onRouteClaudeToggle={(enabled) => handleGatewayRouteToggle('claude', enabled)}
-                          onRouteCodexToggle={(enabled) => handleGatewayRouteToggle('codex', enabled)}
-                          claudeProviders={claudeProviders}
-                          claudeProvidersLoading={claudeProvidersLoading}
-                          providerAvailabilityResults={providerAvailabilityResults}
-                          onSaveClaudeProvider={handleSaveClaudeProvider}
-                          onAddClaudeProvider={handleAddClaudeProvider}
-                          onRemoveClaudeProvider={handleRemoveClaudeProvider}
-                          onActivateClaudeProvider={handleActivateClaudeProvider}
-                          onToggleFailoverProvider={handleToggleFailoverProvider}
-                          onCheckClaudeProvider={handleCheckClaudeProvider}
-                          onShowClaudeGatewayLog={handleShowClaudeGatewayLog}
-                          modelsByProvider={modelsByProvider}
-                          modelsLoadingByProvider={modelsLoadingByProvider}
-                          modelsErrorByProvider={modelsErrorByProvider}
-                          onFetchProviderModels={handleFetchProviderModels}
-                          usageRecords={gatewayUsageRecords}
-                          usageAggregation={gatewayUsageAggregation}
-                          usageLoading={gatewayUsageLoading}
-                          onRefreshUsage={handleRefreshUsage}
-                          onClearUsage={handleClearUsage}
-                          codexRouting={codexRouting}
-                          failoverEnabled={failoverEnabled}
-                          onFailoverToggle={handleFailoverToggle}
-                          customPricing={customPricing}
-                          onGetPricing={handleGetPricing}
-                          onRefreshPricing={handleRefreshPricing}
-                          onSavePricing={handleSavePricing}
-                          onClearPricing={handleClearPricing}
-                          providerUsage={providerUsage}
-                          onQueryProviderUsage={handleQueryProviderUsage}
-                          onRestartCodex={handleRestartCodex}
+                          isDark={isDark}
                           form={form}
+                          baseUrl={effectiveConfigValues.llmApiBase ?? ''}
+                          apiKey={effectiveConfigValues.llmApiKey ?? ''}
+                          models={modelsByProvider[ENV_LLM_SLOT.default] ?? []}
+                          modelsLoading={modelsLoadingByProvider[ENV_LLM_SLOT.default] ?? false}
+                          modelsError={modelsErrorByProvider[ENV_LLM_SLOT.default] ?? null}
+                          onFetchModels={handleFetchDefaultLlmModels}
+                          validationState={validationState.default}
+                          validateDisabledReason={defaultValidateDisabledReason}
+                          onValidate={() => handleValidate('default')}
+                          showIntro={!wizardMode}
+                          webImportPanel={webImportPanel}
                         />
-                      </div>
-                    ),
-                  },
-                ]}
-              />
-            </div>
-
-            {/* ========== 操作按钮 - 玻璃态 ========== */}
-            <div
-              ref={actionsSectionRef}
-              style={{
-                position: 'sticky',
-                bottom: 16,
-                zIndex: 10,
-                textAlign: 'center',
-                padding: '14px 16px',
-                borderRadius: 12,
-                border: `1px solid ${palette.panelBorder}`,
-                background: isDark
-                  ? 'rgba(37, 37, 38, 0.72)'
-                  : 'rgba(255, 255, 255, 0.72)',
-                backdropFilter: 'blur(20px)',
-                WebkitBackdropFilter: 'blur(20px)',
-                boxShadow: isDark
-                  ? '0 10px 30px rgba(0,0,0,0.25)'
-                  : '0 10px 30px rgba(0,0,0,0.12)',
-              }}
-            >
-              <Space size="middle" wrap direction="vertical" style={{ width: '100%' }}>
-                <Space size="middle" wrap style={{ justifyContent: 'center' }}>
-                  <Button
-                    size="large"
-                    icon={<ReloadOutlined />}
-                    onClick={handleResetWorkspaceDefaults}
-                  >
-                    {t('configPage.resetWorkspaceDefaults')}
-                  </Button>
-                  <Tooltip title={saveDisabledReason || ''}>
-                    <Button
-                      size="large"
-                      icon={<SaveOutlined />}
-                      onClick={handleSave}
-                      disabled={!canSave}
-                      loading={loading}
-                    >
-                      {t('configPage.save')}
-                    </Button>
-                  </Tooltip>
-                  <Tooltip title={saveDisabledReason || ''}>
-                    <Button
-                      type="primary"
-                      size="large"
-                      icon={<RocketOutlined />}
-                      onClick={handleSaveAndStart}
-                      loading={startingBackend}
-                      disabled={!canSaveAndStart}
-                    >
-                      {startingBackend ? t('configPage.starting') : t('configPage.saveAndStart')}
-                    </Button>
-                  </Tooltip>
-                </Space>
-                <Text type="secondary" style={{ fontSize: 12, display: 'block', textAlign: 'center' }}>
-                  {t('configPage.saveHint')}
-                </Text>
-              </Space>
+                      ),
+                    },
+                    {
+                      key: 'specialized',
+                      label: t('configPage.pageTabs.specialized'),
+                      children: (
+                        <div style={advancedPanelInnerStyle(isDark, palette)}>
+                          <AdvancedConfigSection
+                            t={t}
+                            palette={palette}
+                            hasDefaultLlmKey={hasDefaultLlmKey}
+                            defaultLlmApiBase={defaultLlmApiBase}
+                            defaultLlmModel={defaultLlmModel}
+                            activeTopTab={advancedTopTab}
+                            onActiveTopTabChange={setAdvancedTopTab}
+                            validationState={validationState}
+                            validateDisabledByKind={{
+                              coder: coderValidateDisabledReason,
+                              embedding: embeddingValidateDisabledReason,
+                            }}
+                            pythonValidateDisabledReason={pythonValidateDisabledReason}
+                            onValidate={handleValidate}
+                            pythonSectionRef={pythonSectionRef}
+                            form={form}
+                            modelsBySlot={modelsByProvider}
+                            modelsLoadingBySlot={modelsLoadingByProvider}
+                            modelsErrorBySlot={modelsErrorByProvider}
+                            onFetchSlotModels={handleFetchEnvModels}
+                            effectiveValues={effectiveConfigValues}
+                            pythonEnvironmentOptions={pythonEnvironmentOptions}
+                            pythonEnvironmentScanning={pythonEnvironmentScanning}
+                            onScanPythonEnvironments={handleScanPythonEnvironments}
+                            easyPaperForm={easyPaperForm}
+                            onSaveEasyPaper={saveEasyPaperConfig}
+                          />
+                        </div>
+                      ),
+                    },
+                    {
+                      key: 'literature',
+                      label: t('configPage.pageTabs.literature'),
+                      children: (
+                        <div style={advancedPanelInnerStyle(isDark, palette)}>
+                          <LiteratureConfigSection
+                            t={t}
+                            palette={palette}
+                            validationState={validationState.literature}
+                            disabledReason={literatureValidateDisabledReason}
+                            onValidate={() => handleValidate('literature')}
+                            sectionRef={literatureSectionRef}
+                            showIntro={!wizardMode}
+                          >
+                            <Form.Item name="literatureSearchMcpUrl" label={t('configPage.advanced.literature.apiUrl')}>
+                              <Input placeholder={t('configPage.advanced.literature.apiUrlPlaceholder')} />
+                            </Form.Item>
+                            <Form.Item name="literatureSearchApiKey" label={t('configPage.advanced.literature.apiKey')}>
+                              <Input.Password placeholder={t('configPage.advanced.literature.apiKeyPlaceholder')} autoComplete="off" />
+                            </Form.Item>
+                          </LiteratureConfigSection>
+                        </div>
+                      ),
+                    },
+                    {
+                      key: 'cli',
+                      label: t('configPage.pageTabs.cli'),
+                      children: (
+                        <div ref={claudeSectionRef} style={advancedPanelInnerStyle(isDark, palette)}>
+                          <AiCliConfigSection
+                            t={t}
+                            palette={palette}
+                            cliStatus={claudeCliStatus}
+                            settingsPath={claudeSettingsPath}
+                            onResetClaude={handleResetClaudeDefaults}
+                            gatewayStatus={aiCliGatewayStatus}
+                            gatewayToggling={gatewayToggling}
+                            onRouteClaudeToggle={(enabled) => handleGatewayRouteToggle('claude', enabled)}
+                            onRouteCodexToggle={(enabled) => handleGatewayRouteToggle('codex', enabled)}
+                            providers={claudeProviders}
+                            providersLoading={claudeProvidersLoading}
+                            speedtestResults={providerAvailabilityResults}
+                            onSaveProvider={handleSaveClaudeProvider}
+                            onAddProvider={handleAddClaudeProvider}
+                            onRemoveProvider={handleRemoveClaudeProvider}
+                            onActivateProvider={handleActivateClaudeProvider}
+                            onToggleFailoverProvider={handleToggleFailoverProvider}
+                            onSpeedtestProvider={handleCheckClaudeProvider}
+                            isProviderChecking={isProviderChecking}
+                            onShowGatewayLog={handleShowClaudeGatewayLog}
+                            modelsByProvider={modelsByProvider}
+                            modelsLoadingByProvider={modelsLoadingByProvider}
+                            modelsErrorByProvider={modelsErrorByProvider}
+                            onFetchProviderModels={handleFetchProviderModels}
+                            usageRecords={gatewayUsageRecords}
+                            usageLoading={gatewayUsageLoading}
+                            onRefreshUsage={handleRefreshUsage}
+                            onClearUsage={handleClearUsage}
+                            codexRouting={codexRouting}
+                            failoverEnabled={failoverEnabled}
+                            onFailoverToggle={handleFailoverToggle}
+                            customPricing={customPricing}
+                            onGetPricing={handleGetPricing}
+                            onRefreshPricing={handleRefreshPricing}
+                            onSavePricing={handleSavePricing}
+                            onClearPricing={handleClearPricing}
+                            providerUsage={providerUsage}
+                            onQueryProviderUsage={handleQueryProviderUsage}
+                            onRestartCodex={handleRestartCodex}
+                          />
+                        </div>
+                      ),
+                    },
+                  ]}
+                />
+              )}
             </div>
           </Form>
         </Content>

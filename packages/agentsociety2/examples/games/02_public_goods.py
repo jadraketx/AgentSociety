@@ -53,10 +53,11 @@ async def main():
 
     # Create the society
     society = AgentSociety(
-        agents=agents,
+        agent_specs=[{"id": a.id, "profile": a._profile, "config": a._config} for a in agents],
+        agent_class_name="PersonAgent",
         env_router=CodeGenRouter(env_modules=[game]),
         start_t=datetime.now(),
-        replay_writer=writer,
+        enable_replay=True,
     )
     await society.init()
 

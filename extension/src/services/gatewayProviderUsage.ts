@@ -1,7 +1,7 @@
 import * as https from 'https';
 import * as http from 'http';
 import { URL } from 'url';
-import { isOfficialOpenAiBaseUrl } from './aiCliOfficialEndpoints';
+import { isOfficialOpenAiBaseUrl } from '../aiCli/officialEndpoints';
 import { readCodexSubscriptionSession } from './codexSettings';
 
 export type ProviderUsagePlan = {

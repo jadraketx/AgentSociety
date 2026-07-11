@@ -179,12 +179,12 @@ async def main():
             await replay_writer.init()
             
             society = AgentSociety(
-                agents=agents,
+                agent_specs=[{"id": a.id, "profile": a._profile, "config": a._config} for a in agents],
+                agent_class_name="CommonsTragedyAgent",
                 env_router=env_router,
                 start_t=start_time,
                 run_dir=game_run_dir,
                 enable_replay=True,
-                replay_writer=replay_writer,
             )
             await society.init()
 

@@ -210,7 +210,6 @@ async def main(
     # 创建 CodeGenRouter
     env_router = CodeGenRouter(
         env_modules=[mobility_env, event_space, social_media_env],
-        log_path=f"logs/instruction_log_{datetime.now().strftime('%Y%m%d%H%M%S')}.pkl",
     )
 
     # 保存 pyi 代码
@@ -227,7 +226,8 @@ async def main(
     agents = [PersonAgent(**args) for args in agent_args]
 
     society = AgentSociety(
-        agents=agents,
+        agent_specs=[{"id": a.id, "profile": a._profile, "config": a._config} for a in agents],
+        agent_class_name="PersonAgent",
         env_router=env_router,
         start_t=START_TIME,
     )
@@ -454,7 +454,8 @@ async def main_social(
     agents = [PersonAgent(**args) for args in agent_args]
 
     society = AgentSociety(
-        agents=agents,
+        agent_specs=[{"id": a.id, "profile": a._profile, "config": a._config} for a in agents],
+        agent_class_name="PersonAgent",
         env_router=env_router,
         start_t=START_TIME,
     )

@@ -1,8 +1,8 @@
 import type { AiCliGatewayUpstream } from './aiCliGatewayUpstream';
 
-export const ONE_M_CONTEXT_MARKER = '[1M]';
+const ONE_M_CONTEXT_MARKER = '[1M]';
 
-export function stripOneMContextMarker(model: string): string {
+function stripOneMContextMarker(model: string): string {
   const trimmed = model.trimEnd();
   const suffix = trimmed.slice(-ONE_M_CONTEXT_MARKER.length);
   if (suffix.toLowerCase() !== ONE_M_CONTEXT_MARKER.toLowerCase()) {
@@ -11,54 +11,61 @@ export function stripOneMContextMarker(model: string): string {
   return trimmed.slice(0, -ONE_M_CONTEXT_MARKER.length).trimEnd();
 }
 
-/**
- * Map a Claude Code model name to the upstream provider's model name.
- *
- * Claude Code sends model names like `claude-sonnet-4-6`.
- * Third-party providers don't understand these names, so we map them:
- *
- * | Claude Code sends    | Resolves to                  |
- * |----------------------|------------------------------|
- * | `claude-sonnet-*`    | `upstream.sonnetModel`       |
- * | `claude-opus-*`      | `upstream.opusModel`         |
- * | `claude-haiku-*`     | `upstream.haikuModel`        |
- * | `claude-fable-*`     | `upstream.opusModel` (fallback) |
- * | anything else        | `upstream.model` (default)   |
- *
- * The `[1M]` context marker suffix is stripped before mapping.
- */
-export function resolveAnthropicGatewayModel(
-  requestedModel: unknown,
-  upstream: Pick<
-    AiCliGatewayUpstream,
-    'model' | 'sonnetModel' | 'opusModel' | 'haikuModel'
-  >
-): string {
-  const requested = typeof requestedModel === 'string' ? requestedModel.trim() : '';
-  const normalizedRequested = stripOneMContextMarker(requested);
+function requestedUsesOneMContext(requestedModel: string): boolean {
+  const trimmed = requestedModel.trimEnd();
+  const suffix = trimmed.slice(-ONE_M_CONTEXT_MARKER.length);
+  return suffix.toLowerCase() === ONE_M_CONTEXT_MARKER.toLowerCase();
+}
+
+export type AnthropicRoleMappingUpstream = Pick<
+  AiCliGatewayUpstream,
+  | 'model'
+  | 'sonnetModel'
+  | 'opusModel'
+  | 'fableModel'
+  | 'haikuModel'
+  | 'declareSonnet1m'
+  | 'declareOpus1m'
+  | 'declareFable1m'
+>;
+
+function resolveRoleUpstreamModel(
+  normalizedRequested: string,
+  upstream: AnthropicRoleMappingUpstream
+): string | undefined {
   const lower = normalizedRequested.toLowerCase();
 
   if (lower.includes('fable')) {
-    return upstream.opusModel?.trim() || upstream.model?.trim() || normalizedRequested;
+    return upstream.fableModel?.trim() || upstream.opusModel?.trim() || upstream.model?.trim();
   }
-  if (lower.includes('haiku') && upstream.haikuModel?.trim()) {
-    return upstream.haikuModel.trim();
+  if (lower.includes('haiku')) {
+    return upstream.haikuModel?.trim() || upstream.model?.trim();
   }
-  if (lower.includes('opus') && upstream.opusModel?.trim()) {
-    return upstream.opusModel.trim();
+  if (lower.includes('opus')) {
+    return upstream.opusModel?.trim() || upstream.model?.trim();
   }
-  if (lower.includes('sonnet') && upstream.sonnetModel?.trim()) {
-    return upstream.sonnetModel.trim();
+  if (lower.includes('sonnet')) {
+    return upstream.sonnetModel?.trim() || upstream.model?.trim();
   }
-  if (upstream.model?.trim()) {
-    return upstream.model.trim();
+  return upstream.model?.trim();
+}
+
+export function resolveAnthropicGatewayModel(
+  requestedModel: unknown,
+  upstream: AnthropicRoleMappingUpstream
+): string {
+  const requested = typeof requestedModel === 'string' ? requestedModel.trim() : '';
+  const normalizedRequested = stripOneMContextMarker(requested);
+  const mapped = resolveRoleUpstreamModel(normalizedRequested, upstream);
+  if (mapped) {
+    return stripOneMContextMarker(mapped);
   }
   return normalizedRequested;
 }
 
 export function applyAnthropicModelMapping(
   body: Record<string, unknown>,
-  upstream: Pick<AiCliGatewayUpstream, 'model' | 'sonnetModel' | 'opusModel' | 'haikuModel'>
+  upstream: AnthropicRoleMappingUpstream
 ): { body: Record<string, unknown>; originalModel?: string; mappedModel?: string } {
   const originalModel = typeof body.model === 'string' ? body.model : undefined;
   if (!originalModel) {
@@ -75,4 +82,8 @@ export function applyAnthropicModelMapping(
     originalModel,
     mappedModel,
   };
+}
+
+export function requestedModelUsesOneMContext(requestedModel: unknown): boolean {
+  return typeof requestedModel === 'string' && requestedUsesOneMContext(requestedModel);
 }
