@@ -41,7 +41,8 @@ async def main():
 
     # Create the society (recommended way to run experiments)
     society = AgentSociety(
-        agents=[agent],
+        agent_specs=[{"id": agent.id, "profile": agent._profile, "config": agent._config}],
+        agent_class_name="PersonAgent",
         env_router=env_router,
         start_t=datetime.now(),
     )

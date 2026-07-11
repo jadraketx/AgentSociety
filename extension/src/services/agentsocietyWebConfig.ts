@@ -7,8 +7,13 @@ import type {
   ConfigValues,
   ImportedModelOptions,
   ImportedModelDefaults,
+  EasyPaperConfigValues,
 } from '../webview/configPage/types';
 import type { ClaudeCodeConfigValues } from '../webview/configPage/claudeCodeTypes';
+import {
+  buildGatewayProviderFromWebImport,
+  type WebImportGatewayProviderDraft,
+} from './webConfigGatewayImport';
 
 const DEFAULT_CASDOOR_ISSUER = 'https://login.fiblab.net';
 const DEFAULT_WEB_BASE_URL = 'https://agentsociety2.fiblab.net';
@@ -86,6 +91,8 @@ export interface DeviceAuthStarted {
 export interface ImportedWebConfig {
   config: Partial<ConfigValues>;
   claudeConfig: Partial<ClaudeCodeConfigValues>;
+  easyPaperConfig: Partial<EasyPaperConfigValues>;
+  gatewayProvider?: WebImportGatewayProviderDraft;
   modelOptions: ImportedModelOptions;
   defaults: Partial<ImportedModelDefaults>;
   authPath: string;
@@ -119,11 +126,7 @@ export class AgentsocietyWebConfigService {
     this.cancelled = false;
     const metadata = await this.getMetadata();
     const accessToken = await this.getAccessToken(metadata, callbacks);
-    const [user, litellm, pricing] = await Promise.all([
-      this.getApi<UserResponse>('/api/users/me', accessToken),
-      this.getApi<LiteLLMStatus>('/api/users/me/litellm', accessToken),
-      this.getApi<ModelPricingResponse>('/api/users/models/pricing', accessToken),
-    ]);
+    const user = await this.getApi<UserResponse>('/api/users/me', accessToken);
 
     if (user.approval_status && user.approval_status !== 'APPROVED') {
       throw new Error(`当前账号状态为 ${user.approval_status}，审批通过后才能导入 LiteLLM 配置。`);
@@ -131,6 +134,11 @@ export class AgentsocietyWebConfigService {
     if (!user.litellm_api_key) {
       throw new Error('当前账号尚未分配 LiteLLM API Key。');
     }
+
+    const [litellm, pricing] = await Promise.all([
+      this.getOptionalApi<LiteLLMStatus>('/api/users/me/litellm', accessToken),
+      this.getOptionalApi<ModelPricingResponse>('/api/users/models/pricing', accessToken),
+    ]);
 
     return this.buildImportedConfig(user, litellm, pricing);
   }
@@ -256,15 +264,26 @@ export class AgentsocietyWebConfigService {
     return response.data;
   }
 
+  private async getOptionalApi<T>(apiPath: string, accessToken: string): Promise<T | null> {
+    const response = await requestJson<T>(`${this.webBaseUrl}${apiPath}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      timeoutMs: 30_000,
+    });
+    if (!response.ok) {
+      return null;
+    }
+    return response.data;
+  }
+
   private buildImportedConfig(
     user: UserResponse,
-    litellm: LiteLLMStatus,
-    pricing: ModelPricingResponse
+    litellm: LiteLLMStatus | null,
+    pricing: ModelPricingResponse | null
   ): ImportedWebConfig {
-    const modelOptions = this.buildModelOptions(pricing.data ?? [], litellm.models ?? []);
-    const defaults = pricing.defaults ?? {};
-    const apiBase = this.normalizeOpenAiBase(user.litellm_api_base || litellm.api_base || '');
-    const rawBase = user.litellm_api_base || litellm.api_base || '';
+    const modelOptions = this.buildModelOptions(pricing?.data ?? [], litellm?.models ?? []);
+    const defaults = pricing?.defaults ?? {};
+    const apiBase = this.normalizeOpenAiBase(user.litellm_api_base || litellm?.api_base || '');
+    const rawBase = user.litellm_api_base || litellm?.api_base || '';
     const searchUrl = user.search_api_url || this.normalizeMcpUrl(rawBase);
     const apiKey = user.litellm_api_key || '';
 
@@ -291,6 +310,23 @@ export class AgentsocietyWebConfigService {
         opusModel: this.pickModel(modelOptions.claudeCode, defaults.claudeCodeOpus),
         haikuModel: this.pickModel(modelOptions.claudeCode, defaults.claudeCodeHaiku),
       },
+      easyPaperConfig: {
+        llmModelName: this.pickModel(modelOptions.openaiCompatible, defaults.simulation),
+        llmApiKey: apiKey,
+        llmBaseUrl: apiBase,
+        vlmEnabled: true,
+        vlmModel: defaults.easyPaperVlm || 'deepseek-v4-flash',
+        vlmApiKey: apiKey,
+        vlmBaseUrl: apiBase,
+      },
+      gatewayProvider: buildGatewayProviderFromWebImport(apiKey, apiBase, {
+        model: this.pickModel(modelOptions.claudeCode, defaults.claudeCode),
+        sonnetModel: this.pickModel(modelOptions.claudeCode, defaults.claudeCodeSonnet),
+        opusModel: this.pickModel(modelOptions.claudeCode, defaults.claudeCodeOpus),
+        haikuModel: this.pickModel(modelOptions.claudeCode, defaults.claudeCodeHaiku),
+      }, {
+        enableCodex1m: true,
+      }),
       modelOptions,
       defaults,
       authPath: AUTH_PATH,

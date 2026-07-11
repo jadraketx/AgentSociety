@@ -25,7 +25,7 @@ import {
   providerUpstream,
   resolveProviderBaseUrl,
   type AiCliApiKind,
-} from './aiCliOfficialEndpoints';
+} from '../aiCli/officialEndpoints';
 import { inferOpenAiApiFormat } from './codexApiFormat';
 import { resolveCodexChatModel } from './codexModelMapping';
 import {
@@ -52,6 +52,7 @@ import {
   applyCodexOfficialSubscription,
   getCodexRoutingSnapshot,
   stripCodexGatewayConfig,
+  type CodexProviderPatch,
 } from './codexSettings';
 import {
   inferProviderAuthMode,
@@ -60,9 +61,12 @@ import {
   providerHasConfiguredCredentials,
   type AiCliAuthMode,
 } from '../aiCli/providerAuth';
-import { getSharedOutputChannel } from '../shared/outputChannels';
+import {
+  appendSharedOutputLine,
+  getSharedOutputChannel,
+  OUTPUT_CHANNEL_GATEWAY,
+} from '../shared/outputChannels';
 
-const UPSTREAM_STATE_KEY = 'aiCliGateway.upstream';
 const UPSTREAM_SECRET_KEY = 'aiCliGateway.upstream.secret';
 const ENABLED_STATE_KEY = 'aiCliGateway.enabled';
 const PROVIDERS_STATE_KEY = 'aiCliGateway.providers';
@@ -99,7 +103,18 @@ export type AiCliProviderConfig = {
   model?: string;
   sonnetModel?: string;
   opusModel?: string;
+  fableModel?: string;
   haikuModel?: string;
+  sonnetDisplayName?: string;
+  opusDisplayName?: string;
+  fableDisplayName?: string;
+  haikuDisplayName?: string;
+  declareSonnet1m?: boolean;
+  declareOpus1m?: boolean;
+  declareFable1m?: boolean;
+  codexEnable1m?: boolean;
+  codexContextWindow?: number;
+  codexAutoCompactLimit?: number;
   permissionMode?: string;
 };
 
@@ -115,20 +130,22 @@ export class AiCliGatewayManager {
   private outputChannel: vscode.OutputChannel;
   private sessionUsage: TokenUsageRecord[] = [];
   private usagePersistTimer: NodeJS.Timeout | undefined;
+  private usageChangeListener: (() => void) | null = null;
   private usagePersistPromise: Promise<void> = Promise.resolve();
   private providersCache: AiCliProviderConfig[] = [];
   private storedUpstreamCache: AiCliGatewayUpstream | undefined;
   private readonly secretsReady: Promise<void>;
 
   constructor(private readonly context: vscode.ExtensionContext) {
-    this.outputChannel = getSharedOutputChannel('AI CLI Gateway');
+    this.outputChannel = getSharedOutputChannel(OUTPUT_CHANNEL_GATEWAY);
     this.gateway.onLog((entry: GatewayLogEntry) => {
       const tokenInfo =
         entry.inputTokens !== undefined && entry.outputTokens !== undefined
           ? ` in:${entry.inputTokens} out:${entry.outputTokens}`
           : '';
       const failoverInfo = entry.failoverFrom ? ` failover:${entry.failoverFrom}` : '';
-      this.outputChannel.appendLine(
+      appendSharedOutputLine(
+        OUTPUT_CHANNEL_GATEWAY,
         `${entry.ts} [request] ${entry.method} ${entry.path} -> ${entry.status} (${entry.ms}ms)${entry.model ? ` model=${entry.model}` : ''}${tokenInfo}${failoverInfo} upstream=${entry.upstream}`
       );
     });
@@ -139,7 +156,6 @@ export class AiCliGatewayManager {
       void this.applyFailoverUpstream(upstream, role);
     });
     this.providersCache = this.readStoredProviderMetadata();
-    this.storedUpstreamCache = this.context.globalState.get<AiCliGatewayUpstream>(UPSTREAM_STATE_KEY);
     this.secretsReady = this.initializeSecretStorage();
   }
 
@@ -229,7 +245,6 @@ export class AiCliGatewayManager {
   private async persistUpstream(upstream: AiCliGatewayUpstream): Promise<void> {
     this.storedUpstreamCache = upstream;
     await this.context.secrets.store(UPSTREAM_SECRET_KEY, JSON.stringify(upstream));
-    await this.context.globalState.update(UPSTREAM_STATE_KEY, undefined);
   }
 
   private async persistEnabled(enabled: boolean): Promise<void> {
@@ -257,50 +272,9 @@ export class AiCliGatewayManager {
     return { ...provider, apiKind, authMode };
   }
 
-  private migrateProvider(
-    raw: Partial<AiCliProviderConfig> & { id: string; active?: boolean }
-  ): AiCliProviderConfig {
-    const baseUrl = raw.baseUrl ?? '';
-    const apiKind = raw.apiKind ?? inferApiKindFromBaseUrl(baseUrl);
-    const isOpenAi = apiKind === 'openai';
-    let activeClaude = raw.activeClaude;
-    let activeCodex = raw.activeCodex;
-    if (activeClaude === undefined && activeCodex === undefined && raw.active === true) {
-      activeClaude = !isOpenAi;
-      activeCodex = isOpenAi;
-    }
-    if (activeClaude === undefined) {
-      activeClaude = false;
-    }
-    if (activeCodex === undefined) {
-      activeCodex = false;
-    }
-    const failoverClaude = raw.failoverClaude ?? false;
-    const failoverCodex = raw.failoverCodex ?? false;
-    return this.normalizeProvider({
-      id: raw.id,
-      name: raw.name ?? '',
-      baseUrl,
-      apiKey: raw.apiKey ?? '',
-      apiKind,
-      authMode: raw.authMode,
-      activeClaude,
-      activeCodex,
-      failoverClaude,
-      failoverCodex,
-      model: raw.model,
-      sonnetModel: raw.sonnetModel,
-      opusModel: raw.opusModel,
-      haikuModel: raw.haikuModel,
-      permissionMode: raw.permissionMode,
-    });
-  }
-
   private readStoredProviderMetadata(): AiCliProviderConfig[] {
-    const raw = this.context.globalState.get<(AiCliProviderConfig & { active?: boolean })[]>(
-      PROVIDERS_STATE_KEY
-    ) ?? [];
-    return raw.map((p) => this.migrateProvider(p));
+    const raw = this.context.globalState.get<AiCliProviderConfig[]>(PROVIDERS_STATE_KEY) ?? [];
+    return raw.map((provider) => this.normalizeProvider(provider));
   }
 
   private providerSecretKey(id: string): string {
@@ -316,13 +290,8 @@ export class AiCliGatewayManager {
       const storedProviders = this.readStoredProviderMetadata();
       const hydrated: AiCliProviderConfig[] = [];
       for (const provider of storedProviders) {
-        const legacyApiKey = provider.apiKey.trim();
         const secretApiKey = await this.context.secrets.get(this.providerSecretKey(provider.id));
-        const apiKey = secretApiKey ?? legacyApiKey;
-        if (legacyApiKey && secretApiKey === undefined) {
-          await this.context.secrets.store(this.providerSecretKey(provider.id), legacyApiKey);
-        }
-        hydrated.push(this.normalizeProvider({ ...provider, apiKey }));
+        hydrated.push(this.normalizeProvider({ ...provider, apiKey: secretApiKey ?? '' }));
       }
       this.providersCache = hydrated;
       await this.context.globalState.update(
@@ -330,19 +299,12 @@ export class AiCliGatewayManager {
         hydrated.map((provider) => this.providerMetadata(provider))
       );
 
-      const legacyUpstream = this.context.globalState.get<AiCliGatewayUpstream>(UPSTREAM_STATE_KEY);
       const secretUpstream = await this.context.secrets.get(UPSTREAM_SECRET_KEY);
       if (secretUpstream) {
         this.storedUpstreamCache = JSON.parse(secretUpstream) as AiCliGatewayUpstream;
-      } else if (legacyUpstream?.baseUrl && legacyUpstream.apiKey) {
-        await this.context.secrets.store(UPSTREAM_SECRET_KEY, JSON.stringify(legacyUpstream));
-        this.storedUpstreamCache = legacyUpstream;
-      }
-      if (legacyUpstream) {
-        await this.context.globalState.update(UPSTREAM_STATE_KEY, undefined);
       }
     } catch (error) {
-      this.log(`Secret storage migration failed: ${error instanceof Error ? error.message : String(error)}`);
+      this.log(`Secret storage initialization failed: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
 
@@ -408,12 +370,36 @@ export class AiCliGatewayManager {
       model: normalized.model,
       sonnetModel: normalized.sonnetModel,
       opusModel: normalized.opusModel,
+      fableModel: normalized.fableModel,
       haikuModel: normalized.haikuModel,
+      sonnetDisplayName: normalized.sonnetDisplayName,
+      opusDisplayName: normalized.opusDisplayName,
+      fableDisplayName: normalized.fableDisplayName,
+      haikuDisplayName: normalized.haikuDisplayName,
+      declareSonnet1m: normalized.declareSonnet1m,
+      declareOpus1m: normalized.declareOpus1m,
+      declareFable1m: normalized.declareFable1m,
       codexApiFormat,
       codexModel:
         upstream.apiKind === 'openai'
           ? this.resolveCodexProviderModel(normalized)
           : undefined,
+      codexEnable1m: normalized.codexEnable1m,
+      codexContextWindow: normalized.codexContextWindow,
+      codexAutoCompactLimit: normalized.codexAutoCompactLimit,
+    };
+  }
+
+  private providerToCodexPatch(provider: AiCliProviderConfig): CodexProviderPatch {
+    const normalized = this.normalizeProvider(provider);
+    const upstream = providerUpstream(normalized);
+    return {
+      baseUrl: upstream.baseUrl,
+      apiKey: upstream.apiKey,
+      model: this.resolveCodexProviderModel(normalized),
+      codexEnable1m: normalized.codexEnable1m,
+      codexContextWindow: normalized.codexContextWindow,
+      codexAutoCompactLimit: normalized.codexAutoCompactLimit,
     };
   }
 
@@ -637,7 +623,7 @@ export class AiCliGatewayManager {
       const openaiActive = this.getOpenAiProviderForGateway();
       applyCodexGatewayConfig(
         gatewayStatus.port,
-        openaiActive ? this.resolveCodexProviderModel(openaiActive) : undefined
+        openaiActive ? this.providerToCodexPatch(openaiActive) : undefined
       );
       this.log(`Codex gateway config applied on port ${gatewayStatus.port}`);
     } else {
@@ -815,6 +801,58 @@ export class AiCliGatewayManager {
     }
   }
 
+  async upsertImportedGatewayProvider(draft: {
+    name: string;
+    baseUrl: string;
+    apiKey: string;
+    apiKind?: AiCliApiKind;
+    model?: string;
+    sonnetModel?: string;
+    opusModel?: string;
+    fableModel?: string;
+    haikuModel?: string;
+    sonnetDisplayName?: string;
+    opusDisplayName?: string;
+    fableDisplayName?: string;
+    haikuDisplayName?: string;
+    declareSonnet1m?: boolean;
+    declareOpus1m?: boolean;
+    declareFable1m?: boolean;
+    codexEnable1m?: boolean;
+  }): Promise<AiCliProviderConfig> {
+    await this.initialize();
+    const providers = this.getProviders();
+    const existing = providers.find((p) => p.name === draft.name);
+    const apiKind = draft.apiKind ?? inferApiKindFromBaseUrl(draft.baseUrl);
+    const hasActiveClaude = providers.some((p) => p.activeClaude);
+    const hasActiveCodex = providers.some((p) => p.activeCodex);
+    const payload = {
+      name: draft.name,
+      baseUrl: draft.baseUrl.trim(),
+      apiKey: draft.apiKey.trim(),
+      apiKind,
+      model: draft.model,
+      sonnetModel: draft.sonnetModel,
+      opusModel: draft.opusModel,
+      fableModel: draft.fableModel,
+      haikuModel: draft.haikuModel,
+      sonnetDisplayName: draft.sonnetDisplayName,
+      opusDisplayName: draft.opusDisplayName,
+      fableDisplayName: draft.fableDisplayName,
+      haikuDisplayName: draft.haikuDisplayName,
+      declareSonnet1m: draft.declareSonnet1m,
+      declareOpus1m: draft.declareOpus1m,
+      declareFable1m: draft.declareFable1m,
+      codexEnable1m: draft.codexEnable1m,
+      activeClaude: existing?.activeClaude ?? !hasActiveClaude,
+      activeCodex: existing?.activeCodex ?? !hasActiveCodex,
+    };
+    if (existing) {
+      return this.updateProvider(existing.id, payload);
+    }
+    return this.addProvider(payload);
+  }
+
   async updateProvider(id: string, patch: Partial<AiCliProviderConfig>): Promise<AiCliProviderConfig> {
     await this.initialize();
     const providers = this.getProviders();
@@ -963,6 +1001,10 @@ export class AiCliGatewayManager {
     this.outputChannel.show();
   }
 
+  setUsageChangeListener(listener: (() => void) | null): void {
+    this.usageChangeListener = listener;
+  }
+
   // ============ Usage tracking ============
 
   private addUsageRecord(record: TokenUsageRecord): void {
@@ -973,8 +1015,10 @@ export class AiCliGatewayManager {
     if (!this.usagePersistTimer) {
       this.usagePersistTimer = setTimeout(() => {
         this.usagePersistTimer = undefined;
-        void this.persistUsage();
-      }, 1_000);
+        void this.persistUsage().then(() => {
+          this.usageChangeListener?.();
+        });
+      }, 300);
     }
   }
 
@@ -1057,11 +1101,7 @@ export class AiCliGatewayManager {
       this.log(`Codex direct provider skipped for Anthropic-compatible upstream; use gateway: ${openai.baseUrl}`);
       return;
     }
-    applyCodexDirectProvider({
-      baseUrl: openai.baseUrl,
-      apiKey: openai.apiKey,
-      model: openai.model,
-    });
+    applyCodexDirectProvider(this.providerToCodexPatch(openai));
     this.log(`Codex direct provider: ${openai.baseUrl}`);
   }
 
@@ -1269,6 +1309,6 @@ export class AiCliGatewayManager {
   }
 
   private log(message: string): void {
-    this.outputChannel.appendLine(`${new Date().toISOString()} [gateway] ${message}`);
+    appendSharedOutputLine(OUTPUT_CHANNEL_GATEWAY, `${new Date().toISOString()} [gateway] ${message}`);
   }
 }

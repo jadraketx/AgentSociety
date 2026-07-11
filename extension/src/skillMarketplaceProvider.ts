@@ -44,6 +44,10 @@ import {
   isValidGitRepoUrl,
   canReadSkillDir,
 } from './skillMarketplace/security';
+import { ConfigPageViewProvider } from './configPageViewProvider';
+import { McpServerManager, MCP_SERVER_PRESETS, type McpServerInput } from './services/mcpServerManager';
+import { probeHttpMcpServer } from './services/mcpClient';
+import { appendSharedOutputLine, OUTPUT_CHANNEL_MAIN } from './shared/outputChannels';
 
 const PANEL_VIEW_TYPE = 'aiSocialScientist.skillMarketplace';
 
@@ -51,25 +55,25 @@ export class SkillMarketplacePanel {
   public static current: SkillMarketplacePanel | undefined;
 
   private readonly _extensionUri: vscode.Uri;
-  private readonly _outputChannel: vscode.OutputChannel;
   private readonly _panel: vscode.WebviewPanel;
   private readonly _webview: vscode.Webview;
   private readonly _apiClient: ApiClient;
   private readonly _projectStructureProvider: ProjectStructureProvider;
+  private readonly _mcpManager: McpServerManager;
 
   private constructor(
+    context: vscode.ExtensionContext,
     extensionUri: vscode.Uri,
-    outputChannel: vscode.OutputChannel,
     panel: vscode.WebviewPanel,
     apiClient: ApiClient,
     projectStructureProvider: ProjectStructureProvider
   ) {
     this._extensionUri = extensionUri;
-    this._outputChannel = outputChannel;
     this._panel = panel;
     this._webview = panel.webview;
     this._apiClient = apiClient;
     this._projectStructureProvider = projectStructureProvider;
+    this._mcpManager = new McpServerManager(context);
 
     this._webview.options = {
       enableScripts: true,
@@ -89,6 +93,7 @@ export class SkillMarketplacePanel {
             await this._loadBuiltinSkills();
             await this._loadSkillPresets();
             await this._loadMarketplaceSkills();
+            await this._loadMcpServers();
             break;
 
           // Agent Skills
@@ -167,7 +172,8 @@ export class SkillMarketplacePanel {
               'aiSocialScientist.openAgentSkillDoc',
               data.payload.skillName,
               data.payload.skillPath,
-              data.payload.isBuiltin
+              data.payload.isBuiltin,
+              data.payload.skillId
             );
             break;
           case 'openLocalSkillMarkdown':
@@ -177,7 +183,7 @@ export class SkillMarketplacePanel {
             this._openSkillFolder(data.payload.path);
             break;
           case 'fetchAgentSkillDetail':
-            await this._fetchAgentSkillDetail(data.payload.name);
+            await this._fetchAgentSkillDetail(data.payload);
             break;
           case 'fetchLocalSkillMarkdown':
             await this._fetchLocalSkillMarkdown(data.payload.skillDir);
@@ -242,10 +248,15 @@ export class SkillMarketplacePanel {
             await this._loadBuiltinSkills();
             await this._loadSkillPresets();
             break;
-          case 'invokeSnapshotSkillCommand':
-            await vscode.commands.executeCommand('aiSocialScientist.snapshotCurrentSkill');
+          case 'invokeSnapshotSkillCommand': {
+            const payload = data.payload as { skillName?: string } | undefined;
+            await vscode.commands.executeCommand(
+              'aiSocialScientist.snapshotCurrentSkill',
+              payload?.skillName
+            );
             await this._loadBuiltinSkills();
             break;
+          }
           case 'invokeEditSkillPresetsCommand':
             await vscode.commands.executeCommand('aiSocialScientist.editSkillPresets');
             break;
@@ -294,6 +305,53 @@ export class SkillMarketplacePanel {
             }
             break;
           }
+
+          case 'listMcpServers':
+            await this._loadMcpServers();
+            break;
+          case 'saveMcpServer':
+            await this._saveMcpServer(data.payload as McpServerInput);
+            break;
+          case 'removeMcpServer': {
+            const pl = data.payload as { id?: string } | undefined;
+            const id = typeof pl?.id === 'string' ? pl.id : '';
+            if (id) {
+              await this._removeMcpServer(id);
+            }
+            break;
+          }
+          case 'toggleMcpServerApp': {
+            const pl = data.payload as { id?: string; app?: 'claude' | 'codex'; enabled?: boolean } | undefined;
+            const id = typeof pl?.id === 'string' ? pl.id : '';
+            const app = pl?.app === 'codex' ? 'codex' : 'claude';
+            const enabled = pl?.enabled === true;
+            if (id) {
+              await this._toggleMcpServerApp(id, app, enabled);
+            }
+            break;
+          }
+          case 'importMcpFromClaude':
+            await this._importMcpFromClaude();
+            break;
+          case 'syncMcpServers':
+            await this._syncMcpServers();
+            break;
+          case 'probeMcpServer': {
+            const pl = data.payload as { id?: string } | undefined;
+            const id = typeof pl?.id === 'string' ? pl.id : '';
+            if (id) {
+              await this._probeMcpServer(id);
+            }
+            break;
+          }
+          case 'openLiteratureMcpConfig':
+            await this._openLiteratureMcpConfig();
+            break;
+          case 'addMcpPreset': {
+            const pl = data.payload as { presetId?: string } | undefined;
+            await this._addMcpPreset(typeof pl?.presetId === 'string' ? pl.presetId : MCP_SERVER_PRESETS[0]?.presetId);
+            break;
+          }
         }
       },
       undefined,
@@ -311,7 +369,6 @@ export class SkillMarketplacePanel {
 
   public static createOrShow(
     context: vscode.ExtensionContext,
-    outputChannel: vscode.OutputChannel,
     apiClient: ApiClient,
     projectStructureProvider: ProjectStructureProvider,
     column: vscode.ViewColumn = vscode.ViewColumn.One
@@ -334,12 +391,16 @@ export class SkillMarketplacePanel {
 
     context.subscriptions.push(panel);
     SkillMarketplacePanel.current = new SkillMarketplacePanel(
+      context,
       context.extensionUri,
-      outputChannel,
       panel,
       apiClient,
       projectStructureProvider
     );
+  }
+
+  private _log(message: string): void {
+    appendSharedOutputLine(OUTPUT_CHANNEL_MAIN, message);
   }
 
 
@@ -352,19 +413,25 @@ export class SkillMarketplacePanel {
       const response = await this._apiClient.listAgentSkills();
       if (response.success) {
         const skills: AgentSkill[] = response.skills.map(s => ({
+          skill_id: s.skill_id,
           name: s.name,
           description: s.description,
           source: s.source,
-          enabled: s.enabled,
+          enabled: s.enabled ?? false,
           path: s.path,
           has_skill_md: s.has_skill_md,
           script: s.script,
         }));
         await this._postMessage({ type: 'agentSkillsLoaded', payload: skills });
+      } else {
+        await this._postMessage({ type: 'agentSkillsLoaded', payload: [] });
+        await this._postMessage({ type: 'error', payload: 'Failed to load agent skills' });
       }
     } catch (error: any) {
-      this._outputChannel.appendLine(`[SkillManagement] Failed to load agent skills: ${error.message}`);
+      const message = error?.message || String(error);
+      this._log(`[SkillManagement] Failed to load agent skills: ${message}`);
       await this._postMessage({ type: 'agentSkillsLoaded', payload: [] });
+      await this._postMessage({ type: 'error', payload: message });
     }
   }
 
@@ -421,7 +488,7 @@ export class SkillMarketplacePanel {
       }
       await this._loadAgentSkills();
     } catch (error: any) {
-      this._outputChannel.appendLine(`[SkillManagement] Scan failed: ${error.message}`);
+      this._log(`[SkillManagement] Scan failed: ${error.message}`);
       await this._postMessage({ type: 'error', payload: error.message || String(error) });
     }
   }
@@ -507,7 +574,7 @@ export class SkillMarketplacePanel {
           }
         }
       } catch (error: any) {
-        this._outputChannel.appendLine(`[SkillManagement] Failed to load extension skills: ${error.message}`);
+        this._log(`[SkillManagement] Failed to load extension skills: ${error.message}`);
       }
     }
     await this._postMessage({ type: 'builtinSkillsLoaded', payload: skills });
@@ -691,7 +758,7 @@ export class SkillMarketplacePanel {
         });
       }
     } catch (error: any) {
-      this._outputChannel.appendLine(`[SkillManagement] Failed to scan ${dirPath}: ${error.message}`);
+      this._log(`[SkillManagement] Failed to scan ${dirPath}: ${error.message}`);
     }
 
     this._scanClaudeDisabledVault(dirPath, skills, origin);
@@ -732,7 +799,7 @@ export class SkillMarketplacePanel {
         });
       }
     } catch (error: any) {
-      this._outputChannel.appendLine(`[SkillManagement] Failed to scan vault ${vault}: ${error.message}`);
+      this._log(`[SkillManagement] Failed to scan vault ${vault}: ${error.message}`);
     }
   }
 
@@ -805,7 +872,7 @@ export class SkillMarketplacePanel {
         for (const p of [activePath, vaultPath]) {
           if (fs.existsSync(p)) {
             fs.rmSync(p, { recursive: true, force: true });
-            this._outputChannel.appendLine(`[SkillManagement] Purged Claude skill: ${p}`);
+            this._log(`[SkillManagement] Purged Claude skill: ${p}`);
           }
         }
       }
@@ -858,23 +925,71 @@ export class SkillMarketplacePanel {
   }
 
 
-  private async _fetchAgentSkillDetail(name: string): Promise<void> {
-    try {
-      const r = await this._apiClient.getAgentSkillInfo(name);
-      if (r.success) {
-        await this._postMessage({ type: 'agentSkillDetailLoaded', payload: r });
-      } else {
-        await this._postMessage({
-          type: 'skillDetailError',
-          payload: { key: `agent:${name}`, error: 'Skill not found or no detail' }
-        });
-      }
-    } catch (error: any) {
-      await this._postMessage({
-        type: 'skillDetailError',
-        payload: { key: `agent:${name}`, error: error.message || String(error) }
-      });
+  private _readLocalSkillMarkdown(skillDir: string): string | null {
+    if (!canReadSkillDir(skillDir, this._extensionUri)) {
+      return null;
     }
+    const mdPath = skillMdPathInDir(skillDir);
+    if (!mdPath) {
+      return '';
+    }
+    const stat = fs.statSync(mdPath);
+    const max = 512 * 1024;
+    if (stat.size > max) {
+      return null;
+    }
+    const raw = fs.readFileSync(mdPath, 'utf-8');
+    const body = markdownBodyForPreview(raw);
+    if (body.length > 0) {
+      return body;
+    }
+    return raw.replace(/^\uFEFF/, '').trim().length > 0 ? raw : '';
+  }
+
+  private async _fetchAgentSkillDetail(skill: AgentSkill): Promise<void> {
+    const skillId = skill.skill_id?.trim();
+    if (skillId) {
+      try {
+        const r = await this._apiClient.getAgentSkillInfo(skillId);
+        if (r.success) {
+          await this._postMessage({
+            type: 'agentSkillDetailLoaded',
+            payload: {
+              success: true,
+              skill_id: r.skill_id,
+              name: r.name,
+              description: r.description,
+              source: r.source,
+              enabled: skill.enabled,
+              path: r.path,
+              script: r.script,
+              skill_md: r.skill_md,
+            },
+          });
+          return;
+        }
+      } catch (error: any) {
+        this._log(
+          `[SkillManagement] Skill detail API failed for ${skillId}: ${error?.message || String(error)}`
+        );
+      }
+    }
+
+    const localMd = this._readLocalSkillMarkdown(skill.path);
+    await this._postMessage({
+      type: 'agentSkillDetailLoaded',
+      payload: {
+        success: true,
+        skill_id: skillId,
+        name: skill.name,
+        description: skill.description,
+        source: skill.source,
+        enabled: skill.enabled,
+        path: skill.path,
+        script: skill.script,
+        skill_md: localMd ?? '',
+      },
+    });
   }
 
   private async _fetchLocalSkillMarkdown(skillDir: string): Promise<void> {
@@ -947,7 +1062,7 @@ export class SkillMarketplacePanel {
           remote.push(...skills);
         } catch (error: any) {
           const msg = error?.message || String(error);
-          this._outputChannel.appendLine(`[SkillManagement] Marketplace source ${label}: ${msg}`);
+          this._log(`[SkillManagement] Marketplace source ${label}: ${msg}`);
           if (isNetworkOrTimeoutError(error)) {
             errors.push({ code: 'NETWORK', message: `${label}: ${msg}` });
           } else {
@@ -976,7 +1091,7 @@ export class SkillMarketplacePanel {
   ): Promise<MarketplaceSkill[]> {
     const adapter = getPlatformAdapter(source.platform);
 
-    this._outputChannel.appendLine(
+    this._log(
       `[SkillMarketplace] Fetching skills from ${source.platform}: ${source.owner}/${source.repo}`
     );
 
@@ -1061,7 +1176,7 @@ export class SkillMarketplacePanel {
         skillMdContent: content,  // 缓存 SKILL.md 内容用于预览
       };
     } catch (error: any) {
-      this._outputChannel.appendLine(`[SkillManagement] Skip ${skillName}: ${error.message}`);
+      this._log(`[SkillManagement] Skip ${skillName}: ${error.message}`);
       return null;
     }
   }
@@ -1193,10 +1308,10 @@ export class SkillMarketplacePanel {
         type: 'installComplete',
         payload: { skillId: skill.id, name: skill.name, skillType: installTarget }
       });
-      this._outputChannel.appendLine(`[SkillManagement] Successfully installed ${skillTypeLabel}: ${skill.name}`);
+      this._log(`[SkillManagement] Successfully installed ${skillTypeLabel}: ${skill.name}`);
     } catch (error: any) {
       const message = error?.message || String(error);
-      this._outputChannel.appendLine(`[SkillManagement] Failed to install ${skill.name}: ${message}`);
+      this._log(`[SkillManagement] Failed to install ${skill.name}: ${message}`);
       await this._postMessage({ type: 'installFailed', payload: { skillId: skill.id, error: message } });
     }
   }
@@ -1228,7 +1343,7 @@ export class SkillMarketplacePanel {
         await this._loadAgentSkills();
       }
     } catch (error: any) {
-      this._outputChannel.appendLine(`[SkillManagement] Failed to import skill: ${error.message}`);
+      this._log(`[SkillManagement] Failed to import skill: ${error.message}`);
       await this._postMessage({ type: 'error', payload: error.message || String(error) });
     }
   }
@@ -1268,7 +1383,7 @@ export class SkillMarketplacePanel {
       await this._postMessage({ type: 'claudeCodeSkillImported', payload: { name: dirName } });
       await this._loadClaudeCodeSkills();
     } catch (error: any) {
-      this._outputChannel.appendLine(`[SkillManagement] Claude import failed: ${error.message}`);
+      this._log(`[SkillManagement] Claude import failed: ${error.message}`);
       await this._postMessage({ type: 'error', payload: error.message || String(error) });
     }
   }
@@ -1338,7 +1453,7 @@ export class SkillMarketplacePanel {
       // 刷新市场列表
       await this._loadMarketplaceSkills();
     } catch (error: any) {
-      this._outputChannel.appendLine(`[SkillManagement] Save sources failed: ${error.message}`);
+      this._log(`[SkillManagement] Save sources failed: ${error.message}`);
       await this._postMessage({
         type: 'skillSourcesError',
         payload: { target, error: error.message || String(error) },
@@ -1366,7 +1481,7 @@ export class SkillMarketplacePanel {
         payload: { success: true },
       });
     } catch (error: any) {
-      this._outputChannel.appendLine(`[SkillManagement] Save GitHub token failed: ${error.message}`);
+      this._log(`[SkillManagement] Save GitHub token failed: ${error.message}`);
     }
   }
 
@@ -1714,6 +1829,103 @@ export class SkillMarketplacePanel {
     vscode.window.showInformationMessage(`已删除 preset「${name}」`);
     await this._loadSkillPresets();
     await this._loadBuiltinSkills();
+  }
+
+  private async _loadMcpServers(): Promise<void> {
+    const servers = this._mcpManager.listServers();
+    await this._postMessage({
+      type: 'mcpServersLoaded',
+      payload: {
+        servers,
+        presets: MCP_SERVER_PRESETS.map((preset) => ({
+          presetId: preset.presetId,
+          name: preset.name,
+          descriptionKey: preset.descriptionKey,
+          transport: preset.transport,
+        })),
+      },
+    });
+  }
+
+  private async _saveMcpServer(input: McpServerInput): Promise<void> {
+    try {
+      const servers = await this._mcpManager.saveServer(input);
+      await this._postMessage({ type: 'mcpServersLoaded', payload: servers });
+      vscode.window.showInformationMessage(`MCP server「${input.name}」已保存并同步`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this._postMessage({ type: 'mcpError', payload: { error: message } });
+    }
+  }
+
+  private async _removeMcpServer(id: string): Promise<void> {
+    try {
+      const servers = await this._mcpManager.removeServer(id);
+      await this._postMessage({ type: 'mcpServersLoaded', payload: servers });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this._postMessage({ type: 'mcpError', payload: { error: message } });
+    }
+  }
+
+  private async _toggleMcpServerApp(id: string, app: 'claude' | 'codex', enabled: boolean): Promise<void> {
+    try {
+      const servers = await this._mcpManager.toggleServerApp(id, app, enabled);
+      await this._postMessage({ type: 'mcpServersLoaded', payload: servers });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this._postMessage({ type: 'mcpError', payload: { error: message } });
+    }
+  }
+
+  private async _importMcpFromClaude(): Promise<void> {
+    try {
+      const servers = await this._mcpManager.importFromClaude();
+      await this._postMessage({ type: 'mcpServersLoaded', payload: servers });
+      vscode.window.showInformationMessage('已从 ~/.claude.json 导入 MCP 配置');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this._postMessage({ type: 'mcpError', payload: { error: message } });
+    }
+  }
+
+  private async _syncMcpServers(): Promise<void> {
+    try {
+      await this._mcpManager.syncLiveConfigs();
+      const servers = this._mcpManager.listServers();
+      await this._postMessage({ type: 'mcpServersLoaded', payload: servers });
+      vscode.window.showInformationMessage('MCP 配置已同步到 Claude / Codex');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      await this._postMessage({ type: 'mcpError', payload: { error: message } });
+    }
+  }
+
+  private async _probeMcpServer(id: string): Promise<void> {
+    const server = this._mcpManager.listServers().find((s) => s.id === id);
+    if (!server || server.transport !== 'http' || !server.url) {
+      return;
+    }
+    const result = await probeHttpMcpServer(server.url, server.httpHeaders);
+    await this._postMessage({ type: 'mcpProbeResult', payload: { id, result } });
+  }
+
+  private async _openLiteratureMcpConfig(): Promise<void> {
+    await vscode.commands.executeCommand('aiSocialScientist.openConfigPage');
+    ConfigPageViewProvider.currentPanel?.navigateToAdvancedTab('literature');
+  }
+
+  private async _addMcpPreset(presetId: string): Promise<void> {
+    const preset = MCP_SERVER_PRESETS.find((item) => item.presetId === presetId);
+    if (!preset) {
+      return;
+    }
+    const { presetId: _id, descriptionKey: _desc, ...record } = preset;
+    await this._saveMcpServer({
+      ...record,
+      enabledClaude: true,
+      enabledCodex: preset.presetId === 'context7',
+    });
   }
 
   private async _postMessage(message: { type: string; payload?: any }): Promise<void> {

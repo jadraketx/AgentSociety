@@ -27,12 +27,16 @@ import { InitConfigEditorProvider } from './initConfigEditorProvider';
 import { PrefillParamsViewProvider } from './prefillParamsViewProvider';
 import { ReplayWebviewProvider } from './replayWebviewProvider';
 import { ConfigPageViewProvider } from './configPageViewProvider';
+import { ONBOARDING_KEYS } from './onboardingState';
 import { HelpPageViewProvider } from './helpPageViewProvider';
 import { ApiClient } from './apiClient';
 import { ProjectDragAndDropController } from './dragAndDropController';
 import { localize } from './i18n';
 import { BackendManager } from './services/backendManager';
 import { AiCliGatewayManager } from './services/aiCliGatewayManager';
+import { ConfigHealthStatusBar } from './services/configHealthStatus';
+import { formatDurationMs } from './shared/formatDuration';
+import { disposeAllSharedOutputChannels } from './shared/outputChannels';
 import { WorkspaceExportManager } from './services/workspaceExportManager';
 import { filePathToAtReference } from './atReference';
 import { AIChatInvoker } from './aiChatInvoker';
@@ -68,7 +72,9 @@ export function activate(context: vscode.ExtensionContext) {
   // BackendManager 负责 FastAPI 后端进程的生命周期管理
   backendManager = new BackendManager(context);
   aiCliGatewayManager = new AiCliGatewayManager(context);
+  const configHealthStatusBar = new ConfigHealthStatusBar(context);
   ConfigPageViewProvider.attachGatewayManager(aiCliGatewayManager);
+  ConfigPageViewProvider.attachConfigHealthStatus(configHealthStatusBar);
   const workspaceExportManager = new WorkspaceExportManager();
   context.subscriptions.push({
     dispose: () => {
@@ -88,17 +94,16 @@ export function activate(context: vscode.ExtensionContext) {
   // 首次启动或配置未完成时，打开配置页；否则按设置决定是否自动启动后端
   const config = vscode.workspace.getConfiguration('aiSocialScientist');
   const autoStart = config.get<boolean>('backend.autoStart', false);
-  const hasCompletedInitialSetup = context.globalState.get<boolean>('configPage.hasCompletedInitialSetup');
+  const hasCompletedInitialSetup = context.globalState.get<boolean>(ONBOARDING_KEYS.hasCompletedInitialSetup);
   const hasLlmApiKey = hasConfiguredLlmApiKey();
+  const needsFirstSetup = !hasCompletedInitialSetup || !hasLlmApiKey;
 
-  if (!hasCompletedInitialSetup || !hasLlmApiKey) {
-    // 首次启动或缺少必填配置时，打开配置页
+  if (needsFirstSetup) {
     setTimeout(() => {
       ConfigPageViewProvider.createOrShow(context, vscode.ViewColumn.One);
     }, 500);
   } else if (autoStart) {
-    // 配置已完成且启用自动启动，则启动后端
-    backendManager.start().catch((error) => {
+    backendManager.start({ silent: true }).catch((error) => {
       console.error('Failed to auto-start backend:', error);
     });
   }
@@ -134,12 +139,13 @@ export function activate(context: vscode.ExtensionContext) {
   // Register tree view disposal
   context.subscriptions.push(treeView);
 
-  const configEntryTitleBarHintKey = 'projectStructure.configEntryTitleBarHintShown';
-  if (!context.globalState.get<boolean>(configEntryTitleBarHintKey)) {
+  const configEntryTitleBarHintKey = ONBOARDING_KEYS.configEntryTitleBarHintShown;
+  if (!needsFirstSetup && !context.globalState.get<boolean>(configEntryTitleBarHintKey)) {
     void vscode.window
       .showInformationMessage(
         localize('extension.configEntryTitleBarHint'),
         localize('extension.configEntryTitleBarHint.open'),
+        localize('extension.configEntryTitleBarHint.walkthrough'),
         localize('extension.configEntryTitleBarHint.dismiss')
       )
       .then((choice) => {
@@ -149,6 +155,8 @@ export function activate(context: vscode.ExtensionContext) {
         void context.globalState.update(configEntryTitleBarHintKey, true);
         if (choice === localize('extension.configEntryTitleBarHint.open')) {
           void vscode.commands.executeCommand('aiSocialScientist.openConfigPage');
+        } else if (choice === localize('extension.configEntryTitleBarHint.walkthrough')) {
+          void vscode.commands.executeCommand('aiSocialScientist.openWalkthrough');
         }
       });
   }
@@ -163,7 +171,6 @@ export function activate(context: vscode.ExtensionContext) {
       });
       if (topic) {
         await projectStructureProvider.initProject(topic);
-        vscode.window.showInformationMessage(localize('extension.initProject.success', topic));
       }
     }
   );
@@ -498,13 +505,16 @@ export function activate(context: vscode.ExtensionContext) {
   // Register backend management commands
   const startBackendCommand = vscode.commands.registerCommand(
     'aiSocialScientist.startBackend',
-    async () => {
+    async (options?: { silent?: boolean }) => {
       if (backendManager) {
-        const started = await backendManager.start();
-        if (started) {
-          vscode.window.showInformationMessage(localize('extension.backend.started'));
-        } else {
-          vscode.window.showErrorMessage(localize('extension.backend.startFailed'));
+        const silent = options?.silent ?? false;
+        const started = await backendManager.start({ silent });
+        if (!silent) {
+          if (started) {
+            vscode.window.showInformationMessage(localize('extension.backend.started'));
+          } else {
+            vscode.window.showErrorMessage(localize('extension.backend.startFailed'));
+          }
         }
         return started;
       }
@@ -516,21 +526,26 @@ export function activate(context: vscode.ExtensionContext) {
     'aiSocialScientist.stopBackend',
     async () => {
       if (backendManager) {
-        await backendManager.stop();
-        vscode.window.showInformationMessage(localize('extension.backend.stopped'));
+        const stopped = await backendManager.stop();
+        if (stopped) {
+          vscode.window.showInformationMessage(localize('extension.backend.stopped'));
+        }
       }
     }
   );
 
   const restartBackendCommand = vscode.commands.registerCommand(
     'aiSocialScientist.restartBackend',
-    async () => {
+    async (options?: { silent?: boolean }) => {
       if (backendManager) {
-        const restarted = await backendManager.restart();
-        if (restarted) {
-          vscode.window.showInformationMessage(localize('extension.backend.restarted'));
-        } else {
-          vscode.window.showErrorMessage(localize('extension.backend.restartFailed'));
+        const silent = options?.silent ?? false;
+        const restarted = await backendManager.restart({ silent });
+        if (!silent) {
+          if (restarted) {
+            vscode.window.showInformationMessage(localize('extension.backend.restarted'));
+          } else {
+            vscode.window.showErrorMessage(localize('extension.backend.restartFailed'));
+          }
         }
         return restarted;
       }
@@ -634,19 +649,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  const showBackendStatusCommand = vscode.commands.registerCommand(
-    'aiSocialScientist.showBackendStatus',
-    async () => {
-      if (backendManager) {
-        const status = await backendManager.getStatus();
-        const message = status.isRunning
-          ? localize('extension.backend.statusOn', String(status.port ?? ''))
-          : localize('extension.backend.statusOff');
-        vscode.window.showInformationMessage(message);
-      }
-    }
-  );
-
   const getBackendStatusCommand = vscode.commands.registerCommand(
     'aiSocialScientist.getBackendStatus',
     async () => {
@@ -695,23 +697,21 @@ export function activate(context: vscode.ExtensionContext) {
     }
     const s = aiCliGatewayManager.getPublicStatus();
     if (s.enabled && s.running) {
-      const routedTools =
-        s.routeClaude && s.routeCodex ? 'Claude + Codex' : s.routeClaude ? 'Claude' : 'Codex';
-      const claudeRoute = s.routeClaude ? localize('aiCliGateway.statusBarRouteProxy') : localize('aiCliGateway.statusBarRouteDirect');
-      const codexRoute = s.routeCodex ? localize('aiCliGateway.statusBarRouteProxy') : localize('aiCliGateway.statusBarRouteDirect');
-      gatewayStatusBar.text = `$(radio-tower) AI Gateway: ${routedTools}`;
+      const port = s.port ?? '';
+      const uptime =
+        s.stats?.uptimeMs !== undefined ? formatDurationMs(s.stats.uptimeMs) : '';
+      gatewayStatusBar.text = port ? `$(radio-tower) :${port}` : '$(radio-tower)';
       gatewayStatusBar.tooltip = localize(
-        'aiCliGateway.statusBarTooltip',
-        routedTools,
-        claudeRoute,
-        codexRoute,
+        'aiCliGateway.statusBarTooltipShort',
         s.baseUrl ?? '',
-        s.upstreamBaseUrl ?? ''
+        uptime || '—',
+        String(s.stats?.totalRequests ?? 0),
+        String(s.stats?.successRate !== undefined ? Math.round(s.stats.successRate) : '—')
       );
       gatewayStatusBar.backgroundColor = undefined;
       gatewayStatusBar.show();
     } else if (s.enabled) {
-      gatewayStatusBar.text = '$(warning) AI Gateway';
+      gatewayStatusBar.text = '$(warning) GW';
       gatewayStatusBar.tooltip = localize('aiCliGateway.statusBarStopped');
       gatewayStatusBar.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
       gatewayStatusBar.show();
@@ -744,15 +744,11 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   // ========== Skill Marketplace（编辑器区域面板，避免侧边栏过窄） ==========
-  const skillMarketplaceOutputChannel = vscode.window.createOutputChannel('Skill Marketplace');
-  context.subscriptions.push(skillMarketplaceOutputChannel);
-
   const openSkillMarketplaceCommand = vscode.commands.registerCommand(
     'aiSocialScientist.openSkillMarketplace',
     () => {
       SkillMarketplacePanel.createOrShow(
         context,
-        skillMarketplaceOutputChannel,
         apiClient,
         projectStructureProvider,
         vscode.ViewColumn.One
@@ -784,68 +780,10 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  const scanCustomModulesCommand = vscode.commands.registerCommand(
-    'aiSocialScientist.scanCustomModules',
-    async () => {
-      await projectStructureProvider.scanCustomModules();
-    }
-  );
-
-  const testCustomModulesCommand = vscode.commands.registerCommand(
-    'aiSocialScientist.testCustomModules',
-    async () => {
-      await projectStructureProvider.testCustomModules();
-    }
-  );
-
-  const listCustomModulesCommand = vscode.commands.registerCommand(
-    'aiSocialScientist.listCustomModules',
-    async () => {
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-      if (!workspaceFolder) {
-        vscode.window.showErrorMessage(localize('customModules.noWorkspace'));
-        return;
-      }
-
-      try {
-        const response = await apiClient.listCustomModules();
-
-        if (response.success) {
-          const items: string[] = [];
-          if (response.total_agents > 0) {
-            items.push(`Custom Agents (${response.total_agents}):`);
-            response.agents.forEach(agent => {
-              items.push(`  - ${agent.class_name}: ${agent.description}`);
-            });
-          }
-          if (response.total_envs > 0) {
-            items.push(`Custom Environments (${response.total_envs}):`);
-            response.envs.forEach(env => {
-              items.push(`  - ${env.class_name}: ${env.description}`);
-            });
-          }
-          if (items.length === 0) {
-            items.push(localize('customModules.noModules'));
-          }
-
-          const doc = await vscode.workspace.openTextDocument({
-            content: items.join('\n'),
-            language: 'text'
-          });
-          await vscode.window.showTextDocument(doc);
-        } else {
-          vscode.window.showErrorMessage(localize('customModules.listFailed'));
-        }
-      } catch (error: any) {
-        vscode.window.showErrorMessage(localize('customModules.listFailed', error.message || error));
-      }
-    }
-  );
-
   const openAgentSkillDocCommand = vscode.commands.registerCommand(
     'aiSocialScientist.openAgentSkillDoc',
-    async (skillName: string, skillPath: string, isBuiltin: boolean) => {
-      await projectStructureProvider.openAgentSkillDoc(skillName, skillPath, isBuiltin);
+    async (skillName: string, skillPath: string, isBuiltin: boolean, skillId?: string) => {
+      await projectStructureProvider.openAgentSkillDoc(skillName, skillPath, isBuiltin, skillId);
     }
   );
 
@@ -895,7 +833,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   const snapshotCurrentSkillCommand = vscode.commands.registerCommand(
     'aiSocialScientist.snapshotCurrentSkill',
-    async () => {
+    async (presetSkillName?: string) => {
       const wf = vscode.workspace.workspaceFolders?.[0];
       if (!wf) {
         vscode.window.showErrorMessage('请先打开工作区文件夹');
@@ -907,9 +845,12 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage('未发现可快照的 agentsociety-* skill');
         return;
       }
-      const skill = await vscode.window.showQuickPick(skillNames, {
-        placeHolder: 'Snapshot Current Skill: 选择要快照的 skill',
-      });
+      const skill =
+        presetSkillName && skillNames.includes(presetSkillName)
+          ? presetSkillName
+          : await vscode.window.showQuickPick(skillNames, {
+            placeHolder: 'Snapshot Current Skill: 选择要快照的 skill',
+          });
       if (!skill) {
         return;
       }
@@ -1223,21 +1164,6 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  // 复制文件名命令
-  const copyFileNameCommand = vscode.commands.registerCommand(
-    'aiSocialScientist.copyFileName',
-    async (item: any) => {
-      const filePath = item?.filePath;
-      if (!filePath) {
-        vscode.window.showErrorMessage(localize('extension.noFilePath'));
-        return;
-      }
-      const fileName = path.basename(filePath);
-      await vscode.env.clipboard.writeText(fileName);
-      vscode.window.showInformationMessage(localize('extension.clipboard.fileNameCopied', fileName));
-    }
-  );
-
   // Register all commands
   context.subscriptions.push(
     initProjectCommand,
@@ -1255,7 +1181,6 @@ export function activate(context: vscode.ExtensionContext) {
     stopBackendCommand,
     restartBackendCommand,
     showBackendLogsCommand,
-    showBackendStatusCommand,
     getBackendStatusCommand,
     backendStatusMenuCommand,
     copyBackendUrlCommand,
@@ -1270,9 +1195,6 @@ export function activate(context: vscode.ExtensionContext) {
     openSkillSourcesSettingsCommand,
     openClaudeSkillSourcesSettingsCommand,
     refreshProjectViewCommand,
-    scanCustomModulesCommand,
-    testCustomModulesCommand,
-    listCustomModulesCommand,
     openAgentSkillDocCommand,
     updateExtensionSkillsCommand,
     switchSkillVersionCommand,
@@ -1287,7 +1209,6 @@ export function activate(context: vscode.ExtensionContext) {
     viewAnalysisHarnessStatusCommand,
     viewCsvFileCommand,
     openInExplorerCommand,
-    copyFileNameCommand,
     copyFilePathCommand,
     copyAtReferenceCommand
   );
@@ -1308,4 +1229,5 @@ export function deactivate() {
   if (backendManager) {
     backendManager.stop();
   }
+  disposeAllSharedOutputChannels();
 }

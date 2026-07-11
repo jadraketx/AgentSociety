@@ -34,7 +34,7 @@ import json
 # agentsociety2 是一个 Python 包，通过 import 使用
 from agentsociety2.backend.services.custom.scanner import CustomModuleScanner
 from agentsociety2.backend.services.custom.generator import CustomModuleJsonGenerator
-from agentsociety2.backend.services.custom.script_generator import ScriptGenerator
+from agentsociety2.backend.services.custom.script_generator import SafeModuleTester
 from agentsociety2.registry import (
     get_registered_env_modules,
     get_registered_agent_modules,
@@ -279,7 +279,7 @@ async def test_custom_modules(request: TestRequest):
                 f"[Custom Modules] Starting test of workspace: {workspace_path}"
             )
 
-        builder = ScriptGenerator(workspace_path)
+        builder = SafeModuleTester(workspace_path)
 
         if module_kind and module_class_name:
             scanner = CustomModuleScanner(workspace_path)

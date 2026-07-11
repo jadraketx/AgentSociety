@@ -7,6 +7,8 @@ each running its own asyncio event loop with independent connection pools.
 This bypasses single-process bottlenecks (SSL, event loop, GIL).
 
 Usage:
+    export AGENTSOCIETY_LLM_API_KEY=your_key
+    export AGENTSOCIETY_LLM_API_BASE=https://api.openai.com/v1
     python llm_benchmark_ray.py
     python llm_benchmark_ray.py --workers 8 --concurrency 30
     python llm_benchmark_ray.py --prompt-tokens 512 2048 --max-output-tokens 256
@@ -19,6 +21,7 @@ import hashlib
 import os
 import random
 import statistics
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -28,15 +31,38 @@ import ray
 
 # ─── Configuration ──────────────────────────────────────────────────────────
 
-API_BASE = "https://cloud.infini-ai.com/maas/v1"
-API_KEY = "sk-4spsvtattelbbkcc"
-MODEL = "qwen3.6-35b-a3b"
+DEFAULT_API_BASE = "https://api.openai.com/v1"
+DEFAULT_MODEL = "gpt-5.5"
 
 DEFAULT_PROMPT_TOKENS = [512, 2048, 4096]
 DEFAULT_CONCURRENCY = 30  # per worker
 DEFAULT_WORKERS = 8
 DEFAULT_REQUESTS_PER_WORKER = 20
 DEFAULT_MAX_OUTPUT_TOKENS = 64
+
+
+def resolve_api_config(args: argparse.Namespace) -> tuple[str, str, str]:
+    api_key = (args.api_key or os.environ.get("AGENTSOCIETY_LLM_API_KEY") or "").strip()
+    api_base = (
+        (
+            args.api_base
+            or os.environ.get("AGENTSOCIETY_LLM_API_BASE")
+            or DEFAULT_API_BASE
+        )
+        .strip()
+        .rstrip("/")
+    )
+    model = (
+        args.model or os.environ.get("AGENTSOCIETY_LLM_MODEL") or DEFAULT_MODEL
+    ).strip()
+    if not api_key:
+        print(
+            "Error: set AGENTSOCIETY_LLM_API_KEY or pass --api-key",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return api_base, api_key, model
+
 
 # ─── Unique prompt generation ───────────────────────────────────────────────
 
@@ -122,7 +148,9 @@ def generate_unique_prompt(request_id: int, target_tokens: int) -> str:
     target_chars = int(target_tokens * chars_per_token)
 
     topic = TOPICS[request_id % len(TOPICS)]
-    unique_salt = hashlib.md5(f"{request_id}-{time.time_ns()}".encode()).hexdigest()[:16]
+    unique_salt = hashlib.md5(f"{request_id}-{time.time_ns()}".encode()).hexdigest()[
+        :16
+    ]
     random_words = " ".join(_random_word() for _ in range(8))
 
     header = (
@@ -173,6 +201,7 @@ def generate_unique_prompt(request_id: int, target_tokens: int) -> str:
 
 # ─── Data classes ───────────────────────────────────────────────────────────
 
+
 @dataclass
 class RequestResult:
     success: bool
@@ -187,6 +216,7 @@ class RequestResult:
 @dataclass
 class WorkerResult:
     """Results from a single Ray worker."""
+
     worker_id: int
     results: list[dict]  # serialized RequestResult dicts
     total_time_s: float
@@ -195,12 +225,16 @@ class WorkerResult:
 
 # ─── Ray Worker Actor ───────────────────────────────────────────────────────
 
+
 @ray.remote
 class BenchmarkWorker:
     """A Ray actor that runs async API calls in its own process."""
 
-    def __init__(self, worker_id: int):
+    def __init__(self, worker_id: int, api_base: str, api_key: str, model: str):
         self.worker_id = worker_id
+        self.api_base = api_base
+        self.api_key = api_key
+        self.model = model
 
     async def run_load(
         self,
@@ -222,24 +256,26 @@ class BenchmarkWorker:
         async def call_api(prompt: str, req_id: int) -> RequestResult:
             async with semaphore:
                 payload = {
-                    "model": MODEL,
+                    "model": self.model,
                     "messages": [{"role": "user", "content": prompt}],
                     "max_tokens": max_output_tokens,
                     "temperature": 0.1,
                     "stream": False,
                 }
                 headers = {
-                    "Authorization": f"Bearer {API_KEY}",
+                    "Authorization": f"Bearer {self.api_key}",
                     "Content-Type": "application/json",
                 }
-                url = f"{API_BASE}/chat/completions"
+                url = f"{self.api_base}/chat/completions"
                 start = time.perf_counter()
                 try:
                     async with aiohttp.ClientSession(
                         connector=aiohttp.TCPConnector(limit=concurrency + 5),
                         timeout=aiohttp.ClientTimeout(total=180),
                     ) as session:
-                        async with session.post(url, json=payload, headers=headers) as resp:
+                        async with session.post(
+                            url, json=payload, headers=headers
+                        ) as resp:
                             body = await resp.json()
                             elapsed_ms = (time.perf_counter() - start) * 1000
                             if resp.status != 200:
@@ -252,7 +288,10 @@ class BenchmarkWorker:
                             usage = body.get("usage", {})
                             cached = False
                             details = usage.get("prompt_tokens_details", {})
-                            if isinstance(details, dict) and details.get("cached_tokens", 0) > 0:
+                            if (
+                                isinstance(details, dict)
+                                and details.get("cached_tokens", 0) > 0
+                            ):
                                 cached = True
                             if usage.get("cached_tokens", 0) > 0:
                                 cached = True
@@ -268,7 +307,9 @@ class BenchmarkWorker:
                             )
                 except Exception as e:
                     elapsed_ms = (time.perf_counter() - start) * 1000
-                    return RequestResult(success=False, latency_ms=elapsed_ms, error=str(e)[:300])
+                    return RequestResult(
+                        success=False, latency_ms=elapsed_ms, error=str(e)[:300]
+                    )
 
         tasks = [call_api(prompts[i], base_request_id + i) for i in range(num_requests)]
         start = time.perf_counter()
@@ -278,15 +319,17 @@ class BenchmarkWorker:
         # Serialize results
         serialized = []
         for r in results:
-            serialized.append({
-                "success": r.success,
-                "status_code": r.status_code,
-                "latency_ms": r.latency_ms,
-                "input_tokens": r.input_tokens,
-                "output_tokens": r.output_tokens,
-                "cached": r.cached,
-                "error": r.error,
-            })
+            serialized.append(
+                {
+                    "success": r.success,
+                    "status_code": r.status_code,
+                    "latency_ms": r.latency_ms,
+                    "input_tokens": r.input_tokens,
+                    "output_tokens": r.output_tokens,
+                    "cached": r.cached,
+                    "error": r.error,
+                }
+            )
 
         return {
             "worker_id": self.worker_id,
@@ -297,6 +340,7 @@ class BenchmarkWorker:
 
 
 # ─── Aggregation & Reporting ────────────────────────────────────────────────
+
 
 def aggregate_results(
     worker_results: list[dict],
@@ -352,11 +396,11 @@ def aggregate_results(
     }
 
 
-def print_results_table(results: list[dict]) -> None:
+def print_results_table(results: list[dict], api_base: str, model: str) -> None:
     """Print formatted results table."""
     print("\n" + "=" * 140)
-    print(f"  LLM Throughput Benchmark — Ray Multi-Process — {MODEL}")
-    print(f"  API: {API_BASE}")
+    print(f"  LLM Throughput Benchmark — Ray Multi-Process — {model}")
+    print(f"  API: {api_base}")
     print(f"  Cache-safe: ✓ unique prompts per request")
     print("=" * 140)
 
@@ -392,21 +436,23 @@ def print_results_table(results: list[dict]) -> None:
         prev_tokens = r["target_tokens"]
 
         cached_str = str(r["cached"]) if r["cached"] > 0 else "0 ✓"
-        print(row_fmt.format(
-            wk=r["num_workers"],
-            cpw=r["concurrency_per_worker"],
-            ptok=r["target_tokens"],
-            tc=r["total_concurrency"],
-            succ=r["successful"],
-            tot=r["total_requests"],
-            rps=r["rps"],
-            itps=r["input_tps"],
-            otps=r["output_tps"],
-            p50=r["p50_ms"],
-            p95=r["p95_ms"],
-            p99=r["p99_ms"],
-            cached=cached_str,
-        ))
+        print(
+            row_fmt.format(
+                wk=r["num_workers"],
+                cpw=r["concurrency_per_worker"],
+                ptok=r["target_tokens"],
+                tc=r["total_concurrency"],
+                succ=r["successful"],
+                tot=r["total_requests"],
+                rps=r["rps"],
+                itps=r["input_tps"],
+                otps=r["output_tps"],
+                p50=r["p50_ms"],
+                p95=r["p95_ms"],
+                p99=r["p99_ms"],
+                cached=cached_str,
+            )
+        )
 
     print(footer)
 
@@ -415,77 +461,136 @@ def print_results_table(results: list[dict]) -> None:
     if failures:
         print("\n⚠️  Failed requests:")
         for r in failures:
-            print(f"   - {r['num_workers']}wk×{r['concurrency_per_worker']}conc, "
-                  f"prompt={r['target_tokens']}tok: "
-                  f"{r['failed']}/{r['total_requests']} failed")
+            print(
+                f"   - {r['num_workers']}wk×{r['concurrency_per_worker']}conc, "
+                f"prompt={r['target_tokens']}tok: "
+                f"{r['failed']}/{r['total_requests']} failed"
+            )
 
     cached_results = [r for r in results if r["cached"] > 0]
     if cached_results:
         print("\n⚠️  Cache hits detected:")
         for r in cached_results:
-            print(f"   - {r['num_workers']}wk×{r['concurrency_per_worker']}conc: "
-                  f"{r['cached']} cached")
+            print(
+                f"   - {r['num_workers']}wk×{r['concurrency_per_worker']}conc: "
+                f"{r['cached']} cached"
+            )
 
 
 def save_csv(results: list[dict], filepath: str) -> None:
     import csv
+
     with open(filepath, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "workers", "conc_per_worker", "total_concurrency",
-            "target_tokens", "successful", "total_requests", "cached",
-            "rps", "input_tps", "output_tps",
-            "wall_time_s", "p50_ms", "p95_ms", "p99_ms", "avg_ms",
-        ])
+        writer.writerow(
+            [
+                "workers",
+                "conc_per_worker",
+                "total_concurrency",
+                "target_tokens",
+                "successful",
+                "total_requests",
+                "cached",
+                "rps",
+                "input_tps",
+                "output_tps",
+                "wall_time_s",
+                "p50_ms",
+                "p95_ms",
+                "p99_ms",
+                "avg_ms",
+            ]
+        )
         for r in results:
-            writer.writerow([
-                r["num_workers"], r["concurrency_per_worker"], r["total_concurrency"],
-                r["target_tokens"], r["successful"], r["total_requests"], r["cached"],
-                f"{r['rps']:.4f}", f"{r['input_tps']:.2f}", f"{r['output_tps']:.2f}",
-                f"{r['wall_time_s']:.3f}", f"{r['p50_ms']:.1f}", f"{r['p95_ms']:.1f}",
-                f"{r['p99_ms']:.1f}", f"{r['avg_ms']:.1f}",
-            ])
+            writer.writerow(
+                [
+                    r["num_workers"],
+                    r["concurrency_per_worker"],
+                    r["total_concurrency"],
+                    r["target_tokens"],
+                    r["successful"],
+                    r["total_requests"],
+                    r["cached"],
+                    f"{r['rps']:.4f}",
+                    f"{r['input_tps']:.2f}",
+                    f"{r['output_tps']:.2f}",
+                    f"{r['wall_time_s']:.3f}",
+                    f"{r['p50_ms']:.1f}",
+                    f"{r['p95_ms']:.1f}",
+                    f"{r['p99_ms']:.1f}",
+                    f"{r['avg_ms']:.1f}",
+                ]
+            )
     print(f"\n📊 Results saved to: {filepath}")
 
 
 # ─── Main ───────────────────────────────────────────────────────────────────
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="LLM Throughput Benchmark (Ray)")
     parser.add_argument(
-        "--workers", nargs="+", type=int,
+        "--workers",
+        nargs="+",
+        type=int,
         default=[4, 8],
         help=f"Worker counts to test (default: [4, 8])",
     )
     parser.add_argument(
-        "--concurrency", type=int,
+        "--concurrency",
+        type=int,
         default=DEFAULT_CONCURRENCY,
         help=f"Concurrency per worker (default: {DEFAULT_CONCURRENCY})",
     )
     parser.add_argument(
-        "--prompt-tokens", nargs="+", type=int,
+        "--prompt-tokens",
+        nargs="+",
+        type=int,
         default=DEFAULT_PROMPT_TOKENS,
         help=f"Prompt sizes (default: {DEFAULT_PROMPT_TOKENS})",
     )
     parser.add_argument(
-        "--requests-per-worker", type=int,
+        "--requests-per-worker",
+        type=int,
         default=DEFAULT_REQUESTS_PER_WORKER,
         help=f"Requests per worker (default: {DEFAULT_REQUESTS_PER_WORKER})",
     )
     parser.add_argument(
-        "--max-output-tokens", type=int,
+        "--max-output-tokens",
+        type=int,
         default=DEFAULT_MAX_OUTPUT_TOKENS,
         help=f"Max output tokens (default: {DEFAULT_MAX_OUTPUT_TOKENS})",
     )
     parser.add_argument(
-        "--output", type=str, default="benchmark_ray_results.csv",
+        "--output",
+        type=str,
+        default="benchmark_ray_results.csv",
         help="CSV output path",
     )
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        default=None,
+        help="LLM API key (default: AGENTSOCIETY_LLM_API_KEY)",
+    )
+    parser.add_argument(
+        "--api-base",
+        type=str,
+        default=None,
+        help="OpenAI-compatible API base URL (default: AGENTSOCIETY_LLM_API_BASE)",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Model name (default: AGENTSOCIETY_LLM_MODEL)",
+    )
     args = parser.parse_args()
+    api_base, api_key, model = resolve_api_config(args)
 
     print(f"🔧 Ray Multi-Process Benchmark")
-    print(f"   API:              {API_BASE}")
-    print(f"   Model:            {MODEL}")
+    print(f"   API:              {api_base}")
+    print(f"   Model:            {model}")
     print(f"   Worker counts:    {args.workers}")
     print(f"   Concurrency/wk:   {args.concurrency}")
     print(f"   Prompt sizes:     {args.prompt_tokens}")
@@ -508,13 +613,19 @@ def main() -> None:
             total_concurrency = num_workers * args.concurrency
             total_requests = num_workers * args.requests_per_worker
 
-            print(f"\n⏳ [{current}/{total_tests}] {num_workers} workers × "
-                  f"{args.concurrency} conc = {total_concurrency} total parallel, "
-                  f"prompt≈{tok}tok, {total_requests} total requests...",
-                  end="", flush=True)
+            print(
+                f"\n⏳ [{current}/{total_tests}] {num_workers} workers × "
+                f"{args.concurrency} conc = {total_concurrency} total parallel, "
+                f"prompt≈{tok}tok, {total_requests} total requests...",
+                end="",
+                flush=True,
+            )
 
             # Create Ray actors
-            workers = [BenchmarkWorker.remote(i) for i in range(num_workers)]
+            workers = [
+                BenchmarkWorker.remote(i, api_base, api_key, model)
+                for i in range(num_workers)
+            ]
 
             # Launch all workers in parallel
             start = time.perf_counter()
@@ -535,10 +646,12 @@ def main() -> None:
             all_results.append(agg)
 
             cache_warn = " ⚠️CACHED" if agg["cached"] > 0 else ""
-            print(f" ✓ {wall_time:.1f}s | "
-                  f"RPS={agg['rps']:.1f}, "
-                  f"InTPS={agg['input_tps']:.0f}, "
-                  f"OutTPS={agg['output_tps']:.1f}{cache_warn}")
+            print(
+                f" ✓ {wall_time:.1f}s | "
+                f"RPS={agg['rps']:.1f}, "
+                f"InTPS={agg['input_tps']:.0f}, "
+                f"OutTPS={agg['output_tps']:.1f}{cache_warn}"
+            )
 
             # Clean up actors
             for w in workers:
@@ -547,7 +660,7 @@ def main() -> None:
     ray.shutdown()
 
     # Report
-    print_results_table(all_results)
+    print_results_table(all_results, api_base, model)
     save_csv(all_results, args.output)
 
     # Key insights
@@ -557,15 +670,21 @@ def main() -> None:
         best_itps = max(all_results, key=lambda r: r["input_tps"])
         best_otps = max(all_results, key=lambda r: r["output_tps"])
 
-        print(f"   Best RPS:     {best_rps['rps']:.1f} req/s "
-              f"({best_rps['num_workers']}wk × {best_rps['concurrency_per_worker']}conc, "
-              f"prompt={best_rps['target_tokens']}tok)")
-        print(f"   Best In TPS:  {best_itps['input_tps']:.0f} tok/s "
-              f"({best_itps['num_workers']}wk × {best_itps['concurrency_per_worker']}conc, "
-              f"prompt={best_itps['target_tokens']}tok)")
-        print(f"   Best Out TPS: {best_otps['output_tps']:.1f} tok/s "
-              f"({best_otps['num_workers']}wk × {best_otps['concurrency_per_worker']}conc, "
-              f"prompt={best_otps['target_tokens']}tok)")
+        print(
+            f"   Best RPS:     {best_rps['rps']:.1f} req/s "
+            f"({best_rps['num_workers']}wk × {best_rps['concurrency_per_worker']}conc, "
+            f"prompt={best_rps['target_tokens']}tok)"
+        )
+        print(
+            f"   Best In TPS:  {best_itps['input_tps']:.0f} tok/s "
+            f"({best_itps['num_workers']}wk × {best_itps['concurrency_per_worker']}conc, "
+            f"prompt={best_itps['target_tokens']}tok)"
+        )
+        print(
+            f"   Best Out TPS: {best_otps['output_tps']:.1f} tok/s "
+            f"({best_otps['num_workers']}wk × {best_otps['concurrency_per_worker']}conc, "
+            f"prompt={best_otps['target_tokens']}tok)"
+        )
 
         # Check for rate limiting pattern
         print("\n   Scaling analysis:")
@@ -582,9 +701,11 @@ def main() -> None:
                     rps = r["rps"]
                     itps = r["input_tps"]
                     otps = r["output_tps"]
-                    print(f"     {r['num_workers']:>2}wk×{r['concurrency_per_worker']:<2}conc "
-                          f"(tot={tc:>3}): RPS={rps:>7.1f}  InTPS={itps:>8.0f}  "
-                          f"OutTPS={otps:>7.1f}  P50={r['p50_ms']:.0f}ms")
+                    print(
+                        f"     {r['num_workers']:>2}wk×{r['concurrency_per_worker']:<2}conc "
+                        f"(tot={tc:>3}): RPS={rps:>7.1f}  InTPS={itps:>8.0f}  "
+                        f"OutTPS={otps:>7.1f}  P50={r['p50_ms']:.0f}ms"
+                    )
 
 
 if __name__ == "__main__":

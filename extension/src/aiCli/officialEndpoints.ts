@@ -8,12 +8,29 @@ function normalizeBaseUrl(baseUrl: string): string {
 }
 
 export function inferApiKindFromBaseUrl(baseUrl: string): AiCliApiKind {
+  const trimmed = baseUrl.trim().toLowerCase();
+  if (/\/anthropic(\/|$)/.test(trimmed)) {
+    return 'anthropic';
+  }
+  if (
+    /\/openai(\/|$)/.test(trimmed) ||
+    trimmed.includes('compatible-mode') ||
+    trimmed.includes('xiaomimimo.com') ||
+    trimmed.includes('longcat.chat') ||
+    trimmed.includes('siliconflow.cn') ||
+    trimmed.includes('dashscope.aliyuncs.com') ||
+    trimmed.includes('groq.com') ||
+    trimmed.includes('stepfun.com') ||
+    trimmed.includes('/coding/v1') ||
+    trimmed.includes('/coding/paas/')
+  ) {
+    return 'openai';
+  }
   let host: string;
   try {
-    const url = new URL(baseUrl.trim());
-    host = url.hostname.toLowerCase();
+    host = new URL(baseUrl.trim()).hostname.toLowerCase();
   } catch {
-    host = baseUrl.trim().toLowerCase();
+    host = trimmed;
   }
   if (
     host === 'api.openai.com' ||

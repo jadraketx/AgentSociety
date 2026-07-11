@@ -35,13 +35,17 @@ class EnvLike(Protocol):
         template_mode: bool = False,
         trace_id: str | None = None,
         parent_span_id: str | None = None,
-    ) -> tuple[dict, str]: ...
+    ) -> tuple[dict, str]:
+        ...
 
-    def set_current_time(self, t: Any) -> None: ...
+    def set_current_time(self, t: Any) -> None:
+        ...
 
-    async def step(self, tick: int, t: Any) -> None: ...
+    async def step(self, tick: int, t: Any) -> None:
+        ...
 
-    async def get_world_description(self) -> str: ...
+    async def get_world_description(self) -> str:
+        ...
 
 
 @runtime_checkable
@@ -54,23 +58,27 @@ class LLMClientLike(Protocol):
         messages: list[dict[str, Any]],
         stream: bool = False,
         **kwargs: Any,
-    ) -> Any: ...
+    ) -> Any:
+        ...
 
 
 @runtime_checkable
 class TraceLike(Protocol):
     """Trace writer protocol."""
 
-    def append_record(self, record: dict[str, Any]) -> None: ...
+    def append_record(self, record: dict[str, Any]) -> None:
+        ...
 
-    def flush(self) -> None: ...
+    def flush(self) -> None:
+        ...
 
 
 @runtime_checkable
 class ReplayLike(Protocol):
     """Replay writer protocol."""
 
-    async def write_batch(self, table: str, rows: list[dict[str, Any]]) -> None: ...
+    async def write_batch(self, table: str, rows: list[dict[str, Any]]) -> None:
+        ...
 
 
 # ═══════════════════════════════════════════════════════════

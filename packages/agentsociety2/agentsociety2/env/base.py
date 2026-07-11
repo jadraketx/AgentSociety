@@ -570,7 +570,7 @@ class EnvBase(metaclass=EnvMeta):
 
     async def close(self):
         """关闭环境模块并释放资源（可选重写）。"""
-        ...
+        pass
 
     # ==================== workspace 持久化（无状态 resume） ====================
     #

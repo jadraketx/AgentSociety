@@ -6,6 +6,7 @@ import {
   type AiCliApiKind,
 } from '../aiCli/officialEndpoints';
 import { OFFICIAL_ANTHROPIC_MODELS, OFFICIAL_OPENAI_MODELS } from './officialBuiltinModels';
+import { findPresetByUrl, mergeModelOptions } from '../aiCli/providerPresets';
 
 export type ClaudeModelOption = {
   id: string;
@@ -173,6 +174,14 @@ export async function fetchOpenAiCompatibleModels(
           continue;
         }
         if (response.status === 404) {
+          const preset = findPresetByUrl(base);
+          if (preset?.modelHints?.length) {
+            return {
+              ok: true,
+              models: mergeModelOptions(preset.modelHints, base, 'openai'),
+              apiKind: 'openai',
+            };
+          }
           return { ok: true, models: [...OFFICIAL_OPENAI_MODELS], apiKind: 'openai' };
         }
         lastError = 'http_error';
@@ -184,7 +193,11 @@ export async function fetchOpenAiCompatibleModels(
         lastError = 'empty_list';
         continue;
       }
-      return { ok: true, models, apiKind: 'openai' };
+      return {
+        ok: true,
+        models: mergeModelOptions(models, base, 'openai'),
+        apiKind: 'openai',
+      };
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         return { ok: false, error: 'timeout', status: lastStatus };
@@ -220,6 +233,14 @@ export async function fetchClaudeCompatibleModels(
           continue;
         }
         if (response.status === 404) {
+          const preset = findPresetByUrl(base);
+          if (preset?.modelHints?.length) {
+            return {
+              ok: true,
+              models: mergeModelOptions(preset.modelHints, base, 'anthropic'),
+              apiKind: 'anthropic',
+            };
+          }
           lastError = 'models_not_supported';
           continue;
         }
@@ -232,7 +253,11 @@ export async function fetchClaudeCompatibleModels(
         lastError = 'empty_list';
         continue;
       }
-      return { ok: true, models, apiKind: 'anthropic' };
+      return {
+        ok: true,
+        models: mergeModelOptions(models, base, 'anthropic'),
+        apiKind: 'anthropic',
+      };
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') {
         return { ok: false, error: 'timeout', status: lastStatus };

@@ -42,6 +42,18 @@ export function recordUpstreamSuccess(map: Map<string, CircuitBreakerState>, bas
   map.delete(baseUrl.trim());
 }
 
+export type CircuitBreakerHealth = 'healthy' | 'degraded' | 'unhealthy';
+
+export function upstreamHealth(state: CircuitBreakerState | undefined): CircuitBreakerHealth {
+  if (!state || state.consecutiveFailures === 0) {
+    return 'healthy';
+  }
+  if (state.consecutiveFailures >= FAILOVER_FAILURE_THRESHOLD) {
+    return 'unhealthy';
+  }
+  return 'degraded';
+}
+
 export function buildFailoverUpstreamOrder(
   upstreams: AiCliGatewayUpstream[],
   activeBaseUrl: string

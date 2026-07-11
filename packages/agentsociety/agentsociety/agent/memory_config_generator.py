@@ -611,8 +611,7 @@ def _memory_config_merge(
             value = {"aoi_position": {"aoi_id": value}}
         elif attr.name == "social_network":
             value = [SocialRelation.model_validate(item) for item in value]
-        else:
-            value = value
+        # else: value remains unchanged
         init_data[attr.name] = MemoryAttribute(
             name=attr.name,
             type=attr.type,

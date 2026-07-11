@@ -9,7 +9,10 @@ Key design: each request gets a UNIQUE prompt (different topic + random filler)
 to avoid prompt cache hits that would inflate throughput numbers.
 
 Usage:
+    export AGENTSOCIETY_LLM_API_KEY=your_key
+    export AGENTSOCIETY_LLM_API_BASE=https://api.openai.com/v1
     python llm_benchmark.py
+    python llm_benchmark.py --api-key sk-... --api-base https://example.com/v1 --model gpt-5.5
     python llm_benchmark.py --concurrency 5 10 20
     python llm_benchmark.py --prompt-tokens 128 512 1024 2048 4096
     python llm_benchmark.py --warmup
@@ -19,9 +22,11 @@ import argparse
 import asyncio
 import hashlib
 import json
+import os
 import random
 import statistics
 import string
+import sys
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -30,9 +35,8 @@ import aiohttp
 
 # ─── Configuration ──────────────────────────────────────────────────────────
 
-API_BASE = "https://cloud.infini-ai.com/maas/v1"
-API_KEY = "sk-4spsvtattelbbkcc"
-MODEL = "qwen3.6-35b-a3b"
+DEFAULT_API_BASE = "https://api.openai.com/v1"
+DEFAULT_MODEL = "gpt-5.5"
 
 # Default prompt sizes to test (approximate token counts)
 DEFAULT_PROMPT_TOKENS = [128, 512, 1024, 2048, 4096]
@@ -40,11 +44,37 @@ DEFAULT_CONCURRENCY_LEVELS = [1, 5, 10, 20]
 REQUESTS_PER_TEST = 10
 DEFAULT_MAX_OUTPUT_TOKENS = 64
 
+
+def resolve_api_config(args: argparse.Namespace) -> tuple[str, str, str]:
+    api_key = (args.api_key or os.environ.get("AGENTSOCIETY_LLM_API_KEY") or "").strip()
+    api_base = (
+        (
+            args.api_base
+            or os.environ.get("AGENTSOCIETY_LLM_API_BASE")
+            or DEFAULT_API_BASE
+        )
+        .strip()
+        .rstrip("/")
+    )
+    model = (
+        args.model or os.environ.get("AGENTSOCIETY_LLM_MODEL") or DEFAULT_MODEL
+    ).strip()
+    if not api_key:
+        print(
+            "Error: set AGENTSOCIETY_LLM_API_KEY or pass --api-key",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    return api_base, api_key, model
+
+
 # ─── Data classes ───────────────────────────────────────────────────────────
+
 
 @dataclass
 class RequestResult:
     """Result of a single API request."""
+
     success: bool
     status_code: int | None = None
     latency_ms: float = 0.0
@@ -57,6 +87,7 @@ class RequestResult:
 @dataclass
 class BenchmarkResult:
     """Aggregated results for one test configuration."""
+
     prompt_target_tokens: int
     concurrency: int
     prompt_chars: int
@@ -175,7 +206,9 @@ def generate_unique_prompt(request_id: int, target_tokens: int) -> str:
 
     # 1. Unique topic + request-specific intro
     topic = TOPICS[request_id % len(TOPICS)]
-    unique_salt = hashlib.md5(f"{request_id}-{time.time_ns()}".encode()).hexdigest()[:16]
+    unique_salt = hashlib.md5(f"{request_id}-{time.time_ns()}".encode()).hexdigest()[
+        :16
+    ]
     random_words = " ".join(_random_word() for _ in range(8))
 
     header = (
@@ -226,39 +259,43 @@ def generate_unique_prompt(request_id: int, target_tokens: int) -> str:
     task = f"\n\n{question} Answer in one short sentence."
 
     full_prompt = header + body_text + filler + task
-    return full_prompt[:target_chars + 200]  # allow slight overshoot
+    return full_prompt[: target_chars + 200]  # allow slight overshoot
 
 
 # ─── API calling ────────────────────────────────────────────────────────────
+
 
 async def call_api(
     session: aiohttp.ClientSession,
     prompt: str,
     semaphore: asyncio.Semaphore,
     request_id: int,
+    api_base: str,
+    api_key: str,
+    model: str,
     max_tokens: int = 64,
 ) -> RequestResult:
     """Send a single chat completion request."""
     async with semaphore:
         payload: dict[str, Any] = {
-            "model": MODEL,
-            "messages": [
-                {"role": "user", "content": prompt}
-            ],
+            "model": model,
+            "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens,
             "temperature": 0.1,
             "stream": False,
         }
         headers = {
-            "Authorization": f"Bearer {API_KEY}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
-        url = f"{API_BASE}/chat/completions"
+        url = f"{api_base}/chat/completions"
 
         start = time.perf_counter()
         try:
             async with session.post(
-                url, json=payload, headers=headers,
+                url,
+                json=payload,
+                headers=headers,
                 timeout=aiohttp.ClientTimeout(total=180),
             ) as resp:
                 status = resp.status
@@ -306,10 +343,14 @@ async def call_api(
 
 # ─── Benchmark runner ──────────────────────────────────────────────────────
 
+
 async def run_benchmark(
     target_tokens: int,
     concurrency: int,
     num_requests: int,
+    api_base: str,
+    api_key: str,
+    model: str,
     max_tokens: int = 64,
 ) -> BenchmarkResult:
     """Run a single benchmark: fire `num_requests` with `concurrency` parallelism.
@@ -325,7 +366,16 @@ async def run_benchmark(
     connector = aiohttp.TCPConnector(limit=concurrency + 5)
     async with aiohttp.ClientSession(connector=connector) as session:
         tasks = [
-            call_api(session, prompts[i], semaphore, i, max_tokens=max_tokens)
+            call_api(
+                session,
+                prompts[i],
+                semaphore,
+                i,
+                api_base,
+                api_key,
+                model,
+                max_tokens=max_tokens,
+            )
             for i in range(num_requests)
         ]
         start = time.perf_counter()
@@ -395,11 +445,13 @@ ROW_FMT = (
 )
 
 
-def print_results_table(results: list[BenchmarkResult]) -> None:
+def print_results_table(
+    results: list[BenchmarkResult], api_base: str, model: str
+) -> None:
     """Print a formatted results table."""
     print("\n" + "=" * 128)
-    print(f"  LLM Throughput Benchmark — {MODEL}")
-    print(f"  API: {API_BASE}")
+    print(f"  LLM Throughput Benchmark — {model}")
+    print(f"  API: {api_base}")
     print(f"  Each request uses a UNIQUE prompt (cache-hit resistant)")
     print("=" * 128)
 
@@ -413,20 +465,22 @@ def print_results_table(results: list[BenchmarkResult]) -> None:
         prev_tokens = r.prompt_target_tokens
 
         cached_str = f"{r.cached_requests}" if r.cached_requests > 0 else "0 ✓"
-        print(ROW_FMT.format(
-            conc=r.concurrency,
-            ptok=r.prompt_target_tokens,
-            pchr=r.prompt_chars,
-            succ=r.successful_requests,
-            tot=r.total_requests,
-            rps=r.rps,
-            itps=r.input_tps,
-            otps=r.output_tps,
-            p50=r.p50_ms,
-            p95=r.p95_ms,
-            p99=r.p99_ms,
-            cached=cached_str,
-        ))
+        print(
+            ROW_FMT.format(
+                conc=r.concurrency,
+                ptok=r.prompt_target_tokens,
+                pchr=r.prompt_chars,
+                succ=r.successful_requests,
+                tot=r.total_requests,
+                rps=r.rps,
+                itps=r.input_tps,
+                otps=r.output_tps,
+                p50=r.p50_ms,
+                p95=r.p95_ms,
+                p99=r.p99_ms,
+                cached=cached_str,
+            )
+        )
 
     print(FOOTER)
 
@@ -435,77 +489,137 @@ def print_results_table(results: list[BenchmarkResult]) -> None:
     if failures:
         print("\n⚠️  Failed requests:")
         for r in failures:
-            print(f"   - prompt={r.prompt_target_tokens}tok, conc={r.concurrency}: "
-                  f"{r.failed_requests}/{r.total_requests} failed")
+            print(
+                f"   - prompt={r.prompt_target_tokens}tok, conc={r.concurrency}: "
+                f"{r.failed_requests}/{r.total_requests} failed"
+            )
 
     cached_results = [r for r in results if r.cached_requests > 0]
     if cached_results:
         print("\n⚠️  Cache hits detected (results may be inflated):")
         for r in cached_results:
-            print(f"   - prompt={r.prompt_target_tokens}tok, conc={r.concurrency}: "
-                  f"{r.cached_requests} cached requests")
+            print(
+                f"   - prompt={r.prompt_target_tokens}tok, conc={r.concurrency}: "
+                f"{r.cached_requests} cached requests"
+            )
 
 
 def print_summary_csv(results: list[BenchmarkResult], filepath: str) -> None:
     """Save results to CSV for further analysis."""
     import csv
+
     with open(filepath, "w", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow([
-            "prompt_tokens", "concurrency", "prompt_chars",
-            "successful_requests", "total_requests", "cached_requests",
-            "rps", "input_tps", "output_tps",
-            "total_time_s", "p50_ms", "p95_ms", "p99_ms",
-            "avg_latency_ms", "std_latency_ms",
-        ])
+        writer.writerow(
+            [
+                "prompt_tokens",
+                "concurrency",
+                "prompt_chars",
+                "successful_requests",
+                "total_requests",
+                "cached_requests",
+                "rps",
+                "input_tps",
+                "output_tps",
+                "total_time_s",
+                "p50_ms",
+                "p95_ms",
+                "p99_ms",
+                "avg_latency_ms",
+                "std_latency_ms",
+            ]
+        )
         for r in results:
             avg_lat = statistics.mean(r.latencies_ms) if r.latencies_ms else 0
             std_lat = statistics.stdev(r.latencies_ms) if len(r.latencies_ms) > 1 else 0
-            writer.writerow([
-                r.prompt_target_tokens, r.concurrency, r.prompt_chars,
-                r.successful_requests, r.total_requests, r.cached_requests,
-                f"{r.rps:.4f}", f"{r.input_tps:.2f}", f"{r.output_tps:.2f}",
-                f"{r.total_time_s:.3f}", f"{r.p50_ms:.1f}", f"{r.p95_ms:.1f}",
-                f"{r.p99_ms:.1f}", f"{avg_lat:.1f}", f"{std_lat:.1f}",
-            ])
+            writer.writerow(
+                [
+                    r.prompt_target_tokens,
+                    r.concurrency,
+                    r.prompt_chars,
+                    r.successful_requests,
+                    r.total_requests,
+                    r.cached_requests,
+                    f"{r.rps:.4f}",
+                    f"{r.input_tps:.2f}",
+                    f"{r.output_tps:.2f}",
+                    f"{r.total_time_s:.3f}",
+                    f"{r.p50_ms:.1f}",
+                    f"{r.p95_ms:.1f}",
+                    f"{r.p99_ms:.1f}",
+                    f"{avg_lat:.1f}",
+                    f"{std_lat:.1f}",
+                ]
+            )
     print(f"\n📊 Results saved to: {filepath}")
 
 
 # ─── Main ───────────────────────────────────────────────────────────────────
 
+
 async def main() -> None:
     parser = argparse.ArgumentParser(description="LLM Throughput Benchmark")
     parser.add_argument(
-        "--prompt-tokens", nargs="+", type=int,
+        "--prompt-tokens",
+        nargs="+",
+        type=int,
         default=DEFAULT_PROMPT_TOKENS,
         help=f"Target prompt token sizes (default: {DEFAULT_PROMPT_TOKENS})",
     )
     parser.add_argument(
-        "--concurrency", nargs="+", type=int,
+        "--concurrency",
+        nargs="+",
+        type=int,
         default=DEFAULT_CONCURRENCY_LEVELS,
         help=f"Concurrency levels (default: {DEFAULT_CONCURRENCY_LEVELS})",
     )
     parser.add_argument(
-        "--requests", type=int, default=REQUESTS_PER_TEST,
+        "--requests",
+        type=int,
+        default=REQUESTS_PER_TEST,
         help=f"Requests per test config (default: {REQUESTS_PER_TEST})",
     )
     parser.add_argument(
-        "--max-output-tokens", type=int, default=DEFAULT_MAX_OUTPUT_TOKENS,
+        "--max-output-tokens",
+        type=int,
+        default=DEFAULT_MAX_OUTPUT_TOKENS,
         help=f"Max output tokens per request (default: {DEFAULT_MAX_OUTPUT_TOKENS})",
     )
     parser.add_argument(
-        "--warmup", action="store_true",
+        "--warmup",
+        action="store_true",
         help="Run a warmup request before benchmarking",
     )
     parser.add_argument(
-        "--output", type=str, default="benchmark_results.csv",
+        "--output",
+        type=str,
+        default="benchmark_results.csv",
         help="CSV output file path (default: benchmark_results.csv)",
     )
+    parser.add_argument(
+        "--api-key",
+        type=str,
+        default=None,
+        help="LLM API key (default: AGENTSOCIETY_LLM_API_KEY)",
+    )
+    parser.add_argument(
+        "--api-base",
+        type=str,
+        default=None,
+        help="OpenAI-compatible API base URL (default: AGENTSOCIETY_LLM_API_BASE)",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Model name (default: AGENTSOCIETY_LLM_MODEL)",
+    )
     args = parser.parse_args()
+    api_base, api_key, model = resolve_api_config(args)
 
     print(f"🔧 Benchmark Configuration:")
-    print(f"   API:           {API_BASE}")
-    print(f"   Model:         {MODEL}")
+    print(f"   API:           {api_base}")
+    print(f"   Model:         {model}")
     print(f"   Prompt sizes:  {args.prompt_tokens} tokens")
     print(f"   Concurrency:   {args.concurrency}")
     print(f"   Requests/test: {args.requests}")
@@ -520,13 +634,21 @@ async def main() -> None:
         async with aiohttp.ClientSession(connector=connector) as session:
             sem = asyncio.Semaphore(1)
             result = await call_api(
-                session, warmup_prompt, sem, 9999,
+                session,
+                warmup_prompt,
+                sem,
+                9999,
+                api_base,
+                api_key,
+                model,
                 max_tokens=args.max_output_tokens,
             )
             if result.success:
-                print(f"   ✓ Warmup done: {result.latency_ms:.0f}ms, "
-                      f"{result.input_tokens}in/{result.output_tokens}out tokens"
-                      f"{' (CACHED!)' if result.cached else ''}")
+                print(
+                    f"   ✓ Warmup done: {result.latency_ms:.0f}ms, "
+                    f"{result.input_tokens}in/{result.output_tokens}out tokens"
+                    f"{' (CACHED!)' if result.cached else ''}"
+                )
             else:
                 print(f"   ✗ Warmup failed: {result.error}")
 
@@ -538,26 +660,35 @@ async def main() -> None:
     for tok in args.prompt_tokens:
         for conc in args.concurrency:
             current += 1
-            print(f"\n⏳ [{current}/{total_tests}] Running: "
-                  f"prompt≈{tok}tok, concurrency={conc}, "
-                  f"requests={args.requests}...", end="", flush=True)
+            print(
+                f"\n⏳ [{current}/{total_tests}] Running: "
+                f"prompt≈{tok}tok, concurrency={conc}, "
+                f"requests={args.requests}...",
+                end="",
+                flush=True,
+            )
 
             result = await run_benchmark(
                 target_tokens=tok,
                 concurrency=conc,
                 num_requests=args.requests,
+                api_base=api_base,
+                api_key=api_key,
+                model=model,
                 max_tokens=args.max_output_tokens,
             )
             all_results.append(result)
 
             cache_warn = " ⚠️CACHED" if result.cached_requests > 0 else ""
-            print(f" ✓ RPS={result.rps:.2f}, "
-                  f"InTPS={result.input_tps:.0f}, "
-                  f"OutTPS={result.output_tps:.0f}, "
-                  f"P50={result.p50_ms:.0f}ms{cache_warn}")
+            print(
+                f" ✓ RPS={result.rps:.2f}, "
+                f"InTPS={result.input_tps:.0f}, "
+                f"OutTPS={result.output_tps:.0f}, "
+                f"P50={result.p50_ms:.0f}ms{cache_warn}"
+            )
 
     # Report
-    print_results_table(all_results)
+    print_results_table(all_results, api_base, model)
     print_summary_csv(all_results, args.output)
 
     # Key insights
@@ -567,12 +698,18 @@ async def main() -> None:
         best_itps = max(all_results, key=lambda r: r.input_tps)
         best_otps = max(all_results, key=lambda r: r.output_tps)
 
-        print(f"   Best RPS:     {best_rps.rps:.2f} req/s "
-              f"(prompt={best_rps.prompt_target_tokens}tok, conc={best_rps.concurrency})")
-        print(f"   Best In TPS:  {best_itps.input_tps:.0f} tok/s "
-              f"(prompt={best_itps.prompt_target_tokens}tok, conc={best_itps.concurrency})")
-        print(f"   Best Out TPS: {best_otps.output_tps:.1f} tok/s "
-              f"(prompt={best_otps.prompt_target_tokens}tok, conc={best_otps.concurrency})")
+        print(
+            f"   Best RPS:     {best_rps.rps:.2f} req/s "
+            f"(prompt={best_rps.prompt_target_tokens}tok, conc={best_rps.concurrency})"
+        )
+        print(
+            f"   Best In TPS:  {best_itps.input_tps:.0f} tok/s "
+            f"(prompt={best_itps.prompt_target_tokens}tok, conc={best_itps.concurrency})"
+        )
+        print(
+            f"   Best Out TPS: {best_otps.output_tps:.1f} tok/s "
+            f"(prompt={best_otps.prompt_target_tokens}tok, conc={best_otps.concurrency})"
+        )
 
         # Show scaling efficiency
         for tok in args.prompt_tokens:
@@ -580,12 +717,16 @@ async def main() -> None:
             if len(tok_results) >= 2:
                 baseline = next((r for r in tok_results if r.concurrency == 1), None)
                 if baseline and baseline.rps > 0:
-                    print(f"\n   Scaling @ {tok}tok (vs conc=1 baseline {baseline.rps:.2f} RPS):")
+                    print(
+                        f"\n   Scaling @ {tok}tok (vs conc=1 baseline {baseline.rps:.2f} RPS):"
+                    )
                     for r in sorted(tok_results, key=lambda x: x.concurrency):
                         if r.concurrency > 1:
                             efficiency = (r.rps / (baseline.rps * r.concurrency)) * 100
-                            print(f"     conc={r.concurrency:>2}: {r.rps:.2f} RPS "
-                                  f"({efficiency:.0f}% parallel efficiency)")
+                            print(
+                                f"     conc={r.concurrency:>2}: {r.rps:.2f} RPS "
+                                f"({efficiency:.0f}% parallel efficiency)"
+                            )
 
 
 if __name__ == "__main__":

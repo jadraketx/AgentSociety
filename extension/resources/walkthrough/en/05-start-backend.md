@@ -70,4 +70,4 @@ Click the backend status in the status bar to open the **backend management menu
 | Scan/test custom modules | Project tree → Custom modules |
 | Inspect results | Right-click an experiment folder and open replay |
 
-[Start Backend](command:aiSocialScientist.startBackend) | [Show Logs](command:aiSocialScientist.showBackendLogs) | [Show Backend Status](command:aiSocialScientist.showBackendStatus)
+[Start Backend](command:aiSocialScientist.startBackend) | [Show Logs](command:aiSocialScientist.showBackendLogs) | [Backend Menu](command:aiSocialScientist.backendStatusMenu)

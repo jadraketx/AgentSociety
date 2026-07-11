@@ -13,6 +13,7 @@ import argparse
 import asyncio
 import json
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 import aiohttp
@@ -803,7 +804,7 @@ def main():
                 print("\nErrors:")
                 for error in result["errors"]:
                     print(f"  - {error}")
-            exit(1)
+            sys.exit(1)
 
 
 if __name__ == "__main__":

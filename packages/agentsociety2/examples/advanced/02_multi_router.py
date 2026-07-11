@@ -38,7 +38,8 @@ async def demonstrate_router(router_class, router_name, question: str) -> str:
 
     # Create society
     society = AgentSociety(
-        agents=[agent],
+        agent_specs=[{"id": agent.id, "profile": agent._profile, "config": agent._config}],
+        agent_class_name="PersonAgent",
         env_router=env_router,
         start_t=datetime.now(),
     )

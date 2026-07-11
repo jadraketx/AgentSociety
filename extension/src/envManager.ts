@@ -18,6 +18,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
+import { getMainOutputChannel } from './shared/outputChannels';
 
 export interface EnvConfig {
   // LLM Configuration
@@ -98,11 +99,11 @@ export class EnvManager {
   private outputChannel: vscode.OutputChannel;
 
   constructor() {
-    this.outputChannel = vscode.window.createOutputChannel('Env Manager');
+    this.outputChannel = getMainOutputChannel();
   }
 
   private log(message: string): void {
-    this.outputChannel.appendLine(`${new Date().toISOString()} ${message}`);
+    this.outputChannel.appendLine(`${new Date().toISOString()} [Env] ${message}`);
   }
 
   /**
@@ -354,6 +355,5 @@ LITERATURE_SEARCH_API_KEY=sk-your-litellm-virtual-key
    * Dispose
    */
   dispose(): void {
-    this.outputChannel.dispose();
   }
 }

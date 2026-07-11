@@ -142,25 +142,27 @@ function tryParseOpenAIUsage(obj: unknown): {
     typeof u.input_tokens_details === 'object' && u.input_tokens_details !== null
       ? u.input_tokens_details as Record<string, unknown>
       : {};
+  const promptTokens =
+    typeof u.prompt_tokens === 'number'
+      ? u.prompt_tokens
+      : typeof u.input_tokens === 'number'
+        ? u.input_tokens
+        : 0;
+  const cachedTokens =
+    typeof promptDetails.cached_tokens === 'number'
+      ? promptDetails.cached_tokens
+      : typeof inputDetails.cached_tokens === 'number'
+        ? inputDetails.cached_tokens
+        : 0;
   return {
-    inputTokens:
-      typeof u.prompt_tokens === 'number'
-        ? u.prompt_tokens
-        : typeof u.input_tokens === 'number'
-          ? u.input_tokens
-          : 0,
+    inputTokens: Math.max(0, promptTokens - cachedTokens),
     outputTokens:
       typeof u.completion_tokens === 'number'
         ? u.completion_tokens
         : typeof u.output_tokens === 'number'
           ? u.output_tokens
           : 0,
-    cacheReadTokens:
-      typeof promptDetails.cached_tokens === 'number'
-        ? promptDetails.cached_tokens
-        : typeof inputDetails.cached_tokens === 'number'
-          ? inputDetails.cached_tokens
-          : 0,
+    cacheReadTokens: cachedTokens,
     cacheCreationTokens: 0,
     serverToolUseTokens: 0,
   };
@@ -178,10 +180,23 @@ export function extractTokenUsage(body: unknown): {
     return null;
   }
   const o = body as Record<string, unknown>;
+
+  const nestedResponse = o.response;
+  if (nestedResponse && typeof nestedResponse === 'object') {
+    const fromResponse = extractTokenUsage(nestedResponse);
+    if (fromResponse) {
+      return fromResponse;
+    }
+  }
+
   const model =
     typeof o.model === 'string' && o.model
       ? o.model
-      : '';
+      : typeof nestedResponse === 'object' &&
+        nestedResponse &&
+        typeof (nestedResponse as Record<string, unknown>).model === 'string'
+        ? String((nestedResponse as Record<string, unknown>).model)
+        : '';
 
   const usage = o.usage && typeof o.usage === 'object'
     ? o.usage as Record<string, unknown>
@@ -189,6 +204,8 @@ export function extractTokenUsage(body: unknown): {
   const hasOpenAiUsage =
     typeof usage.prompt_tokens === 'number' ||
     typeof usage.completion_tokens === 'number' ||
+    typeof usage.input_tokens === 'number' ||
+    typeof usage.output_tokens === 'number' ||
     typeof usage.prompt_tokens_details === 'object' ||
     typeof usage.completion_tokens_details === 'object' ||
     typeof usage.input_tokens_details === 'object';

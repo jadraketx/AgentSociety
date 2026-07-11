@@ -21,6 +21,7 @@ import {
   type AiCliGatewayUpstream,
 } from './aiCliGatewayUpstream';
 import { applyAnthropicModelMapping } from './anthropicModelMapping';
+import { buildAnthropicGatewayModelsResponse } from './anthropicGatewayModels';
 import {
   OpenAiChatToAnthropicStreamTranslator,
   translateAnthropicMessagesToOpenAiChat,
@@ -39,8 +40,11 @@ import {
   recordUpstreamFailure,
   recordUpstreamSuccess,
   shouldFailoverHttpStatus,
+  upstreamHealth,
+  type CircuitBreakerHealth,
   type CircuitBreakerState,
 } from './gatewayFailover';
+import { GatewayRuntimeStatsTracker, type GatewayRuntimeStats } from './gatewayRuntimeStats';
 import {
   extractTokenUsage,
   extractModelFromRequest,
@@ -60,6 +64,8 @@ export type AiCliGatewayStatus = {
   baseUrl?: string;
   upstreamBaseUrl?: string;
   error?: string;
+  stats?: GatewayRuntimeStats;
+  failoverHealth?: Record<string, CircuitBreakerHealth>;
 };
 
 export type GatewayLogEntry = {
@@ -115,6 +121,25 @@ function inferUsageApp(urlPath: string, model: string): 'claude' | 'codex' {
     return 'claude';
   }
   return 'codex';
+}
+
+export function shouldRecordGatewayRequest(method: string, urlPath: string): boolean {
+  const path = urlPath.split('?')[0];
+  if (path.includes('/health') || path === '/v1/usage' || path === '/usage') {
+    return false;
+  }
+  if (method === 'GET' && path.includes('/models')) {
+    return true;
+  }
+  if (
+    method === 'POST' &&
+    (path.includes('/messages') ||
+      path.includes('/responses') ||
+      path.includes('/chat/completions'))
+  ) {
+    return true;
+  }
+  return false;
 }
 
 function readRequestBody(req: IncomingMessage): Promise<Buffer> {
@@ -282,6 +307,7 @@ export class AiCliGateway {
   private logListener: AiCliGatewayLogListener | null = null;
   private usageListener: UsageListener | null = null;
   private failoverListener: AiCliGatewayFailoverListener | null = null;
+  private readonly statsTracker = new GatewayRuntimeStatsTracker();
 
   onLog(listener: AiCliGatewayLogListener | null): void {
     this.logListener = listener;
@@ -399,12 +425,18 @@ export class AiCliGateway {
     if (!this.server || !this.port) {
       return { running: false, error: this.lastError };
     }
+    const failoverHealth: Record<string, CircuitBreakerHealth> = {};
+    for (const [baseUrl, state] of this.circuit.entries()) {
+      failoverHealth[baseUrl] = upstreamHealth(state);
+    }
     return {
       running: true,
       port: this.port,
       baseUrl: buildLocalGatewayBaseUrl(this.port),
       upstreamBaseUrl: this.upstream?.baseUrl,
       error: this.lastError,
+      stats: this.statsTracker.snapshot(),
+      failoverHealth,
     };
   }
 
@@ -433,6 +465,7 @@ export class AiCliGateway {
     });
     this.server = server;
     this.port = port;
+    this.statsTracker.reset();
     return this.getStatus();
   }
 
@@ -451,6 +484,7 @@ export class AiCliGateway {
     this.upstreams = [];
     this.openaiUpstreams = [];
     this.circuit.clear();
+    this.statsTracker.reset();
     await new Promise<void>((resolve) => {
       closing.close(() => resolve());
     });
@@ -466,6 +500,43 @@ export class AiCliGateway {
 
   private emitUsage(record: TokenUsageRecord): void {
     this.usageListener?.(record);
+  }
+
+  private emitRequestUsage(reqModel: string, upstream: string, urlPath: string): void {
+    this.emitUsage({
+      app: inferUsageApp(urlPath, reqModel),
+      model: reqModel || 'unknown',
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      serverToolUseTokens: 0,
+      requestId: '',
+      upstream,
+      ts: new Date().toISOString(),
+    });
+  }
+
+  private recordProxiedRequestIfNeeded(
+    method: string,
+    urlPath: string,
+    status: number,
+    reqModel: string,
+    upstream: string,
+    captureUsage: boolean,
+    usageEmitted: boolean
+  ): void {
+    if (usageEmitted || status < 200 || status >= 300) {
+      return;
+    }
+    if (!shouldRecordGatewayRequest(method, urlPath)) {
+      return;
+    }
+    if (captureUsage) {
+      this.emitRequestUsage(reqModel, upstream, urlPath);
+      return;
+    }
+    this.emitRequestUsage(reqModel || 'models-list', upstream, urlPath);
   }
 
   private async handleRequest(clientReq: IncomingMessage, clientRes: ServerResponse): Promise<void> {
@@ -495,64 +566,165 @@ export class AiCliGateway {
         port: this.port,
         upstream: this.upstream.baseUrl,
         failover: this.failoverEnabled,
+        ...this.statsTracker.snapshot(),
       });
       return;
     }
 
-    if (urlPath === '/v1/usage' || urlPath === '/usage') {
-      this.writeJson(clientRes, 200, { hint: 'Usage stats are available via the extension UI' });
-      return;
-    }
-
-    if (!urlPath.startsWith('/v1') && !urlPath.startsWith('/claude/')) {
-      this.writeJson(clientRes, 404, { error: 'not_found', hint: 'Use /v1/messages, /v1/responses, or /v1/models' });
-      return;
-    }
-
-    const isStreaming = clientReq.headers.accept?.includes('text/event-stream') ?? false;
-    const isMessages = urlPath.includes('/messages') || urlPath.includes('/responses');
-    const needsBodyCapture = isMessages && method === 'POST';
-
-    let body: Buffer;
+    this.statsTracker.onRequestStart();
+    let success = false;
     try {
-      body = method === 'GET' || method === 'HEAD' ? Buffer.alloc(0) : await readRequestBody(clientReq);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      this.writeJson(clientRes, 413, { error: message });
-      return;
-    }
+      if (urlPath === '/v1/usage' || urlPath === '/usage') {
+        this.writeJson(clientRes, 200, { hint: 'Usage stats are available via the extension UI' });
+        success = true;
+        return;
+      }
 
-    if (this.pathNeedsOpenAiUpstream(urlPath) && !this.openaiUpstream) {
-      this.writeJson(clientRes, 503, {
-        error: 'codex_upstream_missing',
-        message:
-          'Codex proxy requires an active OpenAI-format provider with an API key. Add a key or disable Codex local proxy for ChatGPT subscription.',
-      });
-      return;
-    }
+      if (!urlPath.startsWith('/v1') && !urlPath.startsWith('/claude/')) {
+        this.writeJson(clientRes, 404, { error: 'not_found', hint: 'Use /v1/messages, /v1/responses, or /v1/models' });
+        return;
+      }
 
-    const primaryUpstream = this.pickUpstreamForPath(urlPath);
-    if (!primaryUpstream) {
-      this.writeJson(clientRes, 503, { error: 'gateway_not_ready' });
-      return;
-    }
+      const isStreaming = clientReq.headers.accept?.includes('text/event-stream') ?? false;
+      const isMessages = urlPath.includes('/messages') || urlPath.includes('/responses');
+      const needsBodyCapture = isMessages && method === 'POST';
 
-    const usesCodexChatBridge =
-      method === 'POST' &&
-      isCodexResponsesPath(urlPath) &&
-      (primaryUpstream.codexApiFormat ?? inferOpenAiApiFormat(primaryUpstream.baseUrl)) ===
-      'openai_chat';
+      let body: Buffer;
+      try {
+        body = method === 'GET' || method === 'HEAD' ? Buffer.alloc(0) : await readRequestBody(clientReq);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.writeJson(clientRes, 413, { error: message });
+        return;
+      }
 
-    const usesClaudeOpenAiChatBridge =
-      method === 'POST' &&
-      isAnthropicMessagesPath(urlPath) &&
-      Boolean(primaryUpstream.codexApiFormat);
-    const usesCodexAnthropicBridge =
-      method === 'POST' &&
-      isCodexResponsesPath(urlPath) &&
-      !primaryUpstream.codexApiFormat;
+      if (this.pathNeedsOpenAiUpstream(urlPath) && !this.openaiUpstream) {
+        this.writeJson(clientRes, 503, {
+          error: 'codex_upstream_missing',
+          message:
+            'Codex proxy requires an active OpenAI-format provider with an API key. Add a key or disable Codex local proxy for ChatGPT subscription.',
+        });
+        return;
+      }
 
-    if (usesCodexChatBridge || usesClaudeOpenAiChatBridge || usesCodexAnthropicBridge) {
+      const primaryUpstream = this.pickUpstreamForPath(urlPath);
+      if (!primaryUpstream) {
+        this.writeJson(clientRes, 503, { error: 'gateway_not_ready' });
+        return;
+      }
+
+      const modelsPath = urlPath.split('?')[0];
+      if (method === 'GET' && (modelsPath.endsWith('/models') || modelsPath.endsWith('/v1/models'))) {
+        if (!this.pathNeedsOpenAiUpstream(urlPath)) {
+          const synthesized = buildAnthropicGatewayModelsResponse(primaryUpstream);
+          if (synthesized) {
+            this.writeJson(clientRes, 200, synthesized);
+            this.recordProxiedRequestIfNeeded(method, urlPath, 200, 'models-list', primaryUpstream.baseUrl, false, false);
+            success = true;
+            return;
+          }
+        }
+      }
+
+      const usesCodexChatBridge =
+        method === 'POST' &&
+        isCodexResponsesPath(urlPath) &&
+        (primaryUpstream.codexApiFormat ?? inferOpenAiApiFormat(primaryUpstream.baseUrl)) ===
+        'openai_chat';
+
+      const usesClaudeOpenAiChatBridge =
+        method === 'POST' &&
+        isAnthropicMessagesPath(urlPath) &&
+        Boolean(primaryUpstream.codexApiFormat);
+      const usesCodexAnthropicBridge =
+        method === 'POST' &&
+        isCodexResponsesPath(urlPath) &&
+        !primaryUpstream.codexApiFormat;
+
+      if (usesCodexChatBridge || usesClaudeOpenAiChatBridge || usesCodexAnthropicBridge) {
+        const candidates = this.isFailoverActiveForPath(urlPath)
+          ? this.orderedUpstreamsForPath(urlPath)
+          : [primaryUpstream];
+        const maxAttempts = this.isFailoverActiveForPath(urlPath)
+          ? Math.min(FAILOVER_MAX_ATTEMPTS, candidates.length)
+          : 1;
+        let lastStatus = 502;
+        let lastFailDetail: string | undefined;
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          const upstream = candidates[attempt];
+          if (!upstream) {
+            break;
+          }
+          if (isCircuitOpen(this.circuit.get(upstream.baseUrl.trim()))) {
+            continue;
+          }
+          try {
+            const result = usesClaudeOpenAiChatBridge
+              ? await this.proxyAnthropicMessagesViaOpenAiChat(
+                clientReq,
+                clientRes,
+                method,
+                urlPath,
+                startTime,
+                body,
+                upstream
+              )
+              : usesCodexChatBridge
+                ? await this.proxyCodexResponsesViaChat(
+                  clientReq,
+                  clientRes,
+                  method,
+                  urlPath,
+                  startTime,
+                  body,
+                  upstream
+                )
+                : await this.proxyCodexResponsesViaAnthropic(
+                  clientReq,
+                  clientRes,
+                  method,
+                  urlPath,
+                  startTime,
+                  body,
+                  upstream
+                );
+            lastStatus = result.status;
+            lastFailDetail = result.detail ?? this.lastError;
+            if (result.ok) {
+              recordUpstreamSuccess(this.circuit, upstream.baseUrl);
+              if (attempt > 0) {
+                this.commitFailoverUpstream(urlPath, upstream);
+              }
+              success = true;
+              return;
+            }
+            recordUpstreamFailure(this.circuit, upstream.baseUrl);
+            if (!this.isFailoverActiveForPath(urlPath) || !result.canRetry || clientRes.headersSent) {
+              return;
+            }
+          } catch (err) {
+            const message = err instanceof Error ? err.message : String(err);
+            this.lastError = message;
+            lastFailDetail = message;
+            recordUpstreamFailure(this.circuit, upstream.baseUrl);
+            if (!this.isFailoverActiveForPath(urlPath) || clientRes.headersSent) {
+              this.writeJson(clientRes, 500, { error: 'gateway_error', message });
+              return;
+            }
+          }
+        }
+        if (!clientRes.headersSent) {
+          this.writeJson(clientRes, lastStatus, {
+            error: 'failover_exhausted',
+            message: lastFailDetail ?? 'All configured upstream providers failed',
+            hint: usesClaudeOpenAiChatBridge
+              ? 'Claude Code OpenAI-compatible routes translate Anthropic Messages to Chat Completions. Set the provider model explicitly if the upstream rejects Claude model aliases.'
+              : 'Third-party Codex routes map gpt-* requests to the provider model (e.g. glm-4.7). Set the model in the provider card or pick a built-in preset.',
+          });
+        }
+        return;
+      }
+
       const candidates = this.isFailoverActiveForPath(urlPath)
         ? this.orderedUpstreamsForPath(urlPath)
         : [primaryUpstream];
@@ -560,7 +732,7 @@ export class AiCliGateway {
         ? Math.min(FAILOVER_MAX_ATTEMPTS, candidates.length)
         : 1;
       let lastStatus = 502;
-      let lastFailDetail: string | undefined;
+
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         const upstream = candidates[attempt];
         if (!upstream) {
@@ -569,53 +741,55 @@ export class AiCliGateway {
         if (isCircuitOpen(this.circuit.get(upstream.baseUrl.trim()))) {
           continue;
         }
+
         try {
-          const result = usesClaudeOpenAiChatBridge
-            ? await this.proxyAnthropicMessagesViaOpenAiChat(
+          const targetUrl = resolveUpstreamTargetUrl(upstream.baseUrl, urlPath);
+          const parsed = new URL(targetUrl);
+          const result = isStreaming
+            ? await this.proxyStream(
+              upstream,
               clientReq,
               clientRes,
               method,
+              parsed,
+              targetUrl,
               urlPath,
               startTime,
-              body,
-              upstream
+              needsBodyCapture,
+              body
             )
-            : usesCodexChatBridge
-              ? await this.proxyCodexResponsesViaChat(
+            : await this.proxyBuffered(
+              upstream,
               clientReq,
               clientRes,
               method,
+              parsed,
+              targetUrl,
               urlPath,
               startTime,
-              body,
-              upstream
-              )
-              : await this.proxyCodexResponsesViaAnthropic(
-                clientReq,
-                clientRes,
-                method,
-                urlPath,
-                startTime,
-                body,
-                upstream
-              );
+              needsBodyCapture,
+              body
+            );
+
           lastStatus = result.status;
-          lastFailDetail = result.detail ?? this.lastError;
+
           if (result.ok) {
             recordUpstreamSuccess(this.circuit, upstream.baseUrl);
             if (attempt > 0) {
               this.commitFailoverUpstream(urlPath, upstream);
             }
+            success = true;
             return;
           }
+
           recordUpstreamFailure(this.circuit, upstream.baseUrl);
+
           if (!this.isFailoverActiveForPath(urlPath) || !result.canRetry || clientRes.headersSent) {
             return;
           }
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           this.lastError = message;
-          lastFailDetail = message;
           recordUpstreamFailure(this.circuit, upstream.baseUrl);
           if (!this.isFailoverActiveForPath(urlPath) || clientRes.headersSent) {
             this.writeJson(clientRes, 500, { error: 'gateway_error', message });
@@ -623,95 +797,15 @@ export class AiCliGateway {
           }
         }
       }
+
       if (!clientRes.headersSent) {
         this.writeJson(clientRes, lastStatus, {
           error: 'failover_exhausted',
-          message: lastFailDetail ?? 'All configured upstream providers failed',
-          hint: usesClaudeOpenAiChatBridge
-            ? 'Claude Code OpenAI-compatible routes translate Anthropic Messages to Chat Completions. Set the provider model explicitly if the upstream rejects Claude model aliases.'
-            : 'Third-party Codex routes map gpt-* requests to the provider model (e.g. glm-4.7). Set the model in the provider card or pick a built-in preset.',
+          message: 'All configured upstream providers failed',
         });
       }
-      return;
-    }
-
-    const candidates = this.isFailoverActiveForPath(urlPath)
-      ? this.orderedUpstreamsForPath(urlPath)
-      : [primaryUpstream];
-    const maxAttempts = this.isFailoverActiveForPath(urlPath)
-      ? Math.min(FAILOVER_MAX_ATTEMPTS, candidates.length)
-      : 1;
-    let lastStatus = 502;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const upstream = candidates[attempt];
-      if (!upstream) {
-        break;
-      }
-      if (isCircuitOpen(this.circuit.get(upstream.baseUrl.trim()))) {
-        continue;
-      }
-
-      try {
-        const targetUrl = resolveUpstreamTargetUrl(upstream.baseUrl, urlPath);
-        const parsed = new URL(targetUrl);
-        const result = isStreaming
-          ? await this.proxyStream(
-            upstream,
-            clientReq,
-            clientRes,
-            method,
-            parsed,
-            targetUrl,
-            urlPath,
-            startTime,
-            needsBodyCapture,
-            body
-          )
-          : await this.proxyBuffered(
-            upstream,
-            clientReq,
-            clientRes,
-            method,
-            parsed,
-            targetUrl,
-            urlPath,
-            startTime,
-            needsBodyCapture,
-            body
-          );
-
-        lastStatus = result.status;
-
-        if (result.ok) {
-          recordUpstreamSuccess(this.circuit, upstream.baseUrl);
-          if (attempt > 0) {
-            this.commitFailoverUpstream(urlPath, upstream);
-          }
-          return;
-        }
-
-        recordUpstreamFailure(this.circuit, upstream.baseUrl);
-
-        if (!this.isFailoverActiveForPath(urlPath) || !result.canRetry || clientRes.headersSent) {
-          return;
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        this.lastError = message;
-        recordUpstreamFailure(this.circuit, upstream.baseUrl);
-        if (!this.isFailoverActiveForPath(urlPath) || clientRes.headersSent) {
-          this.writeJson(clientRes, 500, { error: 'gateway_error', message });
-          return;
-        }
-      }
-    }
-
-    if (!clientRes.headersSent) {
-      this.writeJson(clientRes, lastStatus, {
-        error: 'failover_exhausted',
-        message: 'All configured upstream providers failed',
-      });
+    } finally {
+      this.statsTracker.onRequestEnd(success);
     }
   }
 
@@ -783,6 +877,16 @@ export class AiCliGateway {
           });
           if (captureUsage && fullResponse) {
             this.processUsageFromSSE(fullResponse, reqModel, targetUrl, urlPath);
+          } else {
+            this.recordProxiedRequestIfNeeded(
+              method,
+              urlPath,
+              status,
+              reqModel,
+              targetUrl,
+              captureUsage,
+              false
+            );
           }
           resolve({ ok: status > 0 && status < 500, status, canRetry: false });
         });
@@ -878,6 +982,16 @@ export class AiCliGateway {
             });
             if (captureUsage && fullResponse) {
               this.processUsageFromSSE(fullResponse, reqModel, targetUrl, urlPath);
+            } else {
+              this.recordProxiedRequestIfNeeded(
+                method,
+                urlPath,
+                status,
+                reqModel,
+                targetUrl,
+                captureUsage,
+                false
+              );
             }
             resolve({ ok: status > 0 && status < 500, status, canRetry: false });
           });
@@ -920,6 +1034,19 @@ export class AiCliGateway {
             } catch {
               /* ignore */
             }
+          }
+          if (captureUsage && !usageInfo) {
+            this.emitRequestUsage(reqModel, targetUrl, urlPath);
+          } else if (!captureUsage) {
+            this.recordProxiedRequestIfNeeded(
+              method,
+              urlPath,
+              status,
+              reqModel,
+              targetUrl,
+              false,
+              false
+            );
           }
           this.emitLog({
             ts: new Date().toISOString(),
@@ -996,7 +1123,9 @@ export class AiCliGateway {
         upstream,
         ts: new Date().toISOString(),
       });
+      return;
     }
+    this.emitRequestUsage(reqModel, upstream, urlPath);
   }
 
   private emitUsageFromResponseBody(
@@ -1145,6 +1274,9 @@ export class AiCliGateway {
             const usageInfo = responseBody
               ? this.emitUsageFromResponseBody(responseBody, chatModel, targetUrl, urlPath)
               : null;
+            if (!usageInfo) {
+              this.emitRequestUsage(chatModel, targetUrl, urlPath);
+            }
             this.emitLog({
               ts: new Date().toISOString(),
               method,
@@ -1188,6 +1320,9 @@ export class AiCliGateway {
           });
           clientRes.end(out);
           const usageInfo = this.emitUsageFromResponseBody(translated, chatModel, targetUrl, urlPath);
+          if (!usageInfo) {
+            this.emitRequestUsage(chatModel, targetUrl, urlPath);
+          }
           this.emitLog({
             ts: new Date().toISOString(),
             method,
@@ -1363,6 +1498,8 @@ export class AiCliGateway {
                 upstream: targetUrl,
                 ts: new Date().toISOString(),
               });
+            } else {
+              this.emitRequestUsage(chatModel, targetUrl, urlPath);
             }
             const ms = Date.now() - startTime;
             this.emitLog({
@@ -1393,6 +1530,9 @@ export class AiCliGateway {
             const parsedBody = JSON.parse(rawBody.toString('utf-8')) as Record<string, unknown>;
             const translated = translateOpenAiChatToAnthropicMessage(parsedBody, chatModel);
             const usageInfo = this.emitUsageFromResponseBody(translated, chatModel, targetUrl, urlPath);
+            if (!usageInfo) {
+              this.emitRequestUsage(chatModel, targetUrl, urlPath);
+            }
             const responseBody = Buffer.from(JSON.stringify(translated), 'utf-8');
             clientRes.writeHead(status, {
               'content-type': 'application/json',
@@ -1571,6 +1711,9 @@ export class AiCliGateway {
             const usageInfo = responseBody
               ? this.emitUsageFromResponseBody(responseBody, anthropicModel, targetUrl, urlPath)
               : null;
+            if (!usageInfo) {
+              this.emitRequestUsage(anthropicModel, targetUrl, urlPath);
+            }
             this.emitLog({
               ts: new Date().toISOString(),
               method,
@@ -1605,6 +1748,9 @@ export class AiCliGateway {
             });
             clientRes.end(out);
             const usageInfo = this.emitUsageFromResponseBody(translated, anthropicModel, targetUrl, urlPath);
+            if (!usageInfo) {
+              this.emitRequestUsage(anthropicModel, targetUrl, urlPath);
+            }
             this.emitLog({
               ts: new Date().toISOString(),
               method,

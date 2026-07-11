@@ -5,9 +5,20 @@ export type AiCliGatewayUpstream = {
   model?: string;
   sonnetModel?: string;
   opusModel?: string;
+  fableModel?: string;
   haikuModel?: string;
+  sonnetDisplayName?: string;
+  opusDisplayName?: string;
+  fableDisplayName?: string;
+  haikuDisplayName?: string;
+  declareSonnet1m?: boolean;
+  declareOpus1m?: boolean;
+  declareFable1m?: boolean;
   codexApiFormat?: 'openai_responses' | 'openai_chat';
   codexModel?: string;
+  codexEnable1m?: boolean;
+  codexContextWindow?: number;
+  codexAutoCompactLimit?: number;
 };
 
 export const AI_CLI_GATEWAY_PLACEHOLDER_TOKEN = 'agentsociety-gateway';

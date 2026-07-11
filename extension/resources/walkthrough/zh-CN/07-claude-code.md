@@ -27,116 +27,21 @@ your-project/
 
 ### 配置 Claude Code 使用的模型服务
 
-Claude Code 默认使用 Anthropic 服务。推荐通过插件配置页 **高级配置 → Claude / Codex 路由** 进行图形化配置：
+推荐通过配置页的 **Claude / Codex** Tab 图形化配置（不再使用「高级配置」折叠）：
 
-[打开 Claude Code 配置（配置页）](command:aiSocialScientist.openClaudeCodeConfig)
+[打开配置页](command:aiSocialScientist.openConfigPage)
 
-配置页提供一个 **统一的供应商管理面板**，所有供应商共享一个列表，无需重复添加：
-
-- **三段式新建**：按“连接与认证 → 用途 → 模型映射”填写。保存前可以检测可用性或获取模型，系统会自动识别上游协议。
-- **供应商共享池**：每个供应商只需添加一次。保存时可直接勾选设为 Claude Code 主供应商、Codex 主供应商，或同时服务两者。
-- **路由开关**：面板顶部提供 Claude Code 和 Codex 各自的代理开关，网关会按请求格式自动转换。
-- **模型映射**：默认模型用于 Codex 和 Claude 兜底；Sonnet / Opus / Haiku 用于 Claude Code 的角色模型热切换，不支持的角色可留空。
-- **Gateway 状态栏**：启用本地路由后，状态栏显示 `AI Gateway: Claude + Codex`（或当前路由的工具）。点击可打开配置页。
-
-你也可以手动编辑 `~/.claude/settings.json`（Mac/Linux）或 `用户目录/.claude/settings.json`（Windows）：
-
-![创建 Claude 设置文件示例](../images/gif/create-claude-settings-json.gif)
-
-```json
-{
-  "env": {
-    "ANTHROPIC_BASE_URL": "https://your-api-endpoint.com",
-    "ANTHROPIC_AUTH_TOKEN": "your-api-key",
-    "ANTHROPIC_MODEL": "your-model-name"
-  }
-}
-```
-
-> 💡 插件配置页写入 `ANTHROPIC_AUTH_TOKEN`（Bearer）与 `ANTHROPIC_BASE_URL`。若服务商要求 `X-Api-Key`，可在 `settings.json` 中手动设置 `ANTHROPIC_API_KEY`。
-
-### 使用本地 AI CLI Gateway
-
-配置页内置 **AI CLI Gateway**，可将 Claude Code 和 Codex CLI 的请求经第三方供应商代理转发：
-
-1. 在 **高级配置 → Claude / Codex 路由** 中添加供应商：选择预设或填写 Base URL，第三方 API 填 API Key，官方订阅选择登录模式。
-2. 勾选该供应商要服务的工具：**设为 Claude Code 主供应商**、**设为 Codex 主供应商**，或两者都选。
-3. 点击 **检测** 或 **获取模型** 自动识别协议；根据模型列表填写默认模型和 Claude 角色模型。
-4. 保存后，API Key 供应商会经本地网关路由；网关自动写入 `~/.claude/settings.json` 和 `~/.codex/config.toml`。修改供应商或模型后，点击 **重启 Codex** 使新配置生效。
-
-官方订阅（Anthropic Pro/Max、ChatGPT）使用 OAuth 直连，**不需要**启用本地网关——保持代理关闭即可。
-
-> 💡 网关自动完成 Anthropic Messages、OpenAI Chat Completions、OpenAI Responses 之间的转换，并追踪用量、估算费用。当前已验证文本、system/instructions、max tokens、temperature/top_p、工具定义、工具调用、工具结果、流式事件和 usage 统计；供应商私有扩展字段会尽量透传或在不支持时忽略。点击配置页中的 **查看日志** 可查看路由详情。
+配置页提供 **统一的供应商管理面板** 与 **渐进式配置步骤**（仿真 LLM → 保存 → 启动后端 → 可选文献 MCP / CLI 网关）。
 
 ---
 
 ### 配置 MCP 连接外部服务
 
-**MCP**（Model Context Protocol）让 Claude Code 能连接外部工具、数据库、知识库和远程服务。推荐优先接入远程 HTTP MCP 服务；如果服务商只提供 SSE 端点，也可以使用 SSE。只有在开发本地工具或需要访问本机资源时，才使用本地 stdio 服务。
+推荐在 **技能管理 → MCP 集成** Tab 管理 MCP（文献检索在配置页「文献 MCP」Tab 填 URL/Key）：
 
-常见接入方式：
+[打开技能管理](command:aiSocialScientist.openSkillMarketplace)
 
-| 类型       | 适合场景                                       | 配置方式                               |
-| ---------- | ---------------------------------------------- | -------------------------------------- |
-| 远程 HTTP  | 云端 MCP、团队共享服务、外部平台集成           | `claude mcp add --transport http ...`  |
-| 远程 SSE   | 旧版或特定服务只提供 SSE 端点                  | `claude mcp add --transport sse ...`   |
-| 本地 stdio | 本地脚本、开发调试、需要访问本机文件或内网资源 | `claude mcp add --transport stdio ...` |
-
-推荐用命令添加远程 MCP，而不是手写配置：
-
-```bash
-# 个人当前项目使用，默认写入本地 Claude Code 配置
-claude mcp add --transport http agentsociety https://your-mcp-server.example.com/mcp
-
-# 团队共享，写入项目根目录 .mcp.json
-claude mcp add --transport http agentsociety --scope project https://your-mcp-server.example.com/mcp
-
-# 如果服务商只提供 SSE 端点
-claude mcp add --transport sse agentsociety-sse https://your-mcp-server.example.com/sse
-```
-
-如果远程 MCP 需要 Token，可以通过 header 传入：
-
-```bash
-claude mcp add --transport http agentsociety https://your-mcp-server.example.com/mcp \
-  --header "Authorization: Bearer YOUR_TOKEN"
-```
-
-如果你希望把团队共享配置提交到仓库，也可以在项目根目录创建或编辑 `.mcp.json`。适合共享的配置里不要写死个人密钥，使用环境变量：
-
-```json
-{
-  "mcpServers": {
-    "agentsociety": {
-      "type": "http",
-      "url": "${AGENTSOCIETY_MCP_URL:-https://your-mcp-server.example.com/mcp}",
-      "headers": {
-        "Authorization": "Bearer ${AGENTSOCIETY_MCP_TOKEN}"
-      }
-    }
-  }
-}
-```
-
-本地后端开发时，也可以保留 stdio 方式。确保后端服务已启动，然后在项目根目录创建或编辑 `.mcp.json`：
-
-```json
-{
-  "mcpServers": {
-    "agentsociety": {
-      "command": "uv",
-      "args": ["run", "python", "-m", "agentsociety2.mcp"],
-      "env": {
-        "AGENTSOCIETY_BACKEND_URL": "http://localhost:8001"
-      }
-    }
-  }
-}
-```
-
-> 💡 `.mcp.json` 是项目级 MCP 配置，适合团队共享；个人密钥建议放到环境变量或用户级配置中。Claude Code 会在首次使用项目级 MCP 时要求确认，这是正常的安全检查。
-
----
+内置文献 MCP 与自定义 MCP 分开展示；添加自定义服务后点 **同步** 写入 `~/.claude.json` 与 `~/.codex/config.toml`。
 
 ### 验证连接
 

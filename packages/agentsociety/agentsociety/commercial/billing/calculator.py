@@ -135,8 +135,6 @@ async def record_experiment_bill(
     llm_config_id: Optional[uuid.UUID] = None,
 ) -> None:
     """记录实验计费"""
-    llm_config_id = llm_config_id
-
     stmt = insert(ExperimentBillConfig).values(
         tenant_id=tenant_id,
         exp_id=exp_id,

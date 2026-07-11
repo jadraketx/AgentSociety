@@ -12,6 +12,18 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { spawn, execSync } from 'child_process';
 import { localize } from '../i18n';
+import { getMainOutputChannel } from '../shared/outputChannels';
+import { resolveAgentsocietyPython } from './agentsocietyPythonResolver';
+import {
+  buildExportManifest,
+  isDefaultExportTier,
+  resolveExportTier,
+  validateExportSelection,
+  verifyExportArchive,
+  writeExportManifest,
+  type WorkspaceExportRootRecord,
+  type WorkspaceExportTier,
+} from './workspaceExportManifest';
 
 interface ExportSummary {
   exportedRoots: string[];
@@ -23,10 +35,11 @@ interface ExportCandidate {
   archivePath: string;
   sourcePath: string;
   allowedRoot: string;
-  isDefault: boolean;
+  tier: WorkspaceExportTier;
+  source: 'workspace' | 'external';
   kind: 'file' | 'directory';
   detail?: string;
-  size?: number; // 文件大小（字节）
+  size?: number;
 }
 
 interface ExportPickItem extends vscode.QuickPickItem {
@@ -41,9 +54,9 @@ const ROOT_EXPORT_FILES = [
 ];
 
 const ROOT_EXPORT_DIRECTORIES = [
-  '.claude',
   '.agentsociety',
   'papers',
+  'paper',
   'user_data',
   'datasets',
   'custom',
@@ -75,21 +88,14 @@ const EXCLUDED_FILE_NAMES = new Set([
 
 export class WorkspaceExportManager implements vscode.Disposable {
   private readonly outputChannel: vscode.OutputChannel;
-  private readonly statusBarItem: vscode.StatusBarItem;
   private readonly disposables: vscode.Disposable[] = [];
-  private isExporting = false;
+  private readonly extensionVersion: string;
 
   constructor() {
-    this.outputChannel = vscode.window.createOutputChannel('Workspace Export');
-    this.statusBarItem = vscode.window.createStatusBarItem(
-      vscode.StatusBarAlignment.Right,
-      90
-    );
-    this.statusBarItem.command = 'aiSocialScientist.exportWorkspaceZip';
-    this.disposables.push(
-      vscode.workspace.onDidChangeWorkspaceFolders(() => this.updateStatusBar()),
-    );
-    this.updateStatusBar();
+    this.outputChannel = getMainOutputChannel();
+    this.extensionVersion =
+      vscode.extensions.getExtension('tsinghua-fib-lab.ai-social-scientist')?.packageJSON
+        ?.version ?? 'unknown';
   }
 
   async exportWorkspaceZip(): Promise<void> {
@@ -110,6 +116,52 @@ export class WorkspaceExportManager implements vscode.Disposable {
       return;
     }
 
+    const topicFile = path.join(workspacePath, 'TOPIC.md');
+    let hypothesisCount = 0;
+    try {
+      hypothesisCount = fs.readdirSync(workspacePath, { withFileTypes: true })
+        .filter((entry) => entry.isDirectory() && /^hypothesis_[^/\\]+$/.test(entry.name))
+        .length;
+    } catch {
+      hypothesisCount = 0;
+    }
+    const selectionRecords: WorkspaceExportRootRecord[] = selectedRoots.map((candidate) => ({
+      archivePath: candidate.archivePath,
+      kind: candidate.kind,
+      tier: candidate.tier,
+      bytes: candidate.size ?? 0,
+      fileCount: this.estimateExportableFileCount(candidate),
+    }));
+    const validation = validateExportSelection({
+      selectedRoots: selectionRecords,
+      workspacePath,
+      hasTopicFile: fs.existsSync(topicFile),
+      hypothesisCount,
+    });
+    const errors = validation.issues.filter((issue) => issue.level === 'error');
+    const warnings = validation.issues.filter((issue) => issue.level === 'warning');
+    if (errors.length > 0) {
+      vscode.window.showErrorMessage(
+        errors.map((issue) => localize(`workspaceExport.validation.${issue.code}`)).join('\n')
+      );
+      return;
+    }
+    if (warnings.length > 0) {
+      const warningText = warnings
+        .map((issue) => localize(`workspaceExport.validation.${issue.code}`))
+        .join('\n');
+      const continueLabel = localize('workspaceExport.validation.continue');
+      const choice = await vscode.window.showWarningMessage(
+        `${warningText}\n\n${localize('workspaceExport.validation.summary', validation.totalFiles, this.formatSize(validation.totalBytes))}`,
+        { modal: true },
+        continueLabel,
+        localize('workspaceExport.validation.back')
+      );
+      if (choice !== continueLabel) {
+        return;
+      }
+    }
+
     const defaultSaveUri = this.getDefaultSaveUri(workspaceFolder);
     const saveUri = await vscode.window.showSaveDialog({
       ...(defaultSaveUri ? { defaultUri: defaultSaveUri } : {}),
@@ -122,9 +174,6 @@ export class WorkspaceExportManager implements vscode.Disposable {
     if (!saveUri) {
       return;
     }
-
-    this.isExporting = true;
-    this.updateStatusBar();
 
     try {
       const summary = await vscode.window.withProgress<ExportSummary>(
@@ -174,9 +223,6 @@ export class WorkspaceExportManager implements vscode.Disposable {
       if (action === localize('workspaceExport.viewOutput')) {
         this.outputChannel.show(true);
       }
-    } finally {
-      this.isExporting = false;
-      this.updateStatusBar();
     }
   }
 
@@ -184,8 +230,6 @@ export class WorkspaceExportManager implements vscode.Disposable {
     for (const disposable of this.disposables) {
       disposable.dispose();
     }
-    this.statusBarItem.dispose();
-    this.outputChannel.dispose();
   }
 
   private async promptForExportSelection(workspacePath: string): Promise<ExportCandidate[] | undefined> {
@@ -195,12 +239,13 @@ export class WorkspaceExportManager implements vscode.Disposable {
     }
 
     const items: ExportPickItem[] = candidates.map((candidate) => ({
-      label: candidate.label,
-      description: candidate.isDefault
-        ? undefined
-        : localize('workspaceExport.pick.optionalDescription'),
+      label: `${this.formatTierPrefix(candidate.tier)}${candidate.label}`,
+      description:
+        candidate.tier === 'optional'
+          ? localize('workspaceExport.pick.optionalDescription')
+          : localize(`workspaceExport.pick.tier.${candidate.tier}`),
       detail: this.buildExportPickDetail(candidate),
-      picked: candidate.isDefault,
+      picked: isDefaultExportTier(candidate.tier),
       relativePath: candidate.archivePath,
       candidate,
     }));
@@ -234,6 +279,7 @@ export class WorkspaceExportManager implements vscode.Disposable {
       exportedRoots: exportRoots.map((candidate) => candidate.archivePath),
       copiedFiles: 0,
     };
+    const rootRecords: WorkspaceExportRootRecord[] = [];
 
     try {
       progress.report({ message: localize('workspaceExport.progress.collecting'), increment: 10 });
@@ -246,6 +292,7 @@ export class WorkspaceExportManager implements vscode.Disposable {
           increment: perRootIncrement,
         });
         const targetPath = path.join(stagingPath, candidate.archivePath);
+        const beforeCount = summary.copiedFiles;
         this.copyEntry(
           candidate.sourcePath,
           targetPath,
@@ -253,14 +300,35 @@ export class WorkspaceExportManager implements vscode.Disposable {
           candidate.allowedRoot,
           summary,
         );
+        rootRecords.push({
+          archivePath: candidate.archivePath,
+          kind: candidate.kind,
+          tier: candidate.tier,
+          bytes: candidate.size ?? 0,
+          fileCount: summary.copiedFiles - beforeCount,
+        });
       }
+
+      writeExportManifest(
+        stagingPath,
+        buildExportManifest({
+          workspaceName: path.basename(workspacePath),
+          extensionVersion: this.extensionVersion,
+          roots: rootRecords,
+        }),
+      );
+      this.log(`Wrote export manifest with ${rootRecords.length} root(s)`);
 
       progress.report({ message: localize('workspaceExport.progress.archiving'), increment: 20 });
       const temporaryZipPath = path.join(tempRoot, 'workspace-export.zip');
-      await this.createZipArchive(stagingPath, temporaryZipPath);
+      await this.createZipArchive(stagingPath, temporaryZipPath, workspacePath);
 
       progress.report({ message: localize('workspaceExport.progress.saving'), increment: 10 });
       await this.writeArchiveToDestination(temporaryZipPath, destinationZipUri);
+
+      if (!verifyExportArchive(destinationZipUri.scheme === 'file' ? destinationZipUri.fsPath : temporaryZipPath)) {
+        throw new Error(localize('workspaceExport.validation.archiveInvalid'));
+      }
 
       progress.report({ message: localize('workspaceExport.progress.done'), increment: 10 });
       this.log(`Export completed: ${destinationZipUri.toString(true)} (${summary.copiedFiles} files)`);
@@ -270,45 +338,75 @@ export class WorkspaceExportManager implements vscode.Disposable {
     }
   }
 
+  private makeWorkspaceCandidate(
+    workspacePath: string,
+    archivePath: string,
+    kind: 'file' | 'directory',
+    sourcePath: string,
+  ): ExportCandidate {
+    return {
+      label: archivePath,
+      archivePath,
+      sourcePath,
+      allowedRoot: workspacePath,
+      tier: resolveExportTier(archivePath, 'workspace'),
+      source: 'workspace',
+      kind,
+      size: kind === 'directory' ? this.getDirectorySize(sourcePath) : this.getFileSize(sourcePath),
+    };
+  }
+
   private collectExportCandidates(workspacePath: string): ExportCandidate[] {
     const candidates: ExportCandidate[] = [];
-    const defaultRoots = new Set<string>();
+    const knownRoots = new Set<string>();
 
-    // 工作区根文件
+    const addCandidate = (candidate: ExportCandidate) => {
+      if (knownRoots.has(candidate.archivePath)) {
+        return;
+      }
+      knownRoots.add(candidate.archivePath);
+      candidates.push(candidate);
+    };
+
     for (const relativeFile of ROOT_EXPORT_FILES) {
       if (this.shouldOfferTopLevelEntry(workspacePath, relativeFile)) {
-        const sourcePath = path.join(workspacePath, relativeFile);
-        candidates.push({
-          label: relativeFile,
-          archivePath: relativeFile,
-          sourcePath,
-          allowedRoot: workspacePath,
-          isDefault: true,
-          kind: 'file',
-          size: this.getFileSize(sourcePath),
-        });
-        defaultRoots.add(relativeFile);
+        addCandidate(
+          this.makeWorkspaceCandidate(
+            workspacePath,
+            relativeFile,
+            'file',
+            path.join(workspacePath, relativeFile),
+          ),
+        );
       }
     }
 
-    // 工作区根目录
     for (const relativeDir of ROOT_EXPORT_DIRECTORIES) {
       if (this.shouldOfferTopLevelEntry(workspacePath, relativeDir)) {
-        const sourcePath = path.join(workspacePath, relativeDir);
-        candidates.push({
-          label: relativeDir,
-          archivePath: relativeDir,
-          sourcePath,
-          allowedRoot: workspacePath,
-          isDefault: true,
-          kind: 'directory',
-          size: this.getDirectorySize(sourcePath),
-        });
-        defaultRoots.add(relativeDir);
+        addCandidate(
+          this.makeWorkspaceCandidate(
+            workspacePath,
+            relativeDir,
+            'directory',
+            path.join(workspacePath, relativeDir),
+          ),
+        );
       }
     }
 
-    // 动态 hypothesis 目录
+    for (const relativeDir of ['.claude']) {
+      if (this.shouldOfferTopLevelEntry(workspacePath, relativeDir)) {
+        addCandidate(
+          this.makeWorkspaceCandidate(
+            workspacePath,
+            relativeDir,
+            'directory',
+            path.join(workspacePath, relativeDir),
+          ),
+        );
+      }
+    }
+
     let dynamicRoots: fs.Dirent[] = [];
     try {
       dynamicRoots = fs.readdirSync(workspacePath, { withFileTypes: true })
@@ -319,42 +417,35 @@ export class WorkspaceExportManager implements vscode.Disposable {
     }
 
     for (const entry of dynamicRoots) {
-      const sourcePath = path.join(workspacePath, entry.name);
-      candidates.push({
-        label: entry.name,
-        archivePath: entry.name,
-        sourcePath,
-        allowedRoot: workspacePath,
-        isDefault: true,
-        kind: 'directory',
-        size: this.getDirectorySize(sourcePath),
-      });
-      defaultRoots.add(entry.name);
+      addCandidate(
+        this.makeWorkspaceCandidate(
+          workspacePath,
+          entry.name,
+          'directory',
+          path.join(workspacePath, entry.name),
+        ),
+      );
     }
 
-    // Claude Code 对话记录（项目级别）
     const claudeConversationCandidate = this.getClaudeConversationCandidate(workspacePath);
     if (claudeConversationCandidate) {
-      candidates.push(claudeConversationCandidate);
+      addCandidate(claudeConversationCandidate);
     }
 
-    // Claude Code 全局历史记录
     const claudeHistoryCandidate = this.getClaudeHistoryCandidate();
     if (claudeHistoryCandidate) {
-      candidates.push(claudeHistoryCandidate);
+      addCandidate(claudeHistoryCandidate);
     }
 
-    // Codex 相关导出
     const codexCandidate = this.getCodexCandidate(workspacePath);
     if (codexCandidate) {
-      candidates.push(codexCandidate);
+      addCandidate(codexCandidate);
     }
 
-    // 可选的其他文件/目录
     let optionalRoots: fs.Dirent[] = [];
     try {
       optionalRoots = fs.readdirSync(workspacePath, { withFileTypes: true })
-        .filter((entry) => !defaultRoots.has(entry.name))
+        .filter((entry) => !knownRoots.has(entry.name))
         .filter((entry) => !ALWAYS_EXCLUDED_ROOTS.has(entry.name))
         .filter((entry) => !this.shouldExclude(this.normalizeRelativePath(entry.name), entry.isDirectory()))
         .sort((a, b) => a.name.localeCompare(b.name));
@@ -363,16 +454,15 @@ export class WorkspaceExportManager implements vscode.Disposable {
     }
 
     for (const entry of optionalRoots) {
-      const sourcePath = path.join(workspacePath, entry.name);
-      candidates.push({
-        label: entry.name,
-        archivePath: entry.name,
-        sourcePath,
-        allowedRoot: workspacePath,
-        isDefault: false,
-        kind: entry.isDirectory() ? 'directory' : 'file',
-        size: entry.isDirectory() ? this.getDirectorySize(sourcePath) : this.getFileSize(sourcePath),
-      });
+      const archivePath = entry.name;
+      addCandidate(
+        this.makeWorkspaceCandidate(
+          workspacePath,
+          archivePath,
+          entry.isDirectory() ? 'directory' : 'file',
+          path.join(workspacePath, archivePath),
+        ),
+      );
     }
 
     return candidates;
@@ -542,11 +632,15 @@ export class WorkspaceExportManager implements vscode.Disposable {
     return false;
   }
 
-  private async createZipArchive(sourceDir: string, destinationZipPath: string): Promise<void> {
+  private async createZipArchive(
+    sourceDir: string,
+    destinationZipPath: string,
+    workspacePath: string,
+  ): Promise<void> {
     fs.mkdirSync(path.dirname(destinationZipPath), { recursive: true });
     fs.rmSync(destinationZipPath, { force: true });
 
-    const pythonCandidates = this.getPythonCandidates();
+    const pythonCandidates = this.getPythonCandidates(workspacePath);
     let lastError: Error | null = null;
 
     for (const pythonCommand of pythonCandidates) {
@@ -603,12 +697,14 @@ export class WorkspaceExportManager implements vscode.Disposable {
     }
   }
 
-  private getPythonCandidates(): string[] {
-    const configuredPython = this.readConfiguredPythonPath()?.trim();
-    const candidates = configuredPython
-      ? [configuredPython]
-      : [];
-
+  private getPythonCandidates(workspacePath: string): string[] {
+    const extension = vscode.extensions.getExtension('tsinghua-fib-lab.ai-social-scientist');
+    const resolved = resolveAgentsocietyPython({
+      configuredPath: this.readConfiguredPythonPath() ?? undefined,
+      workspacePath,
+      extensionPath: extension?.extensionPath,
+    });
+    const candidates = resolved ? [resolved] : [];
     const defaults = process.platform === 'win32'
       ? ['python', 'py']
       : ['python3', 'python'];
@@ -619,11 +715,7 @@ export class WorkspaceExportManager implements vscode.Disposable {
       }
     }
 
-    if (candidates.length === 0) {
-      candidates.push(this.detectPythonPath());
-    }
-
-    return candidates;
+    return candidates.length > 0 ? candidates : [this.detectPythonPath()];
   }
 
   private readConfiguredPythonPath(): string | null {
@@ -758,7 +850,8 @@ export class WorkspaceExportManager implements vscode.Disposable {
       archivePath: path.posix.join('.claude', 'projects', encodedWorkspacePath),
       sourcePath: conversationPath,
       allowedRoot: conversationPath,
-      isDefault: true,
+      tier: 'external',
+      source: 'external',
       kind: 'directory',
       detail: localize('workspaceExport.pick.claudeConversationDetail'),
       size: this.getDirectorySize(conversationPath),
@@ -779,7 +872,8 @@ export class WorkspaceExportManager implements vscode.Disposable {
       archivePath: '.claude/history.jsonl',
       sourcePath: historyPath,
       allowedRoot: path.dirname(historyPath),
-      isDefault: false,
+      tier: 'external',
+      source: 'external',
       kind: 'file',
       detail: localize('workspaceExport.pick.claudeHistoryDetail'),
       size: this.getFileSize(historyPath),
@@ -813,7 +907,8 @@ export class WorkspaceExportManager implements vscode.Disposable {
       archivePath: path.posix.join('.codex', 'projects', encodedWorkspacePath),
       sourcePath: workspaceScopedDir,
       allowedRoot: workspaceScopedDir,
-      isDefault: false,
+      tier: 'external',
+      source: 'external',
       kind: 'directory',
       detail: localize('workspaceExport.pick.codexDetail'),
       size: this.getDirectorySize(workspaceScopedDir),
@@ -822,6 +917,50 @@ export class WorkspaceExportManager implements vscode.Disposable {
 
   private encodeClaudeProjectPath(workspacePath: string): string {
     return path.resolve(workspacePath).replace(/[:\\/]+/g, '-');
+  }
+
+  private formatTierPrefix(tier: WorkspaceExportTier): string {
+    if (tier === 'core') {
+      return '★ ';
+    }
+    if (tier === 'external') {
+      return '↗ ';
+    }
+    return '';
+  }
+
+  private estimateExportableFileCount(candidate: ExportCandidate): number {
+    if (candidate.kind === 'file') {
+      return fs.existsSync(candidate.sourcePath) ? 1 : 0;
+    }
+    return this.countExportableFiles(candidate.sourcePath, candidate.archivePath, candidate.allowedRoot);
+  }
+
+  private countExportableFiles(
+    sourceDir: string,
+    relativeDir: string,
+    workspaceRoot: string,
+  ): number {
+    if (!fs.existsSync(sourceDir)) {
+      return 0;
+    }
+    const stats = fs.lstatSync(sourceDir);
+    if (!stats.isDirectory()) {
+      return this.shouldExclude(this.normalizeRelativePath(relativeDir), false) ? 0 : 1;
+    }
+
+    let total = 0;
+    const entries = fs.readdirSync(sourceDir, { withFileTypes: true });
+    for (const entry of entries) {
+      const childRelativePath = this.normalizeRelativePath(path.posix.join(relativeDir, entry.name));
+      const childSourcePath = path.join(sourceDir, entry.name);
+      if (entry.isDirectory()) {
+        total += this.countExportableFiles(childSourcePath, childRelativePath, workspaceRoot);
+      } else if (!this.shouldExclude(childRelativePath, false)) {
+        total += 1;
+      }
+    }
+    return total;
   }
 
   private getDefaultSaveUri(workspaceFolder: vscode.WorkspaceFolder): vscode.Uri | undefined {
@@ -873,20 +1012,7 @@ export class WorkspaceExportManager implements vscode.Disposable {
     return uri.toString(true);
   }
 
-  private updateStatusBar(): void {
-    if (!vscode.workspace.workspaceFolders?.length) {
-      this.statusBarItem.hide();
-      return;
-    }
-
-    this.statusBarItem.text = this.isExporting
-      ? localize('workspaceExport.statusBar.exporting')
-      : localize('workspaceExport.statusBar.ready');
-    this.statusBarItem.tooltip = localize('workspaceExport.statusBar.tooltip');
-    this.statusBarItem.show();
-  }
-
   private log(message: string): void {
-    this.outputChannel.appendLine(`[${new Date().toISOString()}] ${message}`);
+    this.outputChannel.appendLine(`[${new Date().toISOString()}] [Export] ${message}`);
   }
 }

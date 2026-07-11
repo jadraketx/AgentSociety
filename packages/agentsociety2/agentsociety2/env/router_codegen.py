@@ -526,7 +526,8 @@ class TemplateCacheDB:
 class AskObserver(Protocol):
     """Ask流程观察者协议：流程结束后接收最终 context"""
 
-    async def on_final(self, context: AskContext) -> None: ...
+    async def on_final(self, context: AskContext) -> None:
+        ...
 
 
 # ==================== 责任链：Code 获取 ====================
@@ -555,7 +556,8 @@ class PipelineStage(Protocol):
 
     async def process(
         self, context: AskContext, router: "CodeGenRouter"
-    ) -> AskContext: ...
+    ) -> AskContext:
+        ...
 
 
 # --- 观察者具体实现：统一在 on_final 中根据 context 记录 ---
@@ -1467,9 +1469,6 @@ class CodeGenRouter(RouterBase):
         "__builtins__",
         "builtins",
     }
-
-    OBSERVE_INSTRUCTION = OBSERVE_INSTRUCTION
-    STATISTICS_INSTRUCTION = STATISTICS_INSTRUCTION
 
     def __init__(
         self,

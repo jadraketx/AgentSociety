@@ -17,6 +17,7 @@
 
 import * as vscode from 'vscode';
 import * as path from 'path';
+import { getMainOutputChannel } from './shared/outputChannels';
 import { ProjectItem, ProjectStructureProvider } from './projectStructureProvider';
 import { localize } from './i18n';
 
@@ -69,7 +70,7 @@ export class ProjectDragAndDropController implements vscode.TreeDragAndDropContr
     private provider: ProjectStructureProvider
   ) {
     // 创建输出通道用于调试日志
-    this.outputChannel = vscode.window.createOutputChannel('AI Social Scientist - Drag & Drop');
+    this.outputChannel = getMainOutputChannel();
   }
 
   private outputChannel: vscode.OutputChannel;
@@ -216,7 +217,7 @@ export class ProjectDragAndDropController implements vscode.TreeDragAndDropContr
       message = localize('dragDrop.largeFilesWarning', String(largeFiles.length));
     }
 
-    const continueLabel = localize('dragDrop.overwrite'); // 复用"继续/覆盖"按钮文本
+    const continueLabel = localize('dragDrop.continue');
     const cancelLabel = localize('dragDrop.cancel');
 
     const response = await vscode.window.showWarningMessage(
@@ -709,6 +710,5 @@ export class ProjectDragAndDropController implements vscode.TreeDragAndDropContr
    * 清理资源
    */
   dispose(): void {
-    this.outputChannel.dispose();
   }
 }

@@ -16,6 +16,7 @@ import { execFile } from 'child_process';
 import { promisify } from 'util';
 import { requestJson } from './httpClient';
 import { CONFIG_PAGE_API_VALIDATE_TIMEOUT_MS } from './validateTimeouts';
+import { getMainOutputChannel } from '../shared/outputChannels';
 
 const execFileAsync = promisify(execFile);
 
@@ -43,12 +44,12 @@ export class LLMValidator {
   private outputChannel: vscode.OutputChannel;
 
   constructor() {
-    this.outputChannel = vscode.window.createOutputChannel('LLM Validator');
+    this.outputChannel = getMainOutputChannel();
   }
 
   private log(message: string): void {
     const timestamp = new Date().toISOString();
-    this.outputChannel.appendLine(`[${timestamp}] ${message}`);
+    this.outputChannel.appendLine(`[${timestamp}] [LLM] ${message}`);
   }
 
   /**
@@ -143,7 +144,6 @@ export class LLMValidator {
   }
 
   dispose(): void {
-    this.outputChannel.dispose();
   }
 }
 
@@ -182,12 +182,12 @@ print(json.dumps({
 `.trim();
 
   constructor() {
-    this.outputChannel = vscode.window.createOutputChannel('Python Validator');
+    this.outputChannel = getMainOutputChannel();
   }
 
   private log(message: string): void {
     const timestamp = new Date().toISOString();
-    this.outputChannel.appendLine(`[${timestamp}] ${message}`);
+    this.outputChannel.appendLine(`[${timestamp}] [Python] ${message}`);
   }
 
   /**
@@ -303,6 +303,5 @@ print(json.dumps({
   }
 
   dispose(): void {
-    this.outputChannel.dispose();
   }
 }

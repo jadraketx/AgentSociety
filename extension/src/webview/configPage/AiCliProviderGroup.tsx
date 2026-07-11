@@ -10,6 +10,7 @@ import { EMPTY_PROVIDER_DRAFT } from './aiCliProviderTypes';
 import { ProviderEditor } from './AiCliProviderEditor';
 import { inferProviderAuthMode } from './providerAuth';
 import { supportsProviderUsageQuery } from './providerUsageSupport';
+import { normalizeProviderBaseUrl } from './providerBaseUrl';
 
 const { Text } = Typography;
 
@@ -27,6 +28,7 @@ export type AiCliProviderGroupProps = {
   onActivate: (id: string, role: 'claude' | 'codex') => void;
   onRemove: (id: string) => void;
   onCheckAvailability: (baseUrl: string, apiKey: string, apiKind?: AiCliApiKind) => void;
+  isProviderChecking?: (baseUrl: string) => boolean;
   availabilityResults: Record<string, ProviderAvailabilityResult>;
   providerUsage: Record<string, ProviderUsageQueryResult & { loading?: boolean }>;
   onQueryProviderUsage: (id: string) => void;
@@ -48,6 +50,7 @@ export function AiCliProviderGroup({
   onActivate,
   onRemove,
   onCheckAvailability,
+  isProviderChecking,
   availabilityResults,
   providerUsage,
   onQueryProviderUsage,
@@ -288,15 +291,17 @@ export function AiCliProviderGroup({
                   models={modelsByProvider[p.id] ?? []}
                   modelsLoading={modelsLoadingByProvider[p.id] ?? false}
                   modelsError={modelsErrorByProvider[p.id] ?? null}
-                  availability={availabilityResults[p.baseUrl]}
+                  availability={availabilityResults[normalizeProviderBaseUrl(p.baseUrl)]}
                   availabilityResults={availabilityResults}
-                  onSave={(provider) => {
-                    onSave(provider);
-                    toggleEditing();
+                  isProviderChecking={isProviderChecking}
+                  onSave={(saved) => {
+                    onSave(saved);
                   }}
                   onActivate={(role) => onActivate(p.id, role)}
                   onRemove={hasAnyActive ? undefined : () => onRemove(p.id)}
                   onCheckAvailability={onCheckAvailability}
+                  providerUsage={providerUsage[p.id]}
+                  onQueryProviderUsage={() => onQueryProviderUsage(p.id)}
                   onFetchModels={(baseUrl, apiKey, kind) =>
                     onFetchModels(p.id, baseUrl, apiKey, kind)
                   }
@@ -337,12 +342,24 @@ export function AiCliProviderGroup({
                   model: d.model,
                   sonnetModel: d.sonnetModel,
                   opusModel: d.opusModel,
+                  fableModel: d.fableModel,
                   haikuModel: d.haikuModel,
+                  sonnetDisplayName: d.sonnetDisplayName,
+                  opusDisplayName: d.opusDisplayName,
+                  fableDisplayName: d.fableDisplayName,
+                  haikuDisplayName: d.haikuDisplayName,
+                  declareSonnet1m: d.declareSonnet1m,
+                  declareOpus1m: d.declareOpus1m,
+                  declareFable1m: d.declareFable1m,
+                  codexEnable1m: d.codexEnable1m,
+                  codexContextWindow: d.codexContextWindow,
+                  codexAutoCompactLimit: d.codexAutoCompactLimit,
                   permissionMode: d.permissionMode,
                 });
                 setShowNew(false);
               }}
               onCheckAvailability={onCheckAvailability}
+              isProviderChecking={isProviderChecking}
               onFetchModels={(baseUrl, apiKey, kind) =>
                 onFetchModels(NEW_ID, baseUrl, apiKey, kind)
               }

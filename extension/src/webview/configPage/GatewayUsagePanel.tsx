@@ -1,11 +1,13 @@
 import * as React from 'react';
 import {
+  Alert,
   Button,
   Input,
   InputNumber,
   Modal,
   Segmented,
   Space,
+  Spin,
   Table,
   Typography,
 } from 'antd';
@@ -18,35 +20,25 @@ import {
 } from '@ant-design/icons';
 import type { TFunction } from 'i18next';
 import type { VscodeThemePalette } from '../theme';
-import type { UsageAggregation, TokenUsageRecord, UsageModelStats } from './gatewayUsageTypes';
+import type { TokenUsageRecord } from './gatewayUsageTypes';
 import { calculateCost, formatCost, getModelPrice, type ModelPricingMap } from './modelPricing';
 import { GatewayUsageChart } from './GatewayUsageChart';
+import {
+  aggregateGatewayUsage,
+  buildUsageChartSeries,
+  emptyAggregation,
+  filterRecordsByApp,
+  filterRecordsByRange,
+  formatChartCost,
+  formatTokenCount,
+  inferRecordApp,
+  localDateKey,
+  type UsageAppFilter,
+  type UsageRangeFilter,
+  type UsageTrendMetric,
+} from './gatewayUsageView';
 
 const { Text } = Typography;
-
-function formatTokenCount(n: number): string {
-  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)}B`;
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
-  return String(n);
-}
-
-function formatChartCost(cost: number): string {
-  if (cost <= 0) return '$0';
-  if (cost < 0.01) return `$${cost.toFixed(4)}`;
-  return formatCost(cost);
-}
-
-function localDateKey(value: string | number | Date): string {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) {
-    return '';
-  }
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 function metricTone(color: string): React.CSSProperties {
   return {
@@ -58,122 +50,10 @@ function metricTone(color: string): React.CSSProperties {
   };
 }
 
-type TrendMetric = 'requests' | 'tokens' | 'cost';
-type UsageAppFilter = 'all' | 'claude' | 'codex';
-type UsageRangeFilter = 'today' | '7d' | '30d' | 'all';
-
-function emptyStats(): UsageModelStats {
-  return { input: 0, output: 0, cacheRead: 0, cacheCreation: 0, requests: 0 };
-}
-
-function addToStats(stats: UsageModelStats, record: TokenUsageRecord): void {
-  stats.input += record.inputTokens;
-  stats.output += record.outputTokens;
-  stats.cacheRead += record.cacheReadTokens;
-  stats.cacheCreation += record.cacheCreationTokens;
-  stats.requests += 1;
-}
-
-function inferRecordApp(record: TokenUsageRecord): 'claude' | 'codex' {
-  if (record.app === 'claude' || record.app === 'codex') {
-    return record.app;
-  }
-  const id = record.model.toLowerCase();
-  return id.includes('codex') || id.startsWith('gpt-') || /^o\d/.test(id) ? 'codex' : 'claude';
-}
-
-function hasCustomModelPrice(modelId: string, customPricing: ModelPricingMap): boolean {
-  return Object.prototype.hasOwnProperty.call(customPricing, modelId);
-}
-
-function aggregatePanelUsage(records: TokenUsageRecord[]): UsageAggregation | null {
-  if (records.length === 0) {
-    return null;
-  }
-  const aggregation: UsageAggregation = {
-    totalInputTokens: 0,
-    totalOutputTokens: 0,
-    totalCacheReadTokens: 0,
-    totalCacheCreationTokens: 0,
-    totalRequests: records.length,
-    totalTokens: 0,
-    cacheHitRate: 0,
-    byModel: {},
-    byDay: {},
-    byApp: { claude: emptyStats(), codex: emptyStats() },
-    timeSeries: [],
-  };
-  const bucketMap = new Map<string, UsageAggregation['timeSeries'][number]>();
-  for (const record of records) {
-    aggregation.totalInputTokens += record.inputTokens;
-    aggregation.totalOutputTokens += record.outputTokens;
-    aggregation.totalCacheReadTokens += record.cacheReadTokens;
-    aggregation.totalCacheCreationTokens += record.cacheCreationTokens;
-
-    const model = record.model || 'unknown';
-    const modelStats = aggregation.byModel[model] ?? emptyStats();
-    addToStats(modelStats, record);
-    aggregation.byModel[model] = modelStats;
-
-    const day = localDateKey(record.ts);
-    const dayStats = aggregation.byDay[day] ?? emptyStats();
-    addToStats(dayStats, record);
-    aggregation.byDay[day] = dayStats;
-
-    addToStats(aggregation.byApp[inferRecordApp(record)], record);
-
-    const bucket = bucketMap.get(day) ?? {
-      key: day,
-      label: day.slice(5),
-      requests: 0,
-      inputTokens: 0,
-      outputTokens: 0,
-      cacheReadTokens: 0,
-      cacheCreationTokens: 0,
-    };
-    bucket.requests += 1;
-    bucket.inputTokens += record.inputTokens;
-    bucket.outputTokens += record.outputTokens;
-    bucket.cacheReadTokens += record.cacheReadTokens;
-    bucket.cacheCreationTokens += record.cacheCreationTokens;
-    bucketMap.set(day, bucket);
-  }
-  aggregation.totalTokens =
-    aggregation.totalInputTokens +
-    aggregation.totalOutputTokens +
-    aggregation.totalCacheReadTokens +
-    aggregation.totalCacheCreationTokens;
-  const cacheable = aggregation.totalInputTokens + aggregation.totalCacheReadTokens;
-  aggregation.cacheHitRate = cacheable > 0
-    ? Math.min(100, (aggregation.totalCacheReadTokens / cacheable) * 100)
-    : 0;
-  aggregation.timeSeries = [...bucketMap.values()]
-    .sort((a, b) => a.key.localeCompare(b.key))
-    .slice(-30);
-  return aggregation;
-}
-
-function emptyAggregation(): UsageAggregation {
-  return {
-    totalInputTokens: 0,
-    totalOutputTokens: 0,
-    totalCacheReadTokens: 0,
-    totalCacheCreationTokens: 0,
-    totalRequests: 0,
-    totalTokens: 0,
-    cacheHitRate: 0,
-    byModel: {},
-    byDay: {},
-    byApp: { claude: emptyStats(), codex: emptyStats() },
-    timeSeries: [],
-  };
-}
-
 export interface GatewayUsagePanelProps {
   t: TFunction;
   palette: VscodeThemePalette;
   records: TokenUsageRecord[];
-  aggregation: UsageAggregation | null;
   loading: boolean;
   onRefresh: () => void;
   onClear: () => void;
@@ -188,7 +68,6 @@ export function GatewayUsagePanel({
   t,
   palette,
   records,
-  aggregation,
   loading,
   onRefresh,
   onClear,
@@ -200,35 +79,25 @@ export function GatewayUsagePanel({
 }: GatewayUsagePanelProps) {
   const [pricingModalOpen, setPricingModalOpen] = React.useState(false);
   const [editingPricing, setEditingPricing] = React.useState<ModelPricingMap>({});
-  const [trendMetric, setTrendMetric] = React.useState<TrendMetric>('tokens');
+  const [trendMetric, setTrendMetric] = React.useState<UsageTrendMetric>('tokens');
   const [appFilter, setAppFilter] = React.useState<UsageAppFilter>('all');
   const [rangeFilter, setRangeFilter] = React.useState<UsageRangeFilter>('all');
-  const autoCachedPricingRef = React.useRef('');
-  const rangeRecords = React.useMemo(() => {
-    if (rangeFilter === 'all') {
-      return records;
-    }
-    if (rangeFilter === 'today') {
-      const today = localDateKey(Date.now());
-      return records.filter((r) => localDateKey(r.ts) === today);
-    }
-    const days = rangeFilter === '7d' ? 7 : 30;
-    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
-    return records.filter((record) => {
-      const ts = Date.parse(record.ts);
-      return Number.isFinite(ts) && ts >= cutoff;
-    });
-  }, [rangeFilter, records]);
+  const rangeRecords = React.useMemo(
+    () => filterRecordsByRange(records, rangeFilter),
+    [rangeFilter, records]
+  );
+  const hasAnyRecords = records.length > 0;
+  const rangeIsEmpty = hasAnyRecords && rangeRecords.length === 0;
   const totalAggregation = React.useMemo(
-    () => aggregatePanelUsage(rangeRecords),
-    [rangeRecords]
+    () => aggregateGatewayUsage(rangeRecords) ?? (hasAnyRecords ? emptyAggregation() : null),
+    [rangeRecords, hasAnyRecords]
   );
   const filteredRecords = React.useMemo(
-    () => appFilter === 'all' ? rangeRecords : rangeRecords.filter((record) => inferRecordApp(record) === appFilter),
+    () => filterRecordsByApp(rangeRecords, appFilter),
     [appFilter, rangeRecords]
   );
   const viewAggregation = React.useMemo(
-    () => appFilter === 'all' ? totalAggregation : aggregatePanelUsage(filteredRecords),
+    () => (appFilter === 'all' ? totalAggregation : aggregateGatewayUsage(filteredRecords)),
     [appFilter, filteredRecords, totalAggregation]
   );
 
@@ -242,20 +111,6 @@ export function GatewayUsagePanel({
     }
     return detected;
   }, [customPricing, rangeRecords]);
-
-  React.useEffect(() => {
-    const missingDetected: ModelPricingMap = {};
-    for (const [modelId, price] of Object.entries(detectedPricing)) {
-      if (!hasCustomModelPrice(modelId, customPricing)) {
-        missingDetected[modelId] = price;
-      }
-    }
-    const signature = JSON.stringify(missingDetected);
-    if (signature !== '{}' && signature !== autoCachedPricingRef.current) {
-      autoCachedPricingRef.current = signature;
-      onSavePricing({ ...missingDetected, ...customPricing });
-    }
-  }, [customPricing, detectedPricing, onSavePricing]);
 
   const openPricing = React.useCallback(() => {
     setEditingPricing({ ...detectedPricing, ...customPricing });
@@ -315,30 +170,78 @@ export function GatewayUsagePanel({
       if (!matchKey) {
         continue;
       }
-        const cost = calculateCost(
-          r.model,
-          r.inputTokens,
-          r.outputTokens,
-          r.cacheReadTokens,
-          r.cacheCreationTokens,
-          customPricing,
-          { app: inferRecordApp(r) }
-        );
+      const cost = calculateCost(
+        r.model,
+        r.inputTokens,
+        r.outputTokens,
+        r.cacheReadTokens,
+        r.cacheCreationTokens,
+        customPricing,
+        { app: inferRecordApp(r) }
+      );
       map.set(matchKey, (map.get(matchKey) ?? 0) + (cost?.total ?? 0));
     }
     return viewAggregation.timeSeries.map((b) => map.get(b.key) ?? 0);
   }, [viewAggregation, filteredRecords, customPricing]);
 
+  const usageToolbar = (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+      <Space>
+        <BarChartOutlined />
+        <Text strong style={{ fontSize: 13 }}>{t('claudeCodeConfig.usageTitle')}</Text>
+      </Space>
+      <Space size={[8, 6]} wrap>
+        <Segmented
+          size="small"
+          value={rangeFilter}
+          onChange={(value) => setRangeFilter(value as UsageRangeFilter)}
+          options={[
+            { label: t('claudeCodeConfig.usageRangeToday'), value: 'today' },
+            { label: t('claudeCodeConfig.usageRange7d'), value: '7d' },
+            { label: t('claudeCodeConfig.usageRange30d'), value: '30d' },
+            { label: t('claudeCodeConfig.usageRangeAll'), value: 'all' },
+          ]}
+        />
+        <Button size="small" icon={<SettingOutlined />} onClick={openPricing}>
+          {t('claudeCodeConfig.usagePricingTitle')}
+        </Button>
+        <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={onRefresh}>
+          {t('claudeCodeConfig.usageRefresh')}
+        </Button>
+        <Button size="small" danger icon={<ClearOutlined />} onClick={onClear}>
+          {t('claudeCodeConfig.usageClear')}
+        </Button>
+      </Space>
+    </div>
+  );
+
+  if (!hasAnyRecords && !loading) {
+    return (
+      <div>
+        {usageToolbar}
+        <div style={{ textAlign: 'center', padding: 20 }}>
+          <Text type="secondary">{t('claudeCodeConfig.usageNoData')}</Text>
+        </div>
+      </div>
+    );
+  }
+
   if (!totalAggregation) {
     return (
-      <div style={{ textAlign: 'center', padding: 20 }}>
-        <Text type="secondary">{t('claudeCodeConfig.usageNoData')}</Text>
+      <div>
+        {usageToolbar}
+        <div style={{ textAlign: 'center', padding: 20 }}>
+          <Spin />
+        </div>
       </div>
     );
   }
 
   const activeAggregation = viewAggregation ?? emptyAggregation();
-  const labels = activeAggregation.timeSeries.map((b) => b.label);
+  const requestsChart = buildUsageChartSeries(activeAggregation, 'requests', t, palette);
+  const tokensChart = buildUsageChartSeries(activeAggregation, 'tokens', t, palette);
+  const costChart = buildUsageChartSeries(activeAggregation, 'cost', t, palette, costByBucket);
+  const labels = requestsChart.labels;
   const hasTrend = labels.length >= 2;
   const averageTokens = activeAggregation.totalRequests > 0
     ? activeAggregation.totalTokens / activeAggregation.totalRequests
@@ -374,51 +277,6 @@ export function GatewayUsagePanel({
     },
   ].filter((part) => part.value > 0);
   const tokenPartsTotal = tokenParts.reduce((sum, part) => sum + part.value, 0);
-
-  const requestSeries = [
-    {
-      id: 'requests',
-      label: t('claudeCodeConfig.usageChartRequests'),
-      color: '#1677ff',
-      values: activeAggregation.timeSeries.map((b) => b.requests),
-    },
-  ];
-
-  const tokenSeries = [
-    {
-      id: 'input',
-      label: t('claudeCodeConfig.usageColInput'),
-      color: '#1677ff',
-      values: activeAggregation.timeSeries.map((b) => b.inputTokens),
-    },
-    {
-      id: 'output',
-      label: t('claudeCodeConfig.usageColOutput'),
-      color: '#52c41a',
-      values: activeAggregation.timeSeries.map((b) => b.outputTokens),
-    },
-    {
-      id: 'cacheRead',
-      label: t('claudeCodeConfig.usageCacheRead'),
-      color: '#722ed1',
-      values: activeAggregation.timeSeries.map((b) => b.cacheReadTokens),
-    },
-    {
-      id: 'cacheCreate',
-      label: t('claudeCodeConfig.usageCacheCreation'),
-      color: '#fa8c16',
-      values: activeAggregation.timeSeries.map((b) => b.cacheCreationTokens),
-    },
-  ].filter((item) => item.values.some((value) => value > 0));
-
-  const costSeries = [
-    {
-      id: 'cost',
-      label: t('claudeCodeConfig.usageEstCost'),
-      color: '#fa541c',
-      values: costByBucket,
-    },
-  ];
 
   const modelColumns = [
     {
@@ -522,34 +380,20 @@ export function GatewayUsagePanel({
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
-        <Space>
-          <BarChartOutlined />
-          <Text strong style={{ fontSize: 13 }}>{t('claudeCodeConfig.usageTitle')}</Text>
-        </Space>
-        <Space size={[8, 6]} wrap>
-          <Segmented
-            size="small"
-            value={rangeFilter}
-            onChange={(value) => setRangeFilter(value as UsageRangeFilter)}
-            options={[
-              { label: t('claudeCodeConfig.usageRangeToday'), value: 'today' },
-              { label: t('claudeCodeConfig.usageRange7d'), value: '7d' },
-              { label: t('claudeCodeConfig.usageRange30d'), value: '30d' },
-              { label: t('claudeCodeConfig.usageRangeAll'), value: 'all' },
-            ]}
-          />
-          <Button size="small" icon={<SettingOutlined />} onClick={openPricing}>
-            {t('claudeCodeConfig.usagePricingTitle')}
-          </Button>
-          <Button size="small" icon={<ReloadOutlined />} loading={loading} onClick={onRefresh}>
-            {t('claudeCodeConfig.usageRefresh')}
-          </Button>
-          <Button size="small" danger icon={<ClearOutlined />} onClick={onClear}>
-            {t('claudeCodeConfig.usageClear')}
-          </Button>
-        </Space>
-      </div>
+      {usageToolbar}
+      {rangeIsEmpty ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={t('claudeCodeConfig.usageRangeEmpty')}
+          action={(
+            <Button size="small" onClick={() => setRangeFilter('all')}>
+              {t('claudeCodeConfig.usageViewAll')}
+            </Button>
+          )}
+        />
+      ) : null}
       <Segmented
         size="small"
         value={appFilter}
@@ -732,7 +576,7 @@ export function GatewayUsagePanel({
             <Segmented
               size="small"
               value={trendMetric}
-              onChange={(v) => setTrendMetric(v as TrendMetric)}
+              onChange={(v) => setTrendMetric(v as UsageTrendMetric)}
               options={[
                 { label: t('claudeCodeConfig.usageChartRequests'), value: 'requests' },
                 { label: t('claudeCodeConfig.usageChartTokens'), value: 'tokens' },
@@ -744,7 +588,7 @@ export function GatewayUsagePanel({
             <GatewayUsageChart
               title={t('claudeCodeConfig.usageChartRequests')}
               labels={labels}
-              series={requestSeries}
+              series={requestsChart.series}
               palette={palette}
             />
           ) : null}
@@ -752,7 +596,7 @@ export function GatewayUsagePanel({
             <GatewayUsageChart
               title={t('claudeCodeConfig.usageChartTokens')}
               labels={labels}
-              series={tokenSeries}
+              series={tokensChart.series}
               palette={palette}
               valueFormatter={formatTokenCount}
             />
@@ -761,7 +605,7 @@ export function GatewayUsagePanel({
             <GatewayUsageChart
               title={t('claudeCodeConfig.usageChartCost')}
               labels={labels}
-              series={costSeries}
+              series={costChart.series}
               palette={palette}
               valueFormatter={formatChartCost}
             />

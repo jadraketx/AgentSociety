@@ -637,4 +637,3 @@ class SafeModuleTester:
             }
 
 
-ScriptGenerator = SafeModuleTester

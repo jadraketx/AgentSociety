@@ -18,7 +18,7 @@
 import * as vscode from 'vscode';
 import { getBackendAccessUrl } from './runtimeConfig';
 import { fetchCompat } from './shared/fetchCompat';
-import { getSharedOutputChannel } from './shared/outputChannels';
+import { appendSharedOutputLine, OUTPUT_CHANNEL_MAIN } from './shared/outputChannels';
 
 const fetch = fetchCompat as unknown as typeof globalThis.fetch;
 
@@ -268,6 +268,7 @@ export interface CustomModulesStatusResponse {
 // ── Agent Skills 接口 ──
 
 export interface AgentSkillItem {
+  skill_id: string;
   name: string;
   description: string;
   source: string;      // "builtin" | "custom" | "env:*"
@@ -297,21 +298,17 @@ export interface AgentSkillsScanResponse {
 
 export interface AgentSkillInfoResponse {
   success: boolean;
+  skill_id: string;
   name: string;
   description: string;
   source: string;
-  enabled: boolean;
   path: string;
   script: string;
   skill_md: string;
 }
 
 export class ApiClient {
-  private outputChannel: vscode.OutputChannel;
-
-  constructor(context: vscode.ExtensionContext) {
-    this.outputChannel = getSharedOutputChannel('AI Social Scientist API');
-  }
+  constructor(_context: vscode.ExtensionContext) {}
 
   /**
    * 获取后端URL（动态从.env文件读取）
@@ -336,7 +333,7 @@ export class ApiClient {
 
   private log(message: string): void {
     const timestamp = new Date().toISOString();
-    this.outputChannel.appendLine(`[${timestamp}] ${message}`);
+    appendSharedOutputLine(OUTPUT_CHANNEL_MAIN, `[${timestamp}] [API] ${message}`);
   }
 
   /**
@@ -836,9 +833,9 @@ export class ApiClient {
     }
   }
 
-  async getAgentSkillInfo(name: string): Promise<AgentSkillInfoResponse> {
+  async getAgentSkillInfo(skillId: string): Promise<AgentSkillInfoResponse> {
     try {
-      const url = `${this.getBackendUrl()}/api/v1/agent-skills/${encodeURIComponent(name)}/info`;
+      const url = `${this.getBackendUrl()}/api/v1/agent-skills/${encodeURIComponent(skillId)}/info`;
       const response = await fetch(url);
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}: ${await response.text()}`);

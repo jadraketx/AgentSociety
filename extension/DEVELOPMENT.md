@@ -87,11 +87,14 @@ extension/
 │   ├── aiChatInvoker.ts              # AI Chat 调用器
 │   ├── portUtils.ts                  # 动态端口分配
 │   ├── workspaceManager.ts           # 工作区管理
+│   ├── aiCli/                        # CLI 供应商共享常量（webview 通过符号链接复用）
+│   │   ├── officialEndpoints.ts      # 官方端点常量与 apiKind 推断
+│   │   ├── providerAuth.ts           # 供应商鉴权模式推断
+│   │   └── providerPresets.ts        # 供应商预设与模型合并
 │   ├── services/                     # 服务模块
 │   │   ├── aiCliGateway.ts           # HTTP 代理核心（路由、格式转换、上游转发）
 │   │   ├── aiCliGatewayManager.ts    # 供应商生命周期、用量追踪、故障转移
 │   │   ├── aiCliGatewayUpstream.ts   # 上游供应商类型定义
-│   │   ├── aiCliOfficialEndpoints.ts # 官方端点常量与 apiKind 推断
 │   │   ├── anthropicModelMapping.ts  # Claude 角色模型名 → 供应商模型名映射
 │   │   ├── anthropicOpenAiBridge.ts  # Anthropic Messages ↔ OpenAI Chat 格式转换
 │   │   ├── backendManager.ts         # 后端进程管理
@@ -232,19 +235,20 @@ webview/configPage/
 - 动态端口分配
 - 健康检查（每 10 秒）
 - 进程 PID 管理
-- 状态栏显示服务状态和端口
-- 日志输出到专用 OutputChannel
+- 状态栏显示 Backend 端口、Gateway 路由与 LLM 验证状态
+- 日志输出到 ``AI Social Scientist Backend`` 输出通道（主通道 ``AI Social Scientist`` 承载其余子系统日志）
 
 #### 端口与状态检测逻辑
 
 - **端口来源**：工作区 `.env` 的 `BACKEND_PORT`
 - **插件启动后端**：若 `BACKEND_PORT` 可用就使用；若被占用则自动分配可用端口，并写回 `.env`
 - **手动启动后端**：插件不会扫描端口；只会按 `.env` 的 `BACKEND_PORT` 进行 `/health` 检测与连接
+- **通知去重**：配置页内「保存并启动后端」使用静默启动，仅在 Webview 内提示；命令面板/状态栏启动则显示单条 Toast
 
-#### 后端状态查询命令
+#### 后端状态查询
 
-- `aiSocialScientist.showBackendStatus`：弹出信息提示（用于交互提示）
-- `aiSocialScientist.getBackendStatus`：返回结构化状态对象（用于 Webview/配置页等需要“数据源一致”的场景）
+- `aiSocialScientist.backendStatusMenu`：状态栏菜单（启动/停止/日志/配置）
+- `aiSocialScientist.getBackendStatus`：返回结构化状态对象（Webview/配置页数据源）
 
 ### 5. 技能市场 (SkillMarketplaceProvider)
 

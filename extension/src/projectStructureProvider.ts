@@ -26,6 +26,7 @@ import * as yaml from 'js-yaml';
 import { localize } from './i18n';
 import { ApiClient } from './apiClient';
 import { WorkspaceManager } from './workspaceManager';
+import { getMainOutputChannel } from './shared/outputChannels';
 
 const IGNORED_DIR_NAMES = new Set([
   '__pycache__',
@@ -39,6 +40,7 @@ const IGNORED_DIR_NAMES = new Set([
   'virtualenv',
   '.pytest_cache',
   '.mypy_cache',
+  '.ruff_cache',
   '.ipynb_checkpoints',
   'dist',
   'out',
@@ -46,7 +48,17 @@ const IGNORED_DIR_NAMES = new Set([
   'agentsociety_data',
   'logs',
   'mineru_output',
+  '.eggs',
 ]);
+
+const CUSTOM_SKILLS_PACKAGE_FILES = new Set([
+  '__init__.py',
+  'README.md',
+  'readme.md',
+  'py.typed',
+]);
+
+const CUSTOM_SKILL_CHILD_DIRS = new Set(['scripts', 'references']);
 
 const IGNORED_FILE_NAMES = new Set([
   '.DS_Store',
@@ -74,7 +86,37 @@ function shouldHideFsEntry(entryName: string): boolean {
   if (IGNORED_DIR_NAMES.has(entryName)) {
     return true;
   }
+  if (entryName.endsWith('.egg-info')) {
+    return true;
+  }
   return false;
+}
+
+function customSkillsPackageRoot(workspacePath: string, dirPath: string): boolean {
+  return path.relative(workspacePath, dirPath).replace(/\\/g, '/') === 'custom/skills';
+}
+
+function customSkillRoot(workspacePath: string, dirPath: string): boolean {
+  return /^custom\/skills\/[^/]+$/.test(path.relative(workspacePath, dirPath).replace(/\\/g, '/'));
+}
+
+function isAgentSkillDirectory(dirPath: string): boolean {
+  return fs.existsSync(path.join(dirPath, 'SKILL.md'));
+}
+
+function shouldShowDirectoryInTree(parentDir: string, entryName: string, workspacePath: string): boolean {
+  if (shouldHideFsEntry(entryName)) {
+    return false;
+  }
+  const fullPath = path.join(parentDir, entryName);
+  if (customSkillsPackageRoot(workspacePath, parentDir)) {
+    const stat = safeStatSync(fullPath);
+    return !!stat?.isDirectory() && isAgentSkillDirectory(fullPath);
+  }
+  if (customSkillRoot(workspacePath, parentDir)) {
+    return CUSTOM_SKILL_CHILD_DIRS.has(entryName.toLowerCase());
+  }
+  return true;
 }
 
 const TREE_OPEN_AS_DOCUMENT_EXTS = new Set([
@@ -144,9 +186,19 @@ function shouldShowFileByExt(fileName: string): boolean {
 
 const CUSTOM_CODE_SUBDIR = new Set(['agents', 'envs']);
 
-function shouldShowFileInTreeListing(parentDir: string, fileName: string): boolean {
+function shouldShowFileInTreeListing(parentDir: string, fileName: string, workspacePath?: string): boolean {
   if (!shouldShowFileByExt(fileName)) {
     return false;
+  }
+  if (workspacePath && customSkillsPackageRoot(workspacePath, parentDir)) {
+    return false;
+  }
+  if (workspacePath && customSkillRoot(workspacePath, parentDir)) {
+    const lower = fileName.toLowerCase();
+    if (CUSTOM_SKILLS_PACKAGE_FILES.has(fileName)) {
+      return false;
+    }
+    return lower === 'skill.md' || lower.endsWith('.md');
   }
   const norm = parentDir.replace(/\\/g, '/');
   const segs = norm.split('/').filter(Boolean);
@@ -943,8 +995,9 @@ export class ProjectItem extends vscode.TreeItem {
       (isPaperArtifactType ||
         ((type === 'reportHtml' || type === 'reportMd') && !isDirectoryPath));
 
-    // Only set resourceUri for binary/media files — VSCode opens these natively
-    const mediaExts = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
+    // Only set resourceUri for binary/media files — VSCode opens these natively.
+    // PDF uses explicit vscode.open so it opens in the editor preview pane.
+    const mediaExts = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'];
     const useResourceUri =
       useThemedIcon &&
       mediaExts.includes(ext) &&
@@ -1162,7 +1215,7 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
   constructor(private context: vscode.ExtensionContext, private apiClient: ApiClient) {
     // 创建输出通道，用于显示调试日志
     // 用户可以在VSCode的"输出"面板中选择"AI Social Scientist"查看日志
-    this.outputChannel = vscode.window.createOutputChannel('AI Social Scientist');
+    this.outputChannel = getMainOutputChannel();
     this.workspaceManager = new WorkspaceManager(context);
     this.log('ProjectStructureProvider initialized');
 
@@ -1469,9 +1522,6 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
     // 清理文件监听器
     this.disposeWatcher();
 
-    // 清理输出通道
-    this.outputChannel.dispose();
-
     // 清理 Workspace Manager
     this.workspaceManager.dispose();
   }
@@ -1656,7 +1706,7 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
       if (statsOverview) {
         const statsItem = new ProjectItem(
           statsOverview.label,
-          vscode.TreeItemCollapsibleState.Collapsed,
+          vscode.TreeItemCollapsibleState.None,
           'projectStats',
           undefined
         );
@@ -2407,7 +2457,7 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
           if (stat.isFile()) {
             const allowFile = chartsDir
               ? shouldShowFileInPresentationCharts(entry)
-              : shouldShowFileInTreeListing(filePath, entry);
+              : shouldShowFileInTreeListing(filePath, entry, workspacePath);
             if (!allowFile) {
               continue;
             }
@@ -2423,6 +2473,9 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
             }
             items.push(fileItem);
           } else if (stat.isDirectory()) {
+            if (!shouldShowDirectoryInTree(filePath, entry, workspacePath)) {
+              continue;
+            }
             const dirItem = new ProjectItem(
               entry,
               vscode.TreeItemCollapsibleState.Collapsed,
@@ -2430,6 +2483,12 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
               fullPath,
             );
             dirItem.tooltip = workspaceRelativeTreeTooltip(workspacePath, fullPath);
+            if (customSkillRoot(workspacePath, filePath)) {
+              dirItem.iconPath = makeThemeIcon('folder', 'charts.blue');
+            } else if (isAgentSkillDirectory(fullPath)) {
+              dirItem.iconPath = makeThemeIcon('sparkle', 'charts.green');
+              dirItem.description = localize('projectStructure.customSkills.skillDir');
+            }
             items.push(dirItem);
           }
         }
@@ -2449,7 +2508,9 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
       const items: ProjectItem[] = [];
 
       if (fs.existsSync(customDir)) {
-        const entries = fs.readdirSync(customDir).sort((a, b) => {
+        const entries = listDirEntriesSafe(customDir)
+          .filter((entry) => !shouldHideFsEntry(entry))
+          .sort((a, b) => {
           const rank = (name: string): number => {
             const normalized = name.toLowerCase();
             if (normalized === 'agents') { return 0; }
@@ -2466,10 +2527,15 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
 
         for (const entry of entries) {
           const fullPath = path.join(customDir, entry);
-          const stat = fs.statSync(fullPath);
+          const stat = safeStatSync(fullPath);
+          if (!stat) {
+            continue;
+          }
 
           if (stat.isDirectory()) {
-            // 创建可展开的目录节点
+            if (!shouldShowDirectoryInTree(customDir, entry, workspacePath)) {
+              continue;
+            }
             const dirItem = new ProjectItem(
               entry,
               vscode.TreeItemCollapsibleState.Collapsed,
@@ -2482,9 +2548,21 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
               dirItem.resourceUri = undefined;
             }
             dirItem.tooltip = workspaceRelativeTreeTooltip(workspacePath, fullPath);
+            if (entry.toLowerCase() === 'skills') {
+              const skillCount = listDirEntriesSafe(fullPath)
+                .filter((name) => !shouldHideFsEntry(name))
+                .filter((name) => {
+                  const childPath = path.join(fullPath, name);
+                  const childStat = safeStatSync(childPath);
+                  return !!childStat?.isDirectory() && isAgentSkillDirectory(childPath);
+                }).length;
+              if (skillCount > 0) {
+                dirItem.description = localize('projectStructure.customSkills.count', skillCount);
+              }
+            }
             items.push(dirItem);
           } else if (stat.isFile()) {
-            if (!shouldShowFileInTreeListing(customDir, entry)) {
+            if (!shouldShowFileInTreeListing(customDir, entry, workspacePath)) {
               continue;
             }
             const fileItem = new ProjectItem(
@@ -3283,39 +3361,27 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
     const pendingExperiments = Math.max(totalExperiments - trackedExperiments, 0);
     const completionRate = Math.round((completedExperiments / totalExperiments) * 100);
 
-    const descriptionFull = localize(
-      'projectStructure.experimentStats.compact',
+    const descriptionShort = this.formatExperimentProgressDescription({
       completedExperiments,
       totalExperiments,
       completionRate,
       runningExperiments,
       failedExperiments,
-      pendingExperiments
-    );
-
-    const allClear =
-      runningExperiments === 0 &&
-      failedExperiments === 0 &&
-      pendingExperiments === 0 &&
-      unknownExperiments === 0 &&
-      completedExperiments === totalExperiments &&
-      totalExperiments > 0;
-    const descriptionShort = allClear
-      ? localize(
-        'projectStructure.experimentStats.allDone',
-        completedExperiments,
-        totalExperiments
-      )
-      : localize(
-        'projectStructure.experimentStats.short',
-        completedExperiments,
-        totalExperiments,
-        completionRate
-      );
+      pendingExperiments,
+      unknownExperiments,
+    });
 
     const tooltipLines: string[] = [
       localize('projectStructure.experimentStats.tooltipTitle'),
-      descriptionFull,
+      localize(
+        'projectStructure.experimentStats.compact',
+        completedExperiments,
+        totalExperiments,
+        completionRate,
+        runningExperiments,
+        failedExperiments,
+        pendingExperiments
+      ),
       localize('projectStructure.experimentStats.completionRate', completionRate),
       localize('projectStructure.experimentStats.seeTopicHint'),
     ];
@@ -3334,6 +3400,37 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
       pendingExperiments,
       unknownExperiments,
     };
+  }
+
+  private formatExperimentProgressDescription(stats: {
+    completedExperiments: number;
+    totalExperiments: number;
+    completionRate: number;
+    runningExperiments: number;
+    failedExperiments: number;
+    pendingExperiments: number;
+    unknownExperiments: number;
+  }): string {
+    const barWidth = 8;
+    const filled = Math.max(0, Math.min(barWidth, Math.round((stats.completionRate / 100) * barWidth)));
+    const bar = `${'▰'.repeat(filled)}${'▱'.repeat(barWidth - filled)}`;
+    const segments = [
+      `${stats.completedExperiments}/${stats.totalExperiments}`,
+      `${bar} ${stats.completionRate}%`,
+    ];
+    if (stats.runningExperiments > 0) {
+      segments.push(localize('projectStructure.experimentStats.run', stats.runningExperiments));
+    }
+    if (stats.failedExperiments > 0) {
+      segments.push(localize('projectStructure.experimentStats.failed', stats.failedExperiments));
+    }
+    if (stats.pendingExperiments > 0) {
+      segments.push(localize('projectStructure.experimentStats.pending', stats.pendingExperiments));
+    }
+    if (stats.unknownExperiments > 0) {
+      segments.push(localize('projectStructure.experimentStats.unknown', stats.unknownExperiments));
+    }
+    return segments.join(' · ');
   }
 
   private normalizeExperimentStatus(status: unknown): 'completed' | 'running' | 'failed' | 'pending' | 'unknown' {
@@ -3465,7 +3562,7 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
   }
 
   /**
-   * 扫描自定义模块
+   * 扫描自定义模块（供后续树节点或 API 集成使用）
    */
   async scanCustomModules(): Promise<void> {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
@@ -3782,10 +3879,15 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
    * @param skillPath - Skill 目录路径
    * @param isBuiltin - 是否为内置 skill
    */
-  async openAgentSkillDoc(skillName: string, skillPath: string, isBuiltin: boolean): Promise<void> {
+  async openAgentSkillDoc(
+    skillName: string,
+    skillPath: string,
+    isBuiltin: boolean,
+    skillId?: string
+  ): Promise<void> {
     // 对于内置 skill，始终通过 API 获取内容（路径在 Python 包内，前端无法直接访问）
     if (isBuiltin) {
-      await this._openBuiltinSkillDoc(skillName);
+      await this._openBuiltinSkillDoc(skillName, skillId ?? `built-in@${skillName}`);
       return;
     }
 
@@ -3798,15 +3900,15 @@ export class ProjectStructureProvider implements vscode.TreeDataProvider<Project
     }
 
     // 如果文件不存在，也尝试通过 API 获取
-    await this._openBuiltinSkillDoc(skillName);
+    await this._openBuiltinSkillDoc(skillName, skillId ?? `custom@${skillName}`);
   }
 
   /**
    * 通过 API 获取 skill 文档内容并显示
    */
-  private async _openBuiltinSkillDoc(skillName: string): Promise<void> {
+  private async _openBuiltinSkillDoc(skillName: string, skillId: string): Promise<void> {
     try {
-      const response = await this.apiClient.getAgentSkillInfo(skillName);
+      const response = await this.apiClient.getAgentSkillInfo(skillId);
       if (response.success && response.skill_md && response.skill_md.trim()) {
         // 创建临时文件显示内容
         const tempDir = path.join(this.context.globalStorageUri.fsPath, 'skill-docs');
@@ -3886,21 +3988,21 @@ function buildPaperWorkspaceChildren(paperDir: string): ProjectItem[] {
       try {
         const data = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
         const count = Array.isArray(data) ? data.length : (data.items ? data.items.length : 0);
-        if (count > 0) {item.description = `${count} items`;}
+        if (count > 0) { item.description = `${count} items`; }
       } catch { /* ignore */ }
     }
     if (spec.name === 'claim_ledger.json') {
       try {
         const data = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
         const claims = Array.isArray(data) ? data : (data.claims ?? []);
-        if (claims.length > 0) {item.description = `${claims.length} claims`;}
+        if (claims.length > 0) { item.description = `${claims.length} claims`; }
       } catch { /* ignore */ }
     }
     if (spec.name === 'refs.bib') {
       try {
         const raw = fs.readFileSync(fullPath, 'utf-8');
         const bibItemCount = (raw.match(/^@\w+\{/gm) || []).length;
-        if (bibItemCount > 0) {item.description = `${bibItemCount} entries`;}
+        if (bibItemCount > 0) { item.description = `${bibItemCount} entries`; }
       } catch { /* ignore */ }
     }
     items.push(item);

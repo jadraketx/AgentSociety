@@ -26,17 +26,28 @@ import {
   writeClaudeConfig,
 } from './services/claudeCodeSettings';
 import { fetchProviderModels } from './services/claudeCodeModels';
-import { inferApiKindFromBaseUrl } from './services/aiCliOfficialEndpoints';
+import { inferApiKindFromBaseUrl } from './aiCli/officialEndpoints';
 import type { AiCliGatewayManager, AiCliProviderConfig } from './services/aiCliGatewayManager';
 import type { ClaudeCodeConfigValues } from './webview/configPage/claudeCodeTypes';
 import * as path from 'path';
 import { localize } from './i18n';
-import type { ConfigValues, WorkspaceInfo } from './webview/configPage/types';
+import type { ConfigValues, WorkspaceInfo, EasyPaperConfigValues } from './webview/configPage/types';
 import { EnvManager } from './envManager';
 import { LLMValidator, PythonValidator, LLMType } from './services/llmValidator';
 import { fetchCompat, createTimeoutSignal } from './shared/fetchCompat';
 import { CONFIG_PAGE_API_VALIDATE_TIMEOUT_MS } from './services/validateTimeouts';
 import { AgentsocietyWebConfigService } from './services/agentsocietyWebConfig';
+import type { ConfigHealthStatusBar } from './services/configHealthStatus';
+import {
+  discoverPythonEnvironments,
+  resolveAgentsocietyPython,
+} from './services/agentsocietyPythonResolver';
+import { ONBOARDING_KEYS } from './onboardingState';
+import { getBackendAccessUrl } from './runtimeConfig';
+import {
+  readEasyPaperConfig,
+  writeEasyPaperConfig,
+} from './services/easyPaperWorkspaceConfig';
 
 const fetch = fetchCompat as unknown as typeof globalThis.fetch;
 
@@ -46,10 +57,18 @@ const DEFAULT_LLM_MODEL = 'gpt-5.5';
 export class ConfigPageViewProvider {
   public static currentPanel: ConfigPageViewProvider | undefined;
   private static gatewayManager: AiCliGatewayManager | null = null;
+  private static configHealthStatus: ConfigHealthStatusBar | null = null;
   private static readonly viewType = 'aiSocialScientistConfigPage';
 
   public static attachGatewayManager(manager: AiCliGatewayManager): void {
     ConfigPageViewProvider.gatewayManager = manager;
+    manager.setUsageChangeListener(() => {
+      void ConfigPageViewProvider.currentPanel?._pushGatewayUsageData();
+    });
+  }
+
+  public static attachConfigHealthStatus(status: ConfigHealthStatusBar): void {
+    ConfigPageViewProvider.configHealthStatus = status;
   }
 
   private readonly _panel: vscode.WebviewPanel;
@@ -84,7 +103,10 @@ export class ConfigPageViewProvider {
     ConfigPageViewProvider.currentPanel = new ConfigPageViewProvider(panel, context);
   }
 
-  private constructor(panel: vscode.WebviewPanel, context: vscode.ExtensionContext) {
+  private constructor(
+    panel: vscode.WebviewPanel,
+    context: vscode.ExtensionContext
+  ) {
     this._panel = panel;
     this._context = context;
     this._extensionPath = context.extensionPath;
@@ -109,10 +131,14 @@ export class ConfigPageViewProvider {
         provider?: unknown;
         apiKind?: 'anthropic' | 'openai';
         pricing?: Record<string, unknown>;
+        dismissed?: boolean;
       }) => {
         switch (message.command) {
           case 'requestConfig':
             await this._sendInitialConfig();
+            break;
+          case 'requestBackendStatus':
+            await this._postOverviewStatus();
             break;
           case 'saveConfig':
             await this._handleSaveConfig((message.config || {}) as Partial<ConfigValues>);
@@ -125,6 +151,9 @@ export class ConfigPageViewProvider {
             break;
           case 'validatePython':
             await this._handleValidatePython((message.config || {}) as Partial<ConfigValues>);
+            break;
+          case 'discoverPythonEnvironments':
+            await this._handleDiscoverPythonEnvironments();
             break;
           case 'validateLiteratureSearch':
             await this._handleValidateLiteratureSearch((message.config || {}) as Partial<ConfigValues>);
@@ -231,6 +260,16 @@ export class ConfigPageViewProvider {
           case 'cancelCasdoorDeviceAuth':
             this._cancelCasdoorDeviceAuth();
             break;
+          case 'gatewayUpsertWebImportProvider':
+            await this._handleGatewayUpsertWebImportProvider(
+              message.provider as Partial<AiCliProviderConfig> | undefined
+            );
+            break;
+          case 'saveEasyPaperConfig':
+            await this._handleSaveEasyPaperConfig(
+              message.config as EasyPaperConfigValues | undefined
+            );
+            break;
           case 'openUrl':
             if (message.url) {
               await vscode.env.openExternal(vscode.Uri.parse(message.url));
@@ -282,7 +321,7 @@ export class ConfigPageViewProvider {
 
     this._panel.webview.postMessage({
       command: 'initialConfig',
-      config: configValues
+      config: configValues,
     });
 
     this._panel.webview.postMessage({
@@ -291,11 +330,43 @@ export class ConfigPageViewProvider {
     });
 
     await this._sendClaudeInitialConfig();
+    await this._sendEasyPaperInitialConfig();
     await this._postOverviewStatus();
+    await this._handleDiscoverPythonEnvironments();
   }
 
-  public navigateToAdvancedTab(tab: 'models' | 'python' | 'literature' | 'claude'): void {
+  private async _handleDiscoverPythonEnvironments(): Promise<void> {
+    try {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      const envConfig = this._envManager.readEnv();
+      const environments = discoverPythonEnvironments({
+        configuredPath: envConfig.pythonPath,
+        workspacePath: workspaceFolder?.uri.fsPath,
+        extensionPath: this._context.extensionPath,
+      });
+      this._panel.webview.postMessage({
+        command: 'pythonEnvironmentsResult',
+        environments,
+      });
+    } catch (error) {
+      this._panel.webview.postMessage({
+        command: 'pythonEnvironmentsResult',
+        environments: [],
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  public navigateToAdvancedTab(tab: 'models' | 'python' | 'literature' | 'claude' | 'easypaper'): void {
     this._panel.webview.postMessage({ command: 'navigateAdvanced', tab });
+  }
+
+  public refreshBackendStatus(): void {
+    void this._postOverviewStatus();
+  }
+
+  public static refreshBackendStatusIfOpen(): void {
+    void ConfigPageViewProvider.currentPanel?.refreshBackendStatus();
   }
 
   private async _sendClaudeInitialConfig(): Promise<void> {
@@ -364,6 +435,7 @@ export class ConfigPageViewProvider {
   ): Promise<void> {
     const result = await fetchProviderModels(baseUrl, apiKey, apiKind);
     if (result.ok) {
+      const normalizedBaseUrl = baseUrl.trim().replace(/\/+$/, '');
       if (providerId && providerId !== '__new__' && ConfigPageViewProvider.gatewayManager) {
         const provider = ConfigPageViewProvider.gatewayManager
           .getProviders()
@@ -382,7 +454,7 @@ export class ConfigPageViewProvider {
         models: result.models,
         providerId,
         apiKind: result.apiKind,
-        baseUrl,
+        baseUrl: normalizedBaseUrl,
       });
       return;
     }
@@ -437,7 +509,18 @@ export class ConfigPageViewProvider {
       model: provider.model,
       sonnetModel: provider.sonnetModel,
       opusModel: provider.opusModel,
+      fableModel: provider.fableModel,
       haikuModel: provider.haikuModel,
+      sonnetDisplayName: provider.sonnetDisplayName,
+      opusDisplayName: provider.opusDisplayName,
+      fableDisplayName: provider.fableDisplayName,
+      haikuDisplayName: provider.haikuDisplayName,
+      declareSonnet1m: provider.declareSonnet1m,
+      declareOpus1m: provider.declareOpus1m,
+      declareFable1m: provider.declareFable1m,
+      codexEnable1m: provider.codexEnable1m,
+      codexContextWindow: provider.codexContextWindow,
+      codexAutoCompactLimit: provider.codexAutoCompactLimit,
       permissionMode: provider.permissionMode,
     });
     await this._postProvidersAndActiveConfig();
@@ -526,15 +609,15 @@ export class ConfigPageViewProvider {
     apiKey: string,
     apiKind?: 'anthropic' | 'openai'
   ): Promise<void> {
-    const manager = ConfigPageViewProvider.gatewayManager;
-    if (!manager) {
-      return;
-    }
-    const result = await manager.checkProviderAvailability(baseUrl, apiKey, apiKind);
+    const normalized = baseUrl.trim().replace(/\/+$/, '');
+    const result = await fetchProviderModels(normalized, apiKey, apiKind);
+    const availability = result.ok
+      ? { ok: true as const, models: result.models.length, apiKind: result.apiKind }
+      : { ok: false as const, models: 0, error: result.error };
     this._panel.webview.postMessage({
       command: 'gatewayCheckProviderResult',
-      baseUrl,
-      result,
+      baseUrl: normalized,
+      result: availability,
     });
   }
 
@@ -545,7 +628,9 @@ export class ConfigPageViewProvider {
       return;
     }
     await manager.persistUsage();
-    const records = await manager.getPersistedUsage();
+    const persisted = await manager.getPersistedUsage();
+    const session = manager.getSessionUsage();
+    const records = session.length > 0 ? [...persisted, ...session] : persisted;
     const { aggregateUsage } = await import('./services/gatewayUsageTracker');
     const aggregation = aggregateUsage(records);
     this._panel.webview.postMessage({
@@ -553,6 +638,13 @@ export class ConfigPageViewProvider {
       records,
       aggregation,
     });
+  }
+
+  async _pushGatewayUsageData(): Promise<void> {
+    if (!this._panel) {
+      return;
+    }
+    await this._handleGatewayGetUsage();
   }
 
   private async _handleGatewayClearUsage(): Promise<void> {
@@ -722,6 +814,8 @@ export class ConfigPageViewProvider {
         command: 'webConfigImported',
         config: imported.config,
         claudeConfig: imported.claudeConfig,
+        easyPaperConfig: imported.easyPaperConfig,
+        gatewayProvider: imported.gatewayProvider,
         modelOptions: imported.modelOptions,
         defaults: imported.defaults,
         authPath: imported.authPath,
@@ -749,6 +843,79 @@ export class ConfigPageViewProvider {
     }
   }
 
+  private async _handleGatewayUpsertWebImportProvider(
+    provider: Partial<AiCliProviderConfig> | undefined
+  ): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager || !provider?.name?.trim() || !provider.baseUrl?.trim() || !provider.apiKey?.trim()) {
+      return;
+    }
+    await manager.upsertImportedGatewayProvider({
+      name: provider.name.trim(),
+      baseUrl: provider.baseUrl.trim(),
+      apiKey: provider.apiKey.trim(),
+      apiKind: provider.apiKind,
+      model: provider.model,
+      sonnetModel: provider.sonnetModel,
+      opusModel: provider.opusModel,
+      fableModel: provider.fableModel,
+      haikuModel: provider.haikuModel,
+      sonnetDisplayName: provider.sonnetDisplayName,
+      opusDisplayName: provider.opusDisplayName,
+      fableDisplayName: provider.fableDisplayName,
+      haikuDisplayName: provider.haikuDisplayName,
+      declareSonnet1m: provider.declareSonnet1m,
+      declareOpus1m: provider.declareOpus1m,
+      declareFable1m: provider.declareFable1m,
+      codexEnable1m: provider.codexEnable1m,
+    });
+    await this._postProvidersAndActiveConfig();
+    await this._postGatewayStatus();
+  }
+
+  private async _sendEasyPaperInitialConfig(): Promise<void> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+      this._panel.webview.postMessage({ command: 'initialEasyPaperConfig', config: undefined });
+      return;
+    }
+    const configPath = path.join(workspaceFolder.uri.fsPath, 'easypaper_config.yaml');
+    const config = readEasyPaperConfig(configPath);
+    this._panel.webview.postMessage({ command: 'initialEasyPaperConfig', config });
+  }
+
+  private async _handleSaveEasyPaperConfig(config: EasyPaperConfigValues | undefined): Promise<void> {
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    if (!workspaceFolder) {
+      this._panel.webview.postMessage({
+        command: 'easyPaperSaveResult',
+        success: false,
+        error: 'No workspace open',
+      });
+      return;
+    }
+    if (!config) {
+      this._panel.webview.postMessage({
+        command: 'easyPaperSaveResult',
+        success: false,
+        error: 'Missing EasyPaper config',
+      });
+      return;
+    }
+    try {
+      const configPath = path.join(workspaceFolder.uri.fsPath, 'easypaper_config.yaml');
+      writeEasyPaperConfig(configPath, config);
+      this._panel.webview.postMessage({ command: 'easyPaperSaveResult', success: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this._panel.webview.postMessage({
+        command: 'easyPaperSaveResult',
+        success: false,
+        error: message,
+      });
+    }
+  }
+
   private async _postOverviewStatus(): Promise<void> {
     const backendStatus = await this._getBackendStatus();
     this._panel.webview.postMessage({
@@ -762,26 +929,29 @@ export class ConfigPageViewProvider {
    * 获取后端状态信息
    */
   private async _getBackendStatus(): Promise<{ isRunning: boolean; port?: number; url?: string }> {
+    const envConfig = this._envManager.readEnv();
+    const fallbackUrl = getBackendAccessUrl(envConfig);
+
     try {
-      const status = await vscode.commands.executeCommand<{ isRunning: boolean; port?: number }>('aiSocialScientist.getBackendStatus');
-      if (status && status.isRunning && status.port) {
+      const status = await vscode.commands.executeCommand<{ isRunning: boolean; port?: number }>(
+        'aiSocialScientist.getBackendStatus'
+      );
+      if (status?.isRunning) {
+        const port = status.port ?? envConfig.backendPort ?? 8001;
         return {
           isRunning: true,
-          port: status.port,
-          url: `http://localhost:${status.port}`
+          port,
+          url: getBackendAccessUrl({ ...envConfig, backendPort: port }),
         };
       }
     } catch {
       // 命令不存在或执行失败，忽略
     }
 
-    // 尝试从 .env 文件获取端口配置
-    const envConfig = this._envManager.readEnv();
-    const configuredPort = envConfig.backendPort ?? 8001;
     return {
       isRunning: false,
-      port: configuredPort,
-      url: `http://localhost:${configuredPort}`
+      port: envConfig.backendPort ?? 8001,
+      url: fallbackUrl,
     };
   }
 
@@ -799,17 +969,21 @@ export class ConfigPageViewProvider {
     }
   }
 
+
   private async _handleStartBackend(config: Partial<ConfigValues>): Promise<void> {
     try {
-      // 确保配置已保存
       await this._saveConfigInternal(config);
 
-      // 启动后端服务
-      const success = await vscode.commands.executeCommand<boolean>('aiSocialScientist.startBackend');
+      const success = await vscode.commands.executeCommand<boolean>(
+        'aiSocialScientist.startBackend',
+        { silent: true }
+      );
+
+      await this._postOverviewStatus();
 
       this._panel.webview.postMessage({
         command: 'startBackendResult',
-        success: success !== false,
+        success: success === true,
       });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
@@ -847,8 +1021,10 @@ export class ConfigPageViewProvider {
       literatureSearchApiKey: config.literatureSearchApiKey,
     });
 
-    // 标记已完成初始配置
-    await this._context.globalState.update('configPage.hasCompletedInitialSetup', true);
+    const llmKey = (config.llmApiKey ?? '').trim();
+    if (llmKey) {
+      await this._context.globalState.update(ONBOARDING_KEYS.hasCompletedInitialSetup, true);
+    }
   }
 
   /**
@@ -892,6 +1068,14 @@ export class ConfigPageViewProvider {
 
     const result = await validator.validate({ apiKey, apiBase, model }, validationType);
 
+    if (llmType === 'default') {
+      ConfigPageViewProvider.configHealthStatus?.updateFromValidation(
+        result.success,
+        model,
+        result.error
+      );
+    }
+
     this._panel.webview.postMessage({
       command: 'validationResult',
       llmType,
@@ -905,7 +1089,13 @@ export class ConfigPageViewProvider {
    */
   private async _handleValidatePython(config: Partial<ConfigValues>): Promise<void> {
     const validator = new PythonValidator();
-    const pythonPath = config.pythonPath || '';
+    const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+    const resolved = resolveAgentsocietyPython({
+      configuredPath: config.pythonPath,
+      workspacePath: workspaceFolder?.uri.fsPath,
+      extensionPath: this._context.extensionPath,
+    });
+    const pythonPath = config.pythonPath?.trim() || resolved || '';
 
     const result = await validator.validate({ pythonPath });
 

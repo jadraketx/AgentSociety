@@ -11,7 +11,7 @@ from agentsociety2.backend.services.custom.models import (
     ValidationCheck,
 )
 from agentsociety2.backend.services.custom.scanner import CustomModuleScanner
-from agentsociety2.backend.services.custom.script_generator import ScriptGenerator
+from agentsociety2.backend.services.custom.script_generator import SafeModuleTester
 
 __all__ = [
     "AGENT_COMPATIBILITY_RULES",
@@ -20,6 +20,6 @@ __all__ = [
     "CustomModuleJsonGenerator",
     "CustomModuleScanner",
     "ScanDiagnostic",
-    "ScriptGenerator",
+    "SafeModuleTester",
     "ValidationCheck",
 ]

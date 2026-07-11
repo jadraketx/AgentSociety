@@ -70,4 +70,4 @@
 | 扫描/测试自定义模块 | 项目树 → 自定义模块 |
 | 查看结果 | 实验目录右键打开回放 |
 
-[启动后端](command:aiSocialScientist.startBackend) | [查看日志](command:aiSocialScientist.showBackendLogs) | [查看后端状态](command:aiSocialScientist.showBackendStatus)
+[启动后端](command:aiSocialScientist.startBackend) | [查看日志](command:aiSocialScientist.showBackendLogs) | [后端菜单](command:aiSocialScientist.backendStatusMenu)

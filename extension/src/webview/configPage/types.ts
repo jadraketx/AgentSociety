@@ -66,9 +66,22 @@ export interface ImportedModelDefaults {
   claudeCodeSonnet: string;
   claudeCodeOpus: string;
   claudeCodeHaiku: string;
+  claudeCodeSonnet1m?: string;
+  claudeCodeOpus1m?: string;
+  easyPaperVlm: string;
 }
 
 export interface OverviewStatusMessage {
   backendStatus: BackendStatus;
   claudeCodeCustomized?: boolean;
+}
+
+export interface EasyPaperConfigValues {
+  llmModelName: string;
+  llmApiKey: string;
+  llmBaseUrl: string;
+  vlmEnabled: boolean;
+  vlmModel: string;
+  vlmApiKey: string;
+  vlmBaseUrl: string;
 }

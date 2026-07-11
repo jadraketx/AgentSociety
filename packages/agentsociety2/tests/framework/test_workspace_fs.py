@@ -20,7 +20,8 @@ async def test_workspace_fs_file_ops_and_grep(tmp_path):
         ("state/a.txt", 3),
     ]
 
-    assert fs.delete("state/a.txt").ok
+    result = fs.delete("state/a.txt")
+    assert result.ok
     assert not fs.exists("state/a.txt")
 
 

@@ -52,19 +52,27 @@ AI Social Scientist 是 LLM 驱动的智能自主社会科学研究智能体，�
 
 3. **配置（推荐：在插件内完成）**
 
-   启动扩展后，使用命令 **「AI Social Scientist: 打开配置」** 打开统一配置页：
+   启动扩展后，使用命令 **「AI Social Scientist: 打开配置」** 打开统一配置页。
 
-   - **默认 LLM**（必填）：API Key / API Base / Model
-   - **高级配置**：专用模型（Coder / Embedding）、Python 环境、学术文献检索（MCP）、Claude Code & Codex 网关路由
-   - 顶部概览卡片显示后端与各项验证状态；点击「高级配置」可一键验证
+   **首次进入工作区**时，扩展会自动打开配置页并显示 **5 步配置向导**（不会叠加额外的欢迎 Toast）：
 
-   配置写入**当前工作区**的 `.env`（常见路径 `agentsociety/.env`）。
+   | 步骤 | 内容 | 必填 |
+   | ---- | ---- | ---- |
+   | 1 仿真 LLM | API Key / Base / Model，验证通过后自动进入下一步 | 是 |
+   | 2 保存配置 | 摘要确认并写入工作区 `.env` | 是 |
+   | 3 启动后端 | Python 环境检测与「保存并启动后端」 | 是 |
+   | 4 文献检索 | MCP 网关与 API Key | 否（可跳过） |
+   | 5 CLI 网关 | Claude / Codex 本地 AI Gateway 路由 | 否（可跳过） |
 
-   Claude Code 与 Codex 网关配置通过 **「AI Social Scientist: Claude Code 配置（配置页）」** 直接打开同一页面的 Claude / Codex 路由面板。
+   向导可随时通过页内「退出向导」切换为完整配置页；退出状态会保存在扩展全局状态中。
 
-   你也可以直接打开帮助页（命令 **「AI Social Scientist: 使用指南」**）查看快速入门。
+   **高级配置**（非向导模式）：专用模型（Coder / Embedding）、Python 环境、学术文献检索、Claude Code & Codex 网关路由。顶部概览卡片显示后端与各项验证状态。
 
-4. **启动后端服务（推荐：状态栏一键）**
+   配置写入**当前工作区**的 `.env`（常见路径 `agentsociety/.env`）。扩展默认启用 `python.terminal.useEnvFile`，以便集成终端自动加载 `.env`。
+
+   也可运行 **「AI Social Scientist: 打开快速入门」** 查看 VS Code Walkthrough（中英文随界面语言切换）。
+
+4. **启动后端服务（推荐：配置向导或状态栏）**
 
    建议正常启动后端，这样 Agent 技能管理、模块探测与预填参数、自定义模块扫描/测试、回放 API、API 文档等能力都能直接使用。若后端暂未启动，你仍然可以编辑实验配置、查看本地文件、整理文献索引，或通过 CLI / Claude Code 按工作区配置运行实验。
 
@@ -73,9 +81,10 @@ AI Social Scientist 是 LLM 驱动的智能自主社会科学研究智能体，�
    uv run python -m agentsociety2.backend.run
    ```
 
-   更推荐在 VSCode 内点击状态栏 Backend 图标，或运行命令 **“AI Social Scientist: 后端状态菜单”** 进行启动/停止/查看日志。
+   更推荐在配置向导第 3 步点击「保存并启动后端」，或在 VSCode 内点击状态栏 Backend 图标 / 运行命令 **「AI Social Scientist: 后端状态菜单」** 进行启动/停止/查看日志。
 
    - 插件启动后端时会**优先使用工作区 `.env` 的 `BACKEND_PORT`**；若端口占用，会**自动选择一个可用端口**并写回 `.env`。
+   - 从配置页启动后端时，错误与成功提示仅在配置页内显示，避免与命令层 Toast 重复。
    - 如果你是**在终端手动启动**后端，请确保工作区 `.env` 中的 `BACKEND_PORT=port`，插件才会按该端口进行健康检查与连接。
 
 5. **调试插件**
@@ -125,7 +134,9 @@ workspace/
 - **统一供应商池**：新建供应商按“连接与认证 → 用途 → 模型映射”填写；可直接勾选设为 Claude Code / Codex 主供应商
 - **自动协议检测**：点击检测或获取模型后，网关通过 `/models` 自动识别 Chat/Responses 或 Messages，无需用户手动区分接口类型
 - **自动格式转换**：支持 Anthropic Messages、OpenAI Chat Completions、OpenAI Responses 之间的转换，覆盖流式与非流式响应；文本、system/instructions、工具定义、工具调用/结果、temperature、top_p、max tokens 与 usage 已有回归测试
-- **模型映射**：自动将 Claude 角色模型名（sonnet/opus/haiku/fable）映射为供应商模型名，剥离 `[1M]` 等本地标记
+- **模型映射**：按角色（sonnet/opus/haiku）映射供应商模型；支持 1M 长上下文专用映射与 Codex `model_catalog_json` 生成
+- **Codex 策略**：自动为不支持 `web_search` 的国产网关写入禁用配置；1M 上下文通过 catalog 的 `context_window` 生效
+- **运行态监控**：活跃连接、总请求、成功率、运行时长；Failover 上游健康状态
 - **故障转移**：支持多供应商优先级排序和断路器保护，失败后自动切换
 - **用量追踪**：按天展示请求趋势，区分 Claude 与 Codex 来源，支持 7/30/全部 天筛选
 - **成本估算**：内置 + 远程 + 自定义模型定价，缓存读写费用独立计算
@@ -149,10 +160,20 @@ workspace/
 
 ### 后端服务管理
 
-- 状态栏实时显示服务状态和端口
-- 一键启动/停止/重启
-- 快速打开 API 文档
-- 复制服务 URL
+- 状态栏显示 **Backend**（端口）、**Gateway**（路由/成功率）、**LLM**（验证通过时显示模型名）
+- 工作区导出 ZIP 位于项目树标题栏，不在状态栏
+- 一键启动/停止/重启（停止时若本无进程则不弹 Toast）
+- 快速打开 API 文档与复制服务 URL
+
+### 输出通道
+
+扩展合并为 3 个输出通道，子系统日志带前缀区分：
+
+| 通道 | 内容 |
+| ---- | ---- |
+| **AI Social Scientist** | 主通道：`[API]` `[Chat]` `[Export]` 等 |
+| **AI Social Scientist Backend** | FastAPI 后端进程 stdout/stderr |
+| **AI CLI Gateway** | Claude / Codex 本地代理请求日志 |
 
 建议在日常使用中启动后端，获得完整插件体验。需要本地 API 的交互功能依赖后端，例如 Agent 运行时技能管理、模块探测与预填参数、自定义模块扫描/测试、回放 Webview 和 API 文档。本地文件类能力不依赖后端，例如项目树浏览、Markdown/PDF/CSV/图片打开、配置文件编辑、文献索引预览、工作区导出。实验本身也可以由 AgentSociety2 CLI 或 Claude Code 在工作区中直接运行；此时关键依赖是 `.env`、Python 环境和实验配置。
 
@@ -172,13 +193,13 @@ workspace/
 
 工作区 `.env` 主要项（完整列表见 [ReadTheDocs](https://agentsociety2.readthedocs.io/zh_CN/latest/) 或配置页）：
 
-| 变量 | 说明 |
-| ---- | ---- |
-| `AGENTSOCIETY_LLM_API_KEY` / `_BASE` / `_MODEL` | 默认 LLM（必填） |
-| `LITERATURE_SEARCH_MCP_URL` | 学术文献检索 MCP 网关，如 `https://llmapi.fiblab.net/mcp/` |
-| `LITERATURE_SEARCH_API_KEY` | 文献 MCP 鉴权 Key |
-| `PYTHON_PATH` | Python 解释器（留空则自动检测） |
-| `BACKEND_PORT` | 本地后端端口 |
+| 变量                                            | 说明                                                       |
+| ----------------------------------------------- | ---------------------------------------------------------- |
+| `AGENTSOCIETY_LLM_API_KEY` / `_BASE` / `_MODEL` | 默认 LLM（必填）                                           |
+| `LITERATURE_SEARCH_MCP_URL`                     | 学术文献检索 MCP 网关，如 `https://llmapi.fiblab.net/mcp/` |
+| `LITERATURE_SEARCH_API_KEY`                     | 文献 MCP 鉴权 Key                                          |
+| `PYTHON_PATH`                                   | Python 解释器（留空则自动检测）                            |
+| `BACKEND_PORT`                                  | 本地后端端口                                               |
 
 Claude Code / Codex 的供应商、API Key、Base URL、用途开关和模型映射在配置页 **高级 → Claude / Codex 路由** 中统一管理。新增供应商时可选择预设或自定义 URL，勾选“设为 Claude Code 主供应商”和/或“设为 Codex 主供应商”；协议类型无需手动选择，点击“检测”或“获取模型”后会自动识别并写入内部缓存。
 
@@ -280,6 +301,10 @@ nvm use
 - VSCode Extension API
 
 ## 故障排除
+
+### 首次启动弹窗过多
+
+若已完成向导或 `.env` 中已有 `AGENTSOCIETY_LLM_API_KEY`，扩展不会自动打开配置页，也不会显示欢迎 Toast。未完成配置时仅自动打开配置页 + 页内向导，不叠加第三条通知。
 
 ### 后端连接问题
 
