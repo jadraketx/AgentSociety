@@ -176,6 +176,8 @@ PUBLISH_CHECKLIST.md
 profiles.json
 *.json
 !extension/package-lock.json
+!extension/package.nls.json
+!extension/package.nls.en.json
 !frontend/package-lock.json
 *.jsonl
 
