@@ -16,6 +16,14 @@ Git 发版标签：`agentsociety2-v{major}.{minor}.{patch}`（见 `CONTRIBUTING.
 
 <!-- 暂无待发布变更 -->
 
+## [2.8.1] - 2026-07-12
+
+- **agentsociety2** `2.8.1` · **extension** `1.6.1` · 标签 `agentsociety2-v2.8.1`
+
+### Fixed
+
+- **extension**：修复 walkthrough 无法打开（`%walkthrough.media.*%` 占位符未解析）；将 `package.nls.json` / `package.nls.en.json` 纳入版本库并打包进 VSIX。
+
 ## [2.8.0] - 2026-07-12
 
 - **agentsociety2** `2.8.0` · **extension** `1.6.0` · 标签 `agentsociety2-v2.8.0`
