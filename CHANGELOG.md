@@ -16,6 +16,14 @@ Git 发版标签：`agentsociety2-v{major}.{minor}.{patch}`（见 `CONTRIBUTING.
 
 <!-- 暂无待发布变更 -->
 
+## [2.8.2] - 2026-07-12
+
+- **agentsociety2** `2.8.2` · **extension** `1.6.2` · 标签 `agentsociety2-v2.8.2`
+
+### Fixed
+
+- **extension**：walkthrough `media.markdown` 改为直接相对路径，不再使用 `%walkthrough.media.*%` 占位符（code-server / VS Code 对该字段的 NLS 替换不可靠）。
+
 ## [2.8.1] - 2026-07-12
 
 - **agentsociety2** `2.8.1` · **extension** `1.6.1` · 标签 `agentsociety2-v2.8.1`

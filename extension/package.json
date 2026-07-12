@@ -2,7 +2,7 @@
   "name": "ai-social-scientist",
   "displayName": "AI Social Scientist",
   "description": "AI Social Scientist - Next-generation human-AI interaction interface for social science research",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "publisher": "tsinghua-fib-lab",
   "repository": {
     "type": "git",
@@ -66,7 +66,7 @@
             "title": "%walkthrough.step.welcome.title%",
             "description": "%walkthrough.step.welcome.description%",
             "media": {
-              "markdown": "%walkthrough.media.welcome%"
+              "markdown": "resources/walkthrough/zh-CN/01-welcome.md"
             }
           },
           {
@@ -74,7 +74,7 @@
             "title": "%walkthrough.step.openSidebar.title%",
             "description": "%walkthrough.step.openSidebar.description%",
             "media": {
-              "markdown": "%walkthrough.media.openSidebar%"
+              "markdown": "resources/walkthrough/zh-CN/02-open-sidebar.md"
             },
             "completionEvents": [
               "onView:projectStructureView"
@@ -85,7 +85,7 @@
             "title": "%walkthrough.step.initProject.title%",
             "description": "%walkthrough.step.initProject.description%",
             "media": {
-              "markdown": "%walkthrough.media.initProject%"
+              "markdown": "resources/walkthrough/zh-CN/03-init-project.md"
             },
             "completionEvents": [
               "onCommand:aiSocialScientist.initProject"
@@ -96,7 +96,7 @@
             "title": "%walkthrough.step.configureApi.title%",
             "description": "%walkthrough.step.configureApi.description%",
             "media": {
-              "markdown": "%walkthrough.media.configureApi%"
+              "markdown": "resources/walkthrough/zh-CN/04-configure-api.md"
             },
             "completionEvents": [
               "onCommand:aiSocialScientist.openConfigPage"
@@ -107,7 +107,7 @@
             "title": "%walkthrough.step.startBackend.title%",
             "description": "%walkthrough.step.startBackend.description%",
             "media": {
-              "markdown": "%walkthrough.media.startBackend%"
+              "markdown": "resources/walkthrough/zh-CN/05-start-backend.md"
             },
             "completionEvents": [
               "onCommand:aiSocialScientist.startBackend"
@@ -118,7 +118,7 @@
             "title": "%walkthrough.step.exploreSkills.title%",
             "description": "%walkthrough.step.exploreSkills.description%",
             "media": {
-              "markdown": "%walkthrough.media.exploreSkills%"
+              "markdown": "resources/walkthrough/zh-CN/06-explore-skills.md"
             },
             "completionEvents": [
               "onCommand:aiSocialScientist.openSkillMarketplace"
@@ -129,7 +129,7 @@
             "title": "%walkthrough.step.claudeCode.title%",
             "description": "%walkthrough.step.claudeCode.description%",
             "media": {
-              "markdown": "%walkthrough.media.claudeCode%"
+              "markdown": "resources/walkthrough/zh-CN/07-claude-code.md"
             },
             "completionEvents": [
               "onCommand:aiSocialScientist.openClaudeSkillSourcesSettings"
@@ -140,7 +140,7 @@
             "title": "%walkthrough.step.nextSteps.title%",
             "description": "%walkthrough.step.nextSteps.description%",
             "media": {
-              "markdown": "%walkthrough.media.nextSteps%"
+              "markdown": "resources/walkthrough/zh-CN/08-next-steps.md"
             },
             "completionEvents": [
               "onCommand:aiSocialScientist.openChat",
@@ -153,7 +153,7 @@
             "title": "%walkthrough.step.glossary.title%",
             "description": "%walkthrough.step.glossary.description%",
             "media": {
-              "markdown": "%walkthrough.media.glossary%"
+              "markdown": "resources/walkthrough/zh-CN/09-glossary.md"
             }
           }
         ]

@@ -19,17 +19,6 @@
   "walkthrough.step.nextSteps.description": "了解更多功能，包括模拟回放、Chat 对话等进阶用法。",
   "walkthrough.step.glossary.title": "术语附录",
   "walkthrough.step.glossary.description": "集中解释 AgentSociety²、Agent、Skill、MCP 等关键概念。",
-
-  "walkthrough.media.welcome": "resources/walkthrough/zh-CN/01-welcome.md",
-  "walkthrough.media.openSidebar": "resources/walkthrough/zh-CN/02-open-sidebar.md",
-  "walkthrough.media.initProject": "resources/walkthrough/zh-CN/03-init-project.md",
-  "walkthrough.media.configureApi": "resources/walkthrough/zh-CN/04-configure-api.md",
-  "walkthrough.media.startBackend": "resources/walkthrough/zh-CN/05-start-backend.md",
-  "walkthrough.media.exploreSkills": "resources/walkthrough/zh-CN/06-explore-skills.md",
-  "walkthrough.media.claudeCode": "resources/walkthrough/zh-CN/07-claude-code.md",
-  "walkthrough.media.nextSteps": "resources/walkthrough/zh-CN/08-next-steps.md",
-  "walkthrough.media.glossary": "resources/walkthrough/zh-CN/09-glossary.md",
-
   "command.aiSocialScientist.selectAiChatProvider.title": "AI Social Scientist: 选择 AI Chat 提供商",
   "command.aiSocialScientist.deleteLiterature.title": "AI Social Scientist: 删除文献",
   "command.aiSocialScientist.renameLiterature.title": "AI Social Scientist: 重命名文献",

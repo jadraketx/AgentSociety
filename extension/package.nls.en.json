@@ -19,17 +19,6 @@
   "walkthrough.step.nextSteps.description": "Discover more features including simulation replay, chat conversations, and other advanced usage.",
   "walkthrough.step.glossary.title": "Glossary",
   "walkthrough.step.glossary.description": "Quick reference for key concepts like AgentSociety², Agent, Skill, MCP, and more.",
-
-  "walkthrough.media.welcome": "resources/walkthrough/en/01-welcome.md",
-  "walkthrough.media.openSidebar": "resources/walkthrough/en/02-open-sidebar.md",
-  "walkthrough.media.initProject": "resources/walkthrough/en/03-init-project.md",
-  "walkthrough.media.configureApi": "resources/walkthrough/en/04-configure-api.md",
-  "walkthrough.media.startBackend": "resources/walkthrough/en/05-start-backend.md",
-  "walkthrough.media.exploreSkills": "resources/walkthrough/en/06-explore-skills.md",
-  "walkthrough.media.claudeCode": "resources/walkthrough/en/07-claude-code.md",
-  "walkthrough.media.nextSteps": "resources/walkthrough/en/08-next-steps.md",
-  "walkthrough.media.glossary": "resources/walkthrough/en/09-glossary.md",
-
   "command.aiSocialScientist.selectAiChatProvider.title": "AI Social Scientist: Select AI Chat Provider",
   "command.aiSocialScientist.deleteLiterature.title": "AI Social Scientist: Delete Literature",
   "command.aiSocialScientist.renameLiterature.title": "AI Social Scientist: Rename Literature",
