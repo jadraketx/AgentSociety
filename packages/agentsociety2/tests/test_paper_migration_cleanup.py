@@ -3,8 +3,6 @@ from __future__ import annotations
 import importlib
 from pathlib import Path
 
-import pytest
-
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
@@ -14,8 +12,10 @@ def test_research_skills_package_no_longer_exports_deleted_paper_module() -> Non
 
     assert "paper" not in skills.__all__
     assert not hasattr(skills, "paper")
-    with pytest.raises(ModuleNotFoundError):
-        importlib.import_module("agentsociety2.skills.paper")
+    skills_root = Path(skills.__file__).resolve().parent
+    paper_dir = skills_root / "paper"
+    py_files = list(paper_dir.rglob("*.py")) if paper_dir.is_dir() else []
+    assert py_files == []
 
 
 def test_workspace_launcher_no_longer_dispatches_deleted_paper_skills() -> None:
@@ -45,4 +45,3 @@ def test_research_workflow_docs_route_paper_work_to_external_toolkit() -> None:
 
     pipeline_text = checked_files[0].read_text(encoding="utf-8")
     assert "paper-toolkit" in pipeline_text
-

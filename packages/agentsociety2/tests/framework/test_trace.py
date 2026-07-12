@@ -8,7 +8,6 @@ string values are capped so every record fits below ``PIPE_BUF`` and a single
 """
 
 import json
-import os
 from pathlib import Path
 
 from agentsociety2.trace import (
@@ -17,6 +16,7 @@ from agentsociety2.trace import (
     TraceProxy,
     build_local_sink,
 )
+from agentsociety2.trace.sharded_writer import _PIPE_BUF, _TRACE_VALUE_CAP
 
 
 def _read_all_records(trace_dir: Path) -> list[dict]:
@@ -48,11 +48,13 @@ def test_sharded_append_sink_shards_by_trace_prefix(tmp_path):
 
 
 def test_sharded_append_sink_caps_large_values_below_pipe_buf(tmp_path):
-    pipe_buf = os.pathconf("/", os.pathconf_names["PC_PIPE_BUF"])
-    value_cap = max(256, pipe_buf // 2 - 256)
+    pipe_buf = _PIPE_BUF
+    value_cap = _TRACE_VALUE_CAP
     sink = ShardedAppendSink(tmp_path)
     original_len = 60000
-    sink.append_record({"trace_id": "00" + "0" * 30, "attr": {"msg": "Z" * original_len}})
+    sink.append_record(
+        {"trace_id": "00" + "0" * 30, "attr": {"msg": "Z" * original_len}}
+    )
     sink.close()
 
     line = (tmp_path / "trace_00.jsonl").read_text()

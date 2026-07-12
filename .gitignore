@@ -138,13 +138,6 @@ groundtruth/
 workspace/
 packages/agentsociety2/.chainlit/
 paper/
-# Whitelist the in-package paper skill source tree (Python module).
-!packages/agentsociety2/agentsociety2/skills/paper/
-!packages/agentsociety2/agentsociety2/skills/paper/**
-# Also whitelist for hatchling (uses package-relative paths)
-!agentsociety2/skills/paper/
-!agentsociety2/skills/paper/**
-# Re-ignore Python cache directories within the whitelist scope.
 packages/agentsociety2/agentsociety2/skills/paper/**/__pycache__/
 
 # User projects and experiments

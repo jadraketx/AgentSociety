@@ -30,7 +30,9 @@ def test_skill_registry_no_override_between_namespaces(tmp_path):
 
     assert registry.get("built-in@memory") is None
     assert registry.get("custom@memory") is not None
-    assert {item.skill_id for item in registry.find_by_name("memory")} == {"custom@memory"}
+    assert {item.skill_id for item in registry.find_by_name("memory")} == {
+        "custom@memory"
+    }
 
 
 def test_skill_registry_env_id_and_hook_metadata(tmp_path):
@@ -86,10 +88,10 @@ def test_skill_registry_resource_files_include_root_and_all_folders(tmp_path):
     descriptor = registry.get("custom@wide")
     assert descriptor is not None
     assert descriptor.resource_files() == [
-        "README.md",
-        "SKILL.md",
         "assets/schemas/state.json",
+        "README.md",
         "scripts/run.py",
+        "SKILL.md",
     ]
 
 

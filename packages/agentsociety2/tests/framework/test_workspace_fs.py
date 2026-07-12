@@ -1,4 +1,5 @@
 import pytest
+import shutil
 
 from agentsociety2.agent.base.workspace_fs import WorkspaceFS
 
@@ -23,6 +24,19 @@ async def test_workspace_fs_file_ops_and_grep(tmp_path):
     result = fs.delete("state/a.txt")
     assert result.ok
     assert not fs.exists("state/a.txt")
+
+
+@pytest.mark.asyncio
+async def test_workspace_fs_grep_python_fallback(tmp_path, monkeypatch):
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    fs = WorkspaceFS(tmp_path)
+    fs.write_text("state/a.txt", "hello\nworld\nhello again\n")
+
+    matches = await fs.grep("hello", "state")
+    assert [(item.path, item.line) for item in matches] == [
+        ("state/a.txt", 1),
+        ("state/a.txt", 3),
+    ]
 
 
 def test_workspace_fs_path_escape_without_size_limit(tmp_path):

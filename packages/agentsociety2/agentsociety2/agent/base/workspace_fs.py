@@ -7,6 +7,7 @@ English: Provides restricted agent workspace file access, search, and command ex
 from __future__ import annotations
 
 import asyncio
+import re
 import shutil
 import sys
 from dataclasses import dataclass
@@ -270,7 +271,7 @@ class WorkspaceFS:
         else:
             grep = shutil.which("grep")
             if not grep:
-                return []
+                return self._grep_python(target, pattern, limit=limit)
             argv = [
                 grep,
                 "-R",
@@ -368,6 +369,36 @@ class WorkspaceFS:
             size=path.stat().st_size if path.is_file() else 0,
             is_dir=path.is_dir(),
         )
+
+    def _grep_python(
+        self, target: Path, pattern: str, *, limit: int
+    ) -> list[GrepMatch]:
+        regex = re.compile(pattern)
+        candidates = [target] if target.is_file() else sorted(target.rglob("*"))
+        matches: list[GrepMatch] = []
+        for path in candidates:
+            if not path.is_file():
+                continue
+            rel_parts = path.relative_to(self.root).parts
+            if any(part in self.ignored_dirs for part in rel_parts):
+                continue
+            try:
+                text = path.read_text(encoding="utf-8")
+            except (UnicodeDecodeError, OSError):
+                continue
+            for lineno, line in enumerate(text.splitlines(), start=1):
+                if not regex.search(line):
+                    continue
+                matches.append(
+                    GrepMatch(
+                        path=path.relative_to(self.root).as_posix(),
+                        line=lineno,
+                        text=line,
+                    )
+                )
+                if len(matches) >= limit:
+                    return matches
+        return matches
 
     def _parse_grep_output(self, stdout_b: bytes, *, limit: int) -> list[GrepMatch]:
         """Parse grep-compatible stdout.

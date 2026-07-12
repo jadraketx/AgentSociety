@@ -57,7 +57,10 @@ class SkillDescriptor:
         resources: list[str] = []
         if not self.root.is_dir():
             return resources
-        for path in sorted(item for item in self.root.rglob("*") if item.is_file()):
+        for path in sorted(
+            (item for item in self.root.rglob("*") if item.is_file()),
+            key=lambda item: item.relative_to(self.root).as_posix().casefold(),
+        ):
             relative = path.relative_to(self.root)
             if _is_hidden_or_cache_path(relative):
                 continue

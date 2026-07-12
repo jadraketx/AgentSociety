@@ -43,7 +43,15 @@ _SCHEMA_FILENAME = "_schema.json"
 @contextmanager
 def _file_lock(fd: int):
     if sys.platform == "win32":
-        yield
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+        try:
+            yield
+        finally:
+            os.lseek(fd, 0, os.SEEK_SET)
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
         return
     import fcntl
 
@@ -80,7 +88,9 @@ def _schema_to_dict(schema: TableSchema) -> dict[str, Any]:
     }
 
 
-def _dataset_to_dict(spec: ReplayDatasetSpec, columns: Iterable[ColumnDef]) -> dict[str, Any]:
+def _dataset_to_dict(
+    spec: ReplayDatasetSpec, columns: Iterable[ColumnDef]
+) -> dict[str, Any]:
     d = asdict(spec)
     d["columns"] = [_column_to_dict(c) for c in columns]
     return d
@@ -90,14 +100,15 @@ class ReplaySink:
     """Per-process, distributed, append-only JSONL replay writer.
 
     One instance per writer process (driver / env router actor / each agent Ray
-    task). Holds its own open shard fds; ``flock`` makes concurrent appends to
-    the same shard file safe for rows of any size.
+    task). Holds its own open shard fds; per-shard lock files make concurrent
+    appends to the same shard file safe for rows of any size.
     """
 
     def __init__(self, replay_dir: str | Path, *, enabled: bool = True) -> None:
         self._dir = Path(replay_dir)
         self._enabled = bool(enabled)
         self._fds: dict[tuple[str, int], int] = {}
+        self._lock_fds: dict[tuple[str, int], int] = {}
         self._lock = threading.Lock()
         self._schema_path = self._dir / _SCHEMA_FILENAME
         if self._enabled:
@@ -125,18 +136,36 @@ class ReplaySink:
                 self._fds[key] = fd
         return fd
 
+    def _lock_fd(self, table: str, shard: int) -> int:
+        key = (table, shard)
+        fd = self._lock_fds.get(key)
+        if fd is not None:
+            return fd
+        with self._lock:
+            fd = self._lock_fds.get(key)
+            if fd is None:
+                path = self._dir / f".{table}.{shard:02x}.lock"
+                fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o644)
+                self._lock_fds[key] = fd
+        return fd
+
+    @contextmanager
+    def _shard_lock(self, table: str, shard: int):
+        fd = self._lock_fd(table, shard)
+        with _file_lock(fd):
+            yield
+
     def _append_lines(self, table: str, lines: list[bytes]) -> None:
-        """Append pre-serialized lines, sharded, each shard write flock-guarded."""
+        """Append pre-serialized lines, sharded, each shard write lock-guarded."""
         if not lines:
             return
-        # Group line bytes by shard so each shard fd is flock'd once.
         by_shard: dict[int, bytearray] = {}
         for line in lines:
             shard = zlib.crc32(line) % _NUM_SHARDS
             by_shard.setdefault(shard, bytearray()).extend(line)
         for shard, buf in by_shard.items():
             fd = self._fd(table, shard)
-            with _file_lock(fd):
+            with self._shard_lock(table, shard):
                 mv = memoryview(buf)
                 while mv:
                     n = os.write(fd, mv)
@@ -179,14 +208,14 @@ class ReplaySink:
         """Record a dataset + its columns in ``_schema.json`` (idempotent)."""
         if not self._enabled:
             return
-        self._merge_schema({"datasets": {spec.dataset_id: _dataset_to_dict(spec, columns)}})
+        self._merge_schema(
+            {"datasets": {spec.dataset_id: _dataset_to_dict(spec, columns)}}
+        )
 
     def _merge_schema(self, patch: dict[str, Any]) -> None:
         """Read-merge-write ``_schema.json`` under an flock on the sidecar fd."""
         self._dir.mkdir(parents=True, exist_ok=True)
-        fd = os.open(
-            str(self._schema_path), os.O_RDWR | os.O_CREAT, 0o644
-        )
+        fd = os.open(str(self._schema_path), os.O_RDWR | os.O_CREAT, 0o644)
         with _file_lock(fd):
             os.lseek(fd, 0, os.SEEK_SET)
             existing = b""
@@ -220,14 +249,17 @@ class ReplaySink:
 
     async def close(self) -> None:
         """Close all open shard fds."""
-        for fd in self._fds.values():
+        for fd in list(self._fds.values()) + list(self._lock_fds.values()):
             try:
                 os.close(fd)
             except OSError:
                 import logging
-                logging.getLogger(__name__).debug("Failed to close replay sink fd", exc_info=True)
-                pass
+
+                logging.getLogger(__name__).debug(
+                    "Failed to close replay sink fd", exc_info=True
+                )
         self._fds.clear()
+        self._lock_fds.clear()
 
 
 class ReplayWriter(ReplaySink):
