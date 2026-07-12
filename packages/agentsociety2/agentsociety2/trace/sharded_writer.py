@@ -51,9 +51,10 @@ def _new_span_id() -> str:
 # no central actor is needed. Truncation targets attribute VALUES (e.g. large
 # observation/summary blobs) — full data lives in the replay DB; trace only
 # carries lightweight spans for timing/structure analysis.
+# pathconf is POSIX-only; Windows has neither os.pathconf nor pathconf_names.
 try:
     _PIPE_BUF = os.pathconf("/", os.pathconf_names["PC_PIPE_BUF"])
-except (OSError, ValueError, KeyError):
+except (AttributeError, OSError, ValueError, KeyError):
     _PIPE_BUF = 4096
 # Leave headroom for the JSON envelope (keys/timing/attrs dict) around the
 # largest capped value.
