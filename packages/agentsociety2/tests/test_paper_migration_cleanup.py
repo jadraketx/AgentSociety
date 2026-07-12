@@ -12,7 +12,9 @@ def test_research_skills_package_no_longer_exports_deleted_paper_module() -> Non
 
     assert "paper" not in skills.__all__
     assert not hasattr(skills, "paper")
-    skills_root = Path(skills.__file__).resolve().parent
+    skills_file = skills.__file__
+    assert skills_file is not None
+    skills_root = Path(skills_file).resolve().parent
     paper_dir = skills_root / "paper"
     py_files = list(paper_dir.rglob("*.py")) if paper_dir.is_dir() else []
     assert py_files == []
