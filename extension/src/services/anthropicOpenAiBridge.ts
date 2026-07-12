@@ -575,4 +575,8 @@ export class OpenAiChatToAnthropicStreamTranslator {
     }
     return events;
   }
+
+  getLatestUsage(): JsonObject | null {
+    return this.latestUsage;
+  }
 }

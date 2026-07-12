@@ -1,7 +1,8 @@
 import type { TFunction } from 'i18next';
 import type { VscodeThemePalette } from '../theme';
+import { selectAccountingUsageRecords } from '../../services/gatewayUsageTracker';
 import { formatCost } from './modelPricing';
-import type { TokenUsageRecord, UsageAggregation, UsageModelStats } from './gatewayUsageTypes';
+import type { TokenUsageRecord, UsageAggregation, UsageModelStats, UsageProviderStats } from './gatewayUsageTypes';
 
 export type UsageAppFilter = 'all' | 'claude' | 'codex';
 export type UsageRangeFilter = 'today' | '7d' | '30d' | 'all';
@@ -66,6 +67,24 @@ export function inferRecordApp(record: TokenUsageRecord): 'claude' | 'codex' {
   }
   const id = record.model.toLowerCase();
   return id.includes('codex') || id.startsWith('gpt-') || /^o\d/.test(id) ? 'codex' : 'claude';
+}
+
+export function isProbeUsageRecord(record: TokenUsageRecord): boolean {
+  return record.model === 'models-list';
+}
+
+export function filterProbeRecords(records: TokenUsageRecord[]): TokenUsageRecord[] {
+  return records.filter((record) => !isProbeUsageRecord(record));
+}
+
+export function selectAccountingRecords(
+  records: TokenUsageRecord[]
+): TokenUsageRecord[] {
+  return selectAccountingUsageRecords(records);
+}
+
+export function hasChatUsageRecords(records: TokenUsageRecord[]): boolean {
+  return records.some((record) => !isProbeUsageRecord(record));
 }
 
 export function filterRecordsByRange(
@@ -189,6 +208,54 @@ export function resolveGatewayUsageView(
   const ranged = filterRecordsByRange(records, range);
   const filtered = filterRecordsByApp(ranged, app);
   return aggregateGatewayUsage(filtered);
+}
+
+export function resolveRecordProvider(record: TokenUsageRecord): string {
+  return record.provider?.trim() || record.upstream || 'unknown';
+}
+
+export function computeUsageSuccessRate(records: TokenUsageRecord[]): number | null {
+  const withStatus = records.filter((record) => typeof record.status === 'number');
+  if (withStatus.length === 0) {
+    return null;
+  }
+  const successes = withStatus.filter((record) => {
+    const status = record.status ?? 0;
+    return status >= 200 && status < 300;
+  }).length;
+  return Math.round((successes / withStatus.length) * 1000) / 10;
+}
+
+export function aggregateByProvider(records: TokenUsageRecord[]): UsageProviderStats[] {
+  const map = new Map<string, UsageProviderStats>();
+  for (const record of records) {
+    const provider = resolveRecordProvider(record);
+    const stats = map.get(provider) ?? {
+      provider,
+      requests: 0,
+      successes: 0,
+      failures: 0,
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheCreation: 0,
+    };
+    stats.requests += 1;
+    const status = record.status;
+    if (typeof status === 'number') {
+      if (status >= 200 && status < 300) {
+        stats.successes += 1;
+      } else {
+        stats.failures += 1;
+      }
+    }
+    stats.input += record.inputTokens;
+    stats.output += record.outputTokens;
+    stats.cacheRead += record.cacheReadTokens;
+    stats.cacheCreation += record.cacheCreationTokens;
+    map.set(provider, stats);
+  }
+  return [...map.values()].sort((a, b) => b.requests - a.requests);
 }
 
 export function buildUsageChartSeries(

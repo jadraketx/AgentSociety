@@ -20,19 +20,27 @@ import {
 } from '@ant-design/icons';
 import type { TFunction } from 'i18next';
 import type { VscodeThemePalette } from '../theme';
+import type { AiCliGatewayStatus } from './claudeCodeTypes';
 import type { TokenUsageRecord } from './gatewayUsageTypes';
 import { calculateCost, formatCost, getModelPrice, type ModelPricingMap } from './modelPricing';
 import { GatewayUsageChart } from './GatewayUsageChart';
 import {
   aggregateGatewayUsage,
+  aggregateByProvider,
   buildUsageChartSeries,
+  computeUsageSuccessRate,
   emptyAggregation,
+  filterProbeRecords,
   filterRecordsByApp,
   filterRecordsByRange,
   formatChartCost,
   formatTokenCount,
+  hasChatUsageRecords,
   inferRecordApp,
+  isProbeUsageRecord,
   localDateKey,
+  resolveRecordProvider,
+  selectAccountingRecords,
   type UsageAppFilter,
   type UsageRangeFilter,
   type UsageTrendMetric,
@@ -53,6 +61,7 @@ function metricTone(color: string): React.CSSProperties {
 export interface GatewayUsagePanelProps {
   t: TFunction;
   palette: VscodeThemePalette;
+  gatewayStatus?: AiCliGatewayStatus;
   records: TokenUsageRecord[];
   loading: boolean;
   onRefresh: () => void;
@@ -67,6 +76,7 @@ export interface GatewayUsagePanelProps {
 export function GatewayUsagePanel({
   t,
   palette,
+  gatewayStatus,
   records,
   loading,
   onRefresh,
@@ -81,20 +91,32 @@ export function GatewayUsagePanel({
   const [editingPricing, setEditingPricing] = React.useState<ModelPricingMap>({});
   const [trendMetric, setTrendMetric] = React.useState<UsageTrendMetric>('tokens');
   const [appFilter, setAppFilter] = React.useState<UsageAppFilter>('all');
-  const [rangeFilter, setRangeFilter] = React.useState<UsageRangeFilter>('all');
+  const [rangeFilter, setRangeFilter] = React.useState<UsageRangeFilter>('7d');
+  const [detailView, setDetailView] = React.useState<'overview' | 'requests' | 'providers'>('overview');
   const rangeRecords = React.useMemo(
     () => filterRecordsByRange(records, rangeFilter),
     [rangeFilter, records]
   );
-  const hasAnyRecords = records.length > 0;
-  const rangeIsEmpty = hasAnyRecords && rangeRecords.length === 0;
+  const chatRangeRecords = React.useMemo(
+    () => selectAccountingRecords(filterProbeRecords(rangeRecords)),
+    [rangeRecords]
+  );
+  const probeCountInRange = rangeRecords.length - chatRangeRecords.length;
+  const hasAnyRecords = chatRangeRecords.length > 0;
+  const rangeIsEmpty = records.length > 0 && rangeRecords.length === 0;
+  const showProbeOnlyWarning =
+    rangeRecords.length > 0 && !hasChatUsageRecords(rangeRecords);
+  const showClaudeRouteWarning =
+    Boolean(gatewayStatus?.running) &&
+    gatewayStatus?.routeClaude === false &&
+    (gatewayStatus?.claudeProxyAvailable ?? true);
   const totalAggregation = React.useMemo(
-    () => aggregateGatewayUsage(rangeRecords) ?? (hasAnyRecords ? emptyAggregation() : null),
-    [rangeRecords, hasAnyRecords]
+    () => aggregateGatewayUsage(chatRangeRecords) ?? (hasAnyRecords ? emptyAggregation() : null),
+    [chatRangeRecords, hasAnyRecords]
   );
   const filteredRecords = React.useMemo(
-    () => filterRecordsByApp(rangeRecords, appFilter),
-    [appFilter, rangeRecords]
+    () => filterRecordsByApp(chatRangeRecords, appFilter),
+    [appFilter, chatRangeRecords]
   );
   const viewAggregation = React.useMemo(
     () => (appFilter === 'all' ? totalAggregation : aggregateGatewayUsage(filteredRecords)),
@@ -183,6 +205,25 @@ export function GatewayUsagePanel({
     }
     return viewAggregation.timeSeries.map((b) => map.get(b.key) ?? 0);
   }, [viewAggregation, filteredRecords, customPricing]);
+  const successRate = React.useMemo(
+    () => computeUsageSuccessRate(filteredRecords),
+    [filteredRecords]
+  );
+  const providerRows = React.useMemo(
+    () => aggregateByProvider(filteredRecords),
+    [filteredRecords]
+  );
+  const requestRows = React.useMemo(
+    () =>
+      [...rangeRecords]
+        .sort((a, b) => Date.parse(b.ts) - Date.parse(a.ts))
+        .slice(0, 200)
+        .map((record, index) => ({
+          ...record,
+          key: record.requestId || `${record.ts}-${index}`,
+        })),
+    [rangeRecords]
+  );
 
   const usageToolbar = (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
@@ -219,8 +260,32 @@ export function GatewayUsagePanel({
     return (
       <div>
         {usageToolbar}
+        {showProbeOnlyWarning ? (
+          <Alert
+            type="warning"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={t('claudeCodeConfig.usageProbeOnlyTitle')}
+            description={t('claudeCodeConfig.usageProbeOnlyDesc', { count: probeCountInRange })}
+          />
+        ) : null}
+        {showClaudeRouteWarning ? (
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 12 }}
+            message={t('claudeCodeConfig.usageClaudeRouteOffTitle')}
+            description={t('claudeCodeConfig.usageClaudeRouteOffDesc')}
+          />
+        ) : null}
         <div style={{ textAlign: 'center', padding: 20 }}>
-          <Text type="secondary">{t('claudeCodeConfig.usageNoData')}</Text>
+          <Text type="secondary">
+            {showProbeOnlyWarning
+              ? t('claudeCodeConfig.usageProbeOnlyEmpty')
+              : rangeIsEmpty
+                ? t('claudeCodeConfig.usageRangeEmpty')
+                : t('claudeCodeConfig.usageNoData')}
+          </Text>
         </div>
       </div>
     );
@@ -381,6 +446,24 @@ export function GatewayUsagePanel({
   return (
     <div>
       {usageToolbar}
+      {showProbeOnlyWarning ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={t('claudeCodeConfig.usageProbeOnlyTitle')}
+          description={t('claudeCodeConfig.usageProbeOnlyDesc', { count: probeCountInRange })}
+        />
+      ) : null}
+      {showClaudeRouteWarning ? (
+        <Alert
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message={t('claudeCodeConfig.usageClaudeRouteOffTitle')}
+          description={t('claudeCodeConfig.usageClaudeRouteOffDesc')}
+        />
+      ) : null}
       {rangeIsEmpty ? (
         <Alert
           type="info"
@@ -486,6 +569,12 @@ export function GatewayUsagePanel({
             color: '#722ed1',
           },
           {
+            label: t('claudeCodeConfig.usageSuccessRate'),
+            value: successRate != null ? `${successRate}%` : '—',
+            detail: t('claudeCodeConfig.usageSuccessRateHint'),
+            color: '#13c2c2',
+          },
+          {
             label: t('claudeCodeConfig.usageEstCost'),
             value: pricedRecords > 0 ? formatCost(totalCost) : '—',
             detail: pricedRecords === filteredRecords.length
@@ -569,64 +658,229 @@ export function GatewayUsagePanel({
         </Space>
       </div>
 
-      {hasTrend ? (
-        <div style={{ marginBottom: 14 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
-            <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.usageTrendTitle')}</Text>
-            <Segmented
-              size="small"
-              value={trendMetric}
-              onChange={(v) => setTrendMetric(v as UsageTrendMetric)}
-              options={[
-                { label: t('claudeCodeConfig.usageChartRequests'), value: 'requests' },
-                { label: t('claudeCodeConfig.usageChartTokens'), value: 'tokens' },
-                { label: t('claudeCodeConfig.usageChartCost'), value: 'cost', disabled: totalCost <= 0 },
-              ]}
-            />
-          </div>
-          {trendMetric === 'requests' ? (
-            <GatewayUsageChart
-              title={t('claudeCodeConfig.usageChartRequests')}
-              labels={labels}
-              series={requestsChart.series}
-              palette={palette}
-            />
-          ) : null}
-          {trendMetric === 'tokens' ? (
-            <GatewayUsageChart
-              title={t('claudeCodeConfig.usageChartTokens')}
-              labels={labels}
-              series={tokensChart.series}
-              palette={palette}
-              valueFormatter={formatTokenCount}
-            />
-          ) : null}
-          {trendMetric === 'cost' && totalCost > 0 ? (
-            <GatewayUsageChart
-              title={t('claudeCodeConfig.usageChartCost')}
-              labels={labels}
-              series={costChart.series}
-              palette={palette}
-              valueFormatter={formatChartCost}
-            />
-          ) : null}
-        </div>
-      ) : (
-        <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 12 }}>
-          {t('claudeCodeConfig.usageTrendNeedMore')}
-        </Text>
-      )}
-
-      <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
-        {t('claudeCodeConfig.usageByModel')}
-      </Text>
-      <Table
+      <Segmented
         size="small"
-        pagination={modelData.length > 8 ? { pageSize: 8, size: 'small' } : false}
-        dataSource={modelData}
-        columns={modelColumns}
-        style={{ marginBottom: 14 }}
+        value={detailView}
+        onChange={(value) => setDetailView(value as 'overview' | 'requests' | 'providers')}
+        options={[
+          { label: t('claudeCodeConfig.usageViewOverview'), value: 'overview' },
+          { label: t('claudeCodeConfig.usageViewRequests'), value: 'requests' },
+          { label: t('claudeCodeConfig.usageViewProviders'), value: 'providers' },
+        ]}
+        style={{ marginBottom: 12 }}
       />
+
+      {detailView === 'overview' ? (
+        <>
+          {hasTrend ? (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8, marginBottom: 8, flexWrap: 'wrap' }}>
+                <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.usageTrendTitle')}</Text>
+                <Segmented
+                  size="small"
+                  value={trendMetric}
+                  onChange={(v) => setTrendMetric(v as UsageTrendMetric)}
+                  options={[
+                    { label: t('claudeCodeConfig.usageChartRequests'), value: 'requests' },
+                    { label: t('claudeCodeConfig.usageChartTokens'), value: 'tokens' },
+                    { label: t('claudeCodeConfig.usageChartCost'), value: 'cost', disabled: totalCost <= 0 },
+                  ]}
+                />
+              </div>
+              {trendMetric === 'requests' ? (
+                <GatewayUsageChart
+                  title={t('claudeCodeConfig.usageChartRequests')}
+                  labels={labels}
+                  series={requestsChart.series}
+                  palette={palette}
+                />
+              ) : null}
+              {trendMetric === 'tokens' ? (
+                <GatewayUsageChart
+                  title={t('claudeCodeConfig.usageChartTokens')}
+                  labels={labels}
+                  series={tokensChart.series}
+                  palette={palette}
+                  valueFormatter={formatTokenCount}
+                />
+              ) : null}
+              {trendMetric === 'cost' && totalCost > 0 ? (
+                <GatewayUsageChart
+                  title={t('claudeCodeConfig.usageChartCost')}
+                  labels={labels}
+                  series={costChart.series}
+                  palette={palette}
+                  valueFormatter={formatChartCost}
+                />
+              ) : null}
+            </div>
+          ) : (
+            <Text type="secondary" style={{ fontSize: 11, display: 'block', marginBottom: 12 }}>
+              {t('claudeCodeConfig.usageTrendNeedMore')}
+            </Text>
+          )}
+
+          <Text strong style={{ fontSize: 12, display: 'block', marginBottom: 8 }}>
+            {t('claudeCodeConfig.usageByModel')}
+          </Text>
+          <Table
+            size="small"
+            pagination={modelData.length > 8 ? { pageSize: 8, size: 'small' } : false}
+            dataSource={modelData}
+            columns={modelColumns}
+            style={{ marginBottom: 14 }}
+          />
+        </>
+      ) : null}
+
+      {detailView === 'requests' ? (
+        <Table
+          size="small"
+          pagination={requestRows.length > 12 ? { pageSize: 12, size: 'small' } : false}
+          dataSource={requestRows}
+          scroll={{ x: 980 }}
+          columns={[
+            {
+              title: t('claudeCodeConfig.usageColTime'),
+              dataIndex: 'ts',
+              width: 150,
+              render: (ts: string) => (
+                <Text style={{ fontSize: 11 }}>{new Date(ts).toLocaleString()}</Text>
+              ),
+            },
+            {
+              title: t('claudeCodeConfig.usageColProvider'),
+              key: 'provider',
+              width: 120,
+              render: (_: unknown, row: TokenUsageRecord) => (
+                <Text style={{ fontSize: 11 }}>{resolveRecordProvider(row)}</Text>
+              ),
+            },
+            {
+              title: t('claudeCodeConfig.usageColModel'),
+              dataIndex: 'model',
+              width: 140,
+              render: (model: string, row: TokenUsageRecord) => (
+                <Space size={4}>
+                  <Text style={{ fontSize: 11 }}>{model}</Text>
+                  {isProbeUsageRecord(row) ? (
+                    <Text type="secondary" style={{ fontSize: 10 }}>
+                      {t('claudeCodeConfig.usageProbeTag')}
+                    </Text>
+                  ) : null}
+                </Space>
+              ),
+            },
+            {
+              title: t('claudeCodeConfig.usageColInput'),
+              dataIndex: 'inputTokens',
+              width: 80,
+              render: (v: number) => <Text style={{ fontSize: 11 }}>{formatTokenCount(v)}</Text>,
+            },
+            {
+              title: t('claudeCodeConfig.usageColOutput'),
+              dataIndex: 'outputTokens',
+              width: 80,
+              render: (v: number) => <Text style={{ fontSize: 11 }}>{formatTokenCount(v)}</Text>,
+            },
+            {
+              title: t('claudeCodeConfig.usageCacheRead'),
+              dataIndex: 'cacheReadTokens',
+              width: 80,
+              render: (v: number) => <Text style={{ fontSize: 11 }}>{v > 0 ? formatTokenCount(v) : '—'}</Text>,
+            },
+            {
+              title: t('claudeCodeConfig.usageColCost'),
+              key: 'cost',
+              width: 80,
+              render: (_: unknown, row: TokenUsageRecord) => {
+                const cost = calculateCost(
+                  row.model,
+                  row.inputTokens,
+                  row.outputTokens,
+                  row.cacheReadTokens,
+                  row.cacheCreationTokens,
+                  customPricing,
+                  { app: inferRecordApp(row) }
+                );
+                return <Text style={{ fontSize: 11 }}>{cost ? formatCost(cost.total) : '—'}</Text>;
+              },
+            },
+            {
+              title: t('claudeCodeConfig.usageColDuration'),
+              dataIndex: 'durationMs',
+              width: 90,
+              render: (ms: number | undefined, row: TokenUsageRecord) => (
+                <Text style={{ fontSize: 11 }}>
+                  {typeof ms === 'number' ? `${(ms / 1000).toFixed(1)}s` : '—'}
+                  {row.streaming ? ` · SSE` : ''}
+                </Text>
+              ),
+            },
+            {
+              title: t('claudeCodeConfig.usageColStatus'),
+              dataIndex: 'status',
+              width: 70,
+              render: (status: number | undefined) => (
+                <Text style={{ fontSize: 11 }}>{typeof status === 'number' ? status : '—'}</Text>
+              ),
+            },
+          ]}
+          style={{ marginBottom: 14 }}
+        />
+      ) : null}
+
+      {detailView === 'providers' ? (
+        <Table
+          size="small"
+          pagination={providerRows.length > 8 ? { pageSize: 8, size: 'small' } : false}
+          dataSource={providerRows.map((row) => ({ ...row, key: row.provider }))}
+          columns={[
+            {
+              title: t('claudeCodeConfig.usageColProvider'),
+              dataIndex: 'provider',
+              render: (provider: string) => <Text style={{ fontSize: 11, fontWeight: 500 }}>{provider}</Text>,
+            },
+            {
+              title: t('claudeCodeConfig.usageColRequests'),
+              dataIndex: 'requests',
+              width: 80,
+            },
+            {
+              title: t('claudeCodeConfig.usageSuccessRate'),
+              key: 'successRate',
+              width: 90,
+              render: (_: unknown, row: { requests: number; successes: number }) => (
+                <Text style={{ fontSize: 11 }}>
+                  {row.requests > 0 ? `${((row.successes / row.requests) * 100).toFixed(1)}%` : '—'}
+                </Text>
+              ),
+            },
+            {
+              title: t('claudeCodeConfig.usageTotalTokens'),
+              key: 'tokens',
+              render: (_: unknown, row: { input: number; output: number; cacheRead: number; cacheCreation: number }) => (
+                <Text style={{ fontSize: 11 }}>
+                  {formatTokenCount(row.input + row.output + row.cacheRead + row.cacheCreation)}
+                </Text>
+              ),
+            },
+            {
+              title: t('claudeCodeConfig.usageColInput'),
+              dataIndex: 'input',
+              width: 80,
+              render: (v: number) => formatTokenCount(v),
+            },
+            {
+              title: t('claudeCodeConfig.usageColOutput'),
+              dataIndex: 'output',
+              width: 80,
+              render: (v: number) => formatTokenCount(v),
+            },
+          ]}
+          style={{ marginBottom: 14 }}
+        />
+      ) : null}
 
       <Modal
         title={t('claudeCodeConfig.usagePricingTitle')}

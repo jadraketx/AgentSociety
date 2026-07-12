@@ -1,5 +1,6 @@
 export type TokenUsageRecord = {
   app?: 'claude' | 'codex';
+  source?: 'proxy' | 'session';
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -8,7 +9,18 @@ export type TokenUsageRecord = {
   serverToolUseTokens: number;
   requestId: string;
   upstream: string;
+  provider?: string;
+  status?: number;
+  durationMs?: number;
+  streaming?: boolean;
   ts: string;
+};
+
+export type UsageRecordContext = {
+  status?: number;
+  durationMs?: number;
+  streaming?: boolean;
+  providerName?: string;
 };
 
 export type UsageModelStats = {
@@ -44,6 +56,90 @@ export type UsageAggregation = {
 };
 
 export type UsageListener = (record: TokenUsageRecord) => void;
+
+const CROSS_SOURCE_MATCH_WINDOW_MS = 10 * 60 * 1000;
+
+function usageFingerprintMatches(
+  proxy: TokenUsageRecord,
+  session: TokenUsageRecord
+): boolean {
+  if (proxy.model !== session.model) {
+    return false;
+  }
+  const proxyTs = Date.parse(proxy.ts);
+  const sessionTs = Date.parse(session.ts);
+  if (
+    !Number.isFinite(proxyTs) ||
+    !Number.isFinite(sessionTs) ||
+    Math.abs(proxyTs - sessionTs) > CROSS_SOURCE_MATCH_WINDOW_MS
+  ) {
+    return false;
+  }
+  return (
+    proxy.inputTokens === session.inputTokens &&
+    proxy.outputTokens === session.outputTokens &&
+    proxy.cacheReadTokens === session.cacheReadTokens &&
+    proxy.cacheCreationTokens === session.cacheCreationTokens
+  );
+}
+
+function usageIsEmpty(record: TokenUsageRecord): boolean {
+  return (
+    record.inputTokens === 0 &&
+    record.outputTokens === 0 &&
+    record.cacheReadTokens === 0 &&
+    record.cacheCreationTokens === 0
+  );
+}
+
+export function selectAccountingUsageRecords(
+  records: TokenUsageRecord[]
+): TokenUsageRecord[] {
+  const proxyClaude = records.filter(
+    (record) => record.app === 'claude' && record.source !== 'session'
+  );
+  const consumedProxy = new Set<TokenUsageRecord>();
+  const replacedProxy = new Set<TokenUsageRecord>();
+  const acceptedSession = new Set<TokenUsageRecord>();
+
+  for (const session of records.filter(
+    (record) => record.app === 'claude' && record.source === 'session'
+  )) {
+    const exact = proxyClaude.find(
+      (proxy) =>
+        !consumedProxy.has(proxy) &&
+        ((Boolean(proxy.requestId) && proxy.requestId === session.requestId) ||
+          usageFingerprintMatches(proxy, session))
+    );
+    if (exact) {
+      consumedProxy.add(exact);
+      continue;
+    }
+    const empty = proxyClaude.find(
+      (proxy) =>
+        !consumedProxy.has(proxy) &&
+        usageIsEmpty(proxy) &&
+        proxy.model === session.model &&
+        Math.abs(Date.parse(proxy.ts) - Date.parse(session.ts)) <=
+          CROSS_SOURCE_MATCH_WINDOW_MS
+    );
+    if (empty) {
+      consumedProxy.add(empty);
+      replacedProxy.add(empty);
+    }
+    acceptedSession.add(session);
+  }
+
+  return records.filter((record) => {
+    if (replacedProxy.has(record)) {
+      return false;
+    }
+    if (record.source === 'session' && record.app === 'claude') {
+      return acceptedSession.has(record);
+    }
+    return true;
+  });
+}
 
 export type SseMessage = {
   event: string;
@@ -166,6 +262,32 @@ function tryParseOpenAIUsage(obj: unknown): {
     cacheCreationTokens: 0,
     serverToolUseTokens: 0,
   };
+}
+
+export function tokenUsageFromAnthropicUsageObject(
+  usage: unknown,
+  model: string
+): {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  serverToolUseTokens: number;
+  model: string;
+} | null {
+  const parsed = tryParseAnthropicUsage({ usage });
+  if (!parsed) {
+    return null;
+  }
+  if (
+    parsed.inputTokens === 0 &&
+    parsed.outputTokens === 0 &&
+    parsed.cacheReadTokens === 0 &&
+    parsed.cacheCreationTokens === 0
+  ) {
+    return null;
+  }
+  return { ...parsed, model };
 }
 
 export function extractTokenUsage(body: unknown): {

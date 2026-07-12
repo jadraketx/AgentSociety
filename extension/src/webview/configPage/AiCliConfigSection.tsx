@@ -358,6 +358,7 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
       <GatewayUsagePanel
         t={t}
         palette={palette}
+        gatewayStatus={gatewayStatus}
         records={usageRecords}
         loading={usageLoading}
         onRefresh={onRefreshUsage}

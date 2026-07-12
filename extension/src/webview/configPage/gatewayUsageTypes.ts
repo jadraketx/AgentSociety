@@ -1,5 +1,6 @@
 export type TokenUsageRecord = {
   app?: 'claude' | 'codex';
+  source?: 'proxy' | 'session';
   model: string;
   inputTokens: number;
   outputTokens: number;
@@ -8,7 +9,22 @@ export type TokenUsageRecord = {
   serverToolUseTokens: number;
   requestId: string;
   upstream: string;
+  provider?: string;
+  status?: number;
+  durationMs?: number;
+  streaming?: boolean;
   ts: string;
+};
+
+export type UsageProviderStats = {
+  provider: string;
+  requests: number;
+  successes: number;
+  failures: number;
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheCreation: number;
 };
 
 export type UsageModelStats = {

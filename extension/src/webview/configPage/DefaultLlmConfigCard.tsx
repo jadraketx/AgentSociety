@@ -26,7 +26,6 @@ type Props = {
   validateDisabledReason: string | null;
   onValidate: () => void;
   showIntro?: boolean;
-  webImportPanel?: React.ReactNode;
 };
 
 export function DefaultLlmConfigCard({
@@ -44,7 +43,6 @@ export function DefaultLlmConfigCard({
   validateDisabledReason,
   onValidate,
   showIntro = true,
-  webImportPanel,
 }: Props) {
   const safeBaseUrl = baseUrl ?? '';
   const safeApiKey = apiKey ?? '';
@@ -104,7 +102,6 @@ export function DefaultLlmConfigCard({
           description={t('configPage.pageTabs.simulationIntroBody')}
         />
       ) : null}
-      {webImportPanel}
       <Form.Item label={t('configPage.llm.presetLabel')} style={{ marginBottom: 12 }}>
         <Select
           value={presetId}

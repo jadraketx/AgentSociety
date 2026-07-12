@@ -1,6 +1,7 @@
 export type AiCliGatewayUpstream = {
   baseUrl: string;
   apiKey: string;
+  providerName?: string;
   apiKind?: 'anthropic' | 'openai';
   model?: string;
   sonnetModel?: string;

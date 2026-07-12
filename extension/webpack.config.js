@@ -1,5 +1,6 @@
 const path = require('path');
 const webpack = require('webpack');
+const TerserPlugin = require('terser-webpack-plugin');
 
 const entries = {
   simSettings: './src/webview/simSettings/index.tsx',
@@ -77,6 +78,18 @@ const createConfig = (name, entry) => ({
     runtimeChunk: false,
     splitChunks: false,
     minimize: isProd,
+    minimizer: isProd
+      ? [
+          new TerserPlugin({
+            extractComments: false,
+            terserOptions: {
+              format: {
+                comments: /@license|@preserve|Copyright/i,
+              },
+            },
+          }),
+        ]
+      : [],
   },
   plugins: [
     new webpack.optimize.LimitChunkCountPlugin({

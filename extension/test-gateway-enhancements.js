@@ -70,11 +70,112 @@ test('extractTokenUsage reads nested response.completed usage', () => {
   assert.equal(parsed?.model, 'gpt-5.5');
 });
 
-test('shouldRecordGatewayRequest counts models list and completion posts', () => {
-  const { shouldRecordGatewayRequest } = require('./out/services/aiCliGateway');
-  assert.equal(shouldRecordGatewayRequest('GET', '/v1/models?client_version=0.142.5'), true);
+test('parseClaudeSessionUsageLine reads usage and keeps message id for dedupe', () => {
+  const { parseClaudeSessionUsageLine } = require('./out/services/claudeSessionUsage');
+  const parsed = parseClaudeSessionUsageLine(JSON.stringify({
+    type: 'assistant',
+    timestamp: '2026-07-12T04:08:30.302Z',
+    message: {
+      id: 'msg_123',
+      role: 'assistant',
+      model: 'glm-4.7',
+      usage: {
+        input_tokens: 24,
+        output_tokens: 242,
+        cache_read_input_tokens: 24896,
+        cache_creation_input_tokens: 12,
+      },
+    },
+  }), 'Fiblab');
+  assert.equal(parsed?.requestId, 'msg_123');
+  assert.equal(parsed?.source, 'session');
+  assert.equal(parsed?.provider, 'Fiblab');
+  assert.equal(parsed?.inputTokens, 24);
+  assert.equal(parsed?.outputTokens, 242);
+  assert.equal(parsed?.cacheReadTokens, 24896);
+  assert.equal(parsed?.cacheCreationTokens, 12);
+});
+
+test('web import config retains key and fills Claude role models', () => {
+  const {
+    buildGatewayProviderFromWebImport,
+    resolveWebImportClaudeConfig,
+  } = require('./out/services/webConfigGatewayImport');
+  const claude = resolveWebImportClaudeConfig({
+    openaiCompatible: ['glm-4.7', 'deepseek-v4-flash'],
+    claudeCode: [],
+    embedding: [],
+  }, {
+    simulation: 'glm-4.7',
+    claudeCodeHaiku: 'deepseek-v4-flash',
+  });
+  const provider = buildGatewayProviderFromWebImport(
+    ' sk-fiblab ',
+    ' https://llmapi.fiblab.net/v1 ',
+    claude,
+    { enableCodex1m: true }
+  );
+  assert.equal(provider?.name, 'Fiblab');
+  assert.equal(provider?.apiKey, 'sk-fiblab');
+  assert.equal(provider?.baseUrl, 'https://llmapi.fiblab.net/v1');
+  assert.equal(provider?.model, 'glm-4.7');
+  assert.equal(provider?.sonnetModel, 'glm-4.7');
+  assert.equal(provider?.opusModel, 'glm-4.7');
+  assert.equal(provider?.haikuModel, 'deepseek-v4-flash');
+  assert.equal(provider?.apiKind, 'openai');
+  assert.equal(provider?.codexEnable1m, true);
+});
+
+test('selectAccountingUsageRecords deduplicates proxy and session sources', () => {
+  const { selectAccountingUsageRecords } = require('./out/services/gatewayUsageTracker');
+  const base = {
+    app: 'claude',
+    model: 'glm-4.7',
+    inputTokens: 24,
+    outputTokens: 242,
+    cacheReadTokens: 24896,
+    cacheCreationTokens: 0,
+    serverToolUseTokens: 0,
+    status: 200,
+  };
+  const proxy = {
+    ...base,
+    source: 'proxy',
+    requestId: '',
+    upstream: 'https://llmapi.fiblab.net/v1',
+    ts: '2026-07-12T04:08:28.000Z',
+  };
+  const session = {
+    ...base,
+    source: 'session',
+    requestId: 'msg_123',
+    upstream: 'claude-session',
+    ts: '2026-07-12T04:08:30.302Z',
+  };
+  assert.deepEqual(selectAccountingUsageRecords([proxy, session]), [proxy]);
+
+  const emptyProxy = {
+    ...proxy,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+  };
+  assert.deepEqual(selectAccountingUsageRecords([emptyProxy, session]), [session]);
+});
+
+test('shouldRecordGatewayRequest counts completion posts but not models list', () => {
+  const {
+    normalizeGatewayRequestPath,
+    shouldRecordGatewayRequest,
+  } = require('./out/services/aiCliGateway');
+  assert.equal(shouldRecordGatewayRequest('GET', '/v1/models?client_version=0.142.5'), false);
   assert.equal(shouldRecordGatewayRequest('POST', '/v1/responses'), true);
   assert.equal(shouldRecordGatewayRequest('GET', '/health'), false);
+  assert.equal(normalizeGatewayRequestPath('/api/anthropic/v1/messages'), '/v1/messages');
+  assert.equal(
+    normalizeGatewayRequestPath('/api/anthropic/v1/models?client_version=2.1.207'),
+    '/v1/models?client_version=2.1.207'
+  );
 });
 
 test('upstreamHealth reports degraded and unhealthy states', () => {
