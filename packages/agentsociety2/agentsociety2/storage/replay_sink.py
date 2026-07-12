@@ -22,11 +22,12 @@ that dominate each step, so the serialization cost is negligible.
 
 from __future__ import annotations
 
-import fcntl
 import json
 import os
+import sys
 import threading
 import zlib
+from contextlib import contextmanager
 from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
@@ -37,6 +38,20 @@ from agentsociety2.storage.table_schema import ColumnDef, TableSchema
 
 _NUM_SHARDS = 256
 _SCHEMA_FILENAME = "_schema.json"
+
+
+@contextmanager
+def _file_lock(fd: int):
+    if sys.platform == "win32":
+        yield
+        return
+    import fcntl
+
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        yield
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 def _normalize(value: Any) -> Any:
@@ -121,14 +136,11 @@ class ReplaySink:
             by_shard.setdefault(shard, bytearray()).extend(line)
         for shard, buf in by_shard.items():
             fd = self._fd(table, shard)
-            fcntl.flock(fd, fcntl.LOCK_EX)
-            try:
+            with _file_lock(fd):
                 mv = memoryview(buf)
                 while mv:
                     n = os.write(fd, mv)
                     mv = mv[n:]
-            finally:
-                fcntl.flock(fd, fcntl.LOCK_UN)
 
     async def write(self, table: str, data: dict[str, Any]) -> None:
         """Append one row to ``table``."""
@@ -175,8 +187,7 @@ class ReplaySink:
         fd = os.open(
             str(self._schema_path), os.O_RDWR | os.O_CREAT, 0o644
         )
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        try:
+        with _file_lock(fd):
             os.lseek(fd, 0, os.SEEK_SET)
             existing = b""
             while True:
@@ -201,9 +212,7 @@ class ReplaySink:
                 n = os.write(fd, mv)
                 mv = mv[n:]
             os.fsync(fd)
-        finally:
-            fcntl.flock(fd, fcntl.LOCK_UN)
-            os.close(fd)
+        os.close(fd)
 
     # ------------------------------------------------------------------
     # Lifecycle
