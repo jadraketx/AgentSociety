@@ -253,6 +253,9 @@ class WorkspaceFS:
         if not target.exists():
             return []
 
+        if sys.platform == "win32":
+            return self._grep_python(target, pattern, limit=limit)
+
         tool = shutil.which("rg")
         if tool:
             argv = [
