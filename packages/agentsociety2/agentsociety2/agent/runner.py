@@ -41,12 +41,20 @@ import asyncio
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
-
-import ray
+from typing import TYPE_CHECKING, Any, Callable, TypeVar
 
 if TYPE_CHECKING:
     from agentsociety2.agent.service_proxy import ServiceProxy
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+def _ray_remote(fn: _F) -> _F:
+    try:
+        import ray
+    except ImportError:
+        return fn
+    return ray.remote(fn)  # type: ignore[return-value]
 
 __all__ = [
     "step_agent_batch",
@@ -256,7 +264,7 @@ async def _query_agent_task_async(
 # ---------------------------------------------------------------------------
 # Public Ray Tasks (sync wrappers — Ray 2.x forbids `@ray.remote` on async def)
 # ---------------------------------------------------------------------------
-@ray.remote
+@_ray_remote
 def step_agent_batch(
     agent_ids: list[int],
     workspace_root: str,
@@ -303,7 +311,7 @@ def step_agent_batch(
     return {"results": results, "token_stats": service_proxy.take_token_stats()}
 
 
-@ray.remote
+@_ray_remote
 def create_agents_batch(
     items: list[dict],
     workspace_root: str,
@@ -328,7 +336,7 @@ def create_agents_batch(
     )
 
 
-@ray.remote
+@_ray_remote
 def query_agent_task(
     agent_id: int,
     workspace_root: str,
@@ -369,7 +377,7 @@ def query_agent_task(
     )
 
 
-@ray.remote
+@_ray_remote
 def questionnaire_agent_batch(
     agent_ids: list[int],
     workspace_root: str,

@@ -17,7 +17,7 @@ Git 发版标签：`agentsociety2-v{major}.{minor}.{patch}`（见 `CONTRIBUTING.
 ### Fixed
 
 - **extension** `1.6.3`：walkthrough 标题/描述改为直接写入 `package.json`（code-server 不解析 `%nls%`）。
-- **agentsociety2**：`replay_sink` Windows 兼容（`fcntl` 可选）。
+- **agentsociety2**：`agent.runner` 延迟导入 ray，修复 Windows CI（ray 未安装于 win32）。
 
 ## [2.8.1] - 2026-07-12
 
