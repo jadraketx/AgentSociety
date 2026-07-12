@@ -16,20 +16,13 @@ Git 发版标签：`agentsociety2-v{major}.{minor}.{patch}`（见 `CONTRIBUTING.
 
 <!-- 暂无待发布变更 -->
 
-## [2.8.2] - 2026-07-12
-
-- **agentsociety2** `2.8.2` · **extension** `1.6.2` · 标签 `agentsociety2-v2.8.2`
-
-### Fixed
-
-- **extension**：walkthrough `media.markdown` 改为直接相对路径，不再使用 `%walkthrough.media.*%` 占位符（code-server / VS Code 对该字段的 NLS 替换不可靠）。
-
 ## [2.8.1] - 2026-07-12
 
-- **agentsociety2** `2.8.1` · **extension** `1.6.1` · 标签 `agentsociety2-v2.8.1`
+- **agentsociety2** `2.8.1` · **extension** `1.6.2` · 标签 `agentsociety2-v2.8.1`
 
 ### Fixed
 
+- **extension** `1.6.2`：walkthrough `media.markdown` 改为直接相对路径，不再使用 `%walkthrough.media.*%` 占位符（code-server / VS Code 对该字段的 NLS 替换不可靠）。
 - **extension**：修复 walkthrough 无法打开（`%walkthrough.media.*%` 占位符未解析）；将 `package.nls.json` / `package.nls.en.json` 纳入版本库并打包进 VSIX。
 
 ## [2.8.0] - 2026-07-12
