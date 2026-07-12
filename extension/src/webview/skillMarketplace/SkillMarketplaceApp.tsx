@@ -133,15 +133,9 @@ export const SkillMarketplaceApp: React.FC<SkillManagementAppProps> = ({ vscode 
           setAgentSkills(msg.payload || []);
           setAgentSkillsLoading(false);
           break;
-        case 'agentSkillReloaded':
-          message.success(msg.payload?.message || t('skillManagement.operationSuccess'));
-          break;
         case 'agentSkillImported':
           message.success(t('skillManagement.importSuccess'));
           vscode.postMessage({ type: 'listAgentSkills' });
-          break;
-        case 'agentSkillRemoved':
-          message.success(msg.payload?.message || t('skillManagement.removeAgentSuccess'));
           break;
         case 'claudeCodeSkillImported':
           message.success(t('skillManagement.importClaudeSuccess'));
@@ -360,16 +354,6 @@ export const SkillMarketplaceApp: React.FC<SkillManagementAppProps> = ({ vscode 
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  // Agent Skills 操作
-  const handleReloadAgentSkill = (name: string) => vscode.postMessage({ type: 'reloadAgentSkill', payload: { name } });
-  const handleRemoveAgentSkill = (name: string) => {
-    Modal.confirm({
-      title: t('skillManagement.archiveAgentConfirmTitle'),
-      content: t('skillManagement.archiveAgentConfirmContent', { name }),
-      okType: 'danger',
-      onOk: () => vscode.postMessage({ type: 'removeAgentSkill', payload: { name } }),
-    });
-  };
   const handleImportAgentSkill = () => vscode.postMessage({ type: 'importAgentSkill' });
   const handleImportClaudeCodeSkill = () => vscode.postMessage({ type: 'importClaudeCodeSkill' });
   const handleScanAgentSkills = () => vscode.postMessage({ type: 'scanAgentSkills' });
@@ -880,11 +864,6 @@ export const SkillMarketplaceApp: React.FC<SkillManagementAppProps> = ({ vscode 
   }, [filteredExtensionBundledSkills, filteredClaudeCodeSkills]);
 
   const agentCustomCount = React.useMemo(() => agentSkills.filter(s => s.source !== 'builtin').length, [agentSkills]);
-  const agentEnabledCount = React.useMemo(
-    () => agentSkills.filter((s) => s.source === 'builtin' || s.enabled).length,
-    [agentSkills]
-  );
-
   const getDescription = (skill: MarketplaceSkill) => {
     const zh = i18n.language === 'zh-CN' && skill.descriptionZh?.trim();
     const text = (zh || skill.description || '').trim();
@@ -1024,13 +1003,8 @@ export const SkillMarketplaceApp: React.FC<SkillManagementAppProps> = ({ vscode 
             detail={agentSkillDetails[skill.name]}
             detailLoading={!!agentDetailLoading[skill.name]}
             t={t}
-            onToggleEnabled={(name, enabled) =>
-              vscode.postMessage({ type: 'setAgentSkillEnabled', payload: { name, enabled } })
-            }
-            onReload={handleReloadAgentSkill}
             onOpenDoc={handleOpenAgentSkillDoc}
             onOpenFolder={handleOpenFolder}
-            onRemove={handleRemoveAgentSkill}
             onExpandDetail={ensureAgentDetail}
           />
         ))}
@@ -1992,7 +1966,6 @@ export const SkillMarketplaceApp: React.FC<SkillManagementAppProps> = ({ vscode 
               <Text style={{ display: 'block', marginBottom: 8 }}>{t('skillManagement.helpAgentTabDescFull')}</Text>
               <ul style={{ margin: '0 0 12px', paddingLeft: 20 }}>
                 <li>{t('skillManagement.helpAgentEnable')}</li>
-                <li>{t('skillManagement.helpAgentArchive')}</li>
                 <li>{t('skillManagement.helpAgentImport')}</li>
                 <li>{t('skillManagement.helpAgentScan')}</li>
               </ul>
@@ -2107,7 +2080,7 @@ export const SkillMarketplaceApp: React.FC<SkillManagementAppProps> = ({ vscode 
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 20 }}>
                 {statPill(
                   t('skillManagement.statEnabledAgent'),
-                  `${agentEnabledCount}/${agentSkills.length}`,
+                  agentSkills.length,
                   palette.successForeground
                 )}
                 {statPill(t('skillManagement.statCustomAgent'), agentCustomCount)}
@@ -2148,7 +2121,7 @@ export const SkillMarketplaceApp: React.FC<SkillManagementAppProps> = ({ vscode 
                   label: renderTabTitle(
                     <RobotOutlined />,
                     t('skillManagement.agentSkillsTab'),
-                    `${agentEnabledCount}/${agentSkills.length}`
+                    String(agentSkills.length)
                   ),
                   children: renderAgentTab(),
                 },

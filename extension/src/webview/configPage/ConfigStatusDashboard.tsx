@@ -12,6 +12,7 @@ import type { VscodeThemePalette } from '../theme';
 import type { AiCliGatewayStatus } from './claudeCodeTypes';
 import { GatewayUsageTrendCard } from './GatewayUsageTrendCard';
 import type { TokenUsageRecord } from './gatewayUsageTypes';
+import { formatTokenCount, resolveGatewayUsageView } from './gatewayUsageView';
 import type { BackendStatus, ValidationState } from './types';
 
 const { Text, Title } = Typography;
@@ -108,9 +109,14 @@ export function ConfigStatusDashboard({
         gatewayStatus.stats?.totalRequests != null
           ? t('configPage.metrics.requests', { count: gatewayStatus.stats.totalRequests })
           : null;
+      const usageView = resolveGatewayUsageView(gatewayUsageRecords, { range: '7d', app: 'all' });
+      const tokens =
+        usageView && (usageView.totalInputTokens > 0 || usageView.totalOutputTokens > 0)
+          ? `${t('claudeCodeConfig.usageColInput')} ${formatTokenCount(usageView.totalInputTokens)} · ${t('claudeCodeConfig.usageColOutput')} ${formatTokenCount(usageView.totalOutputTokens)}`
+          : null;
       return {
         title: t('configPage.readiness.gatewayOn', { port: gatewayStatus.port ?? '' }),
-        sub: [uptime, requests].filter(Boolean).join(' · '),
+        sub: [uptime, requests, tokens].filter(Boolean).join(' · '),
         accent: palette.successForeground,
       };
     }
@@ -119,7 +125,7 @@ export function ConfigStatusDashboard({
       sub: gatewayStatus.error ?? t('configPage.metrics.gatewayStoppedHint'),
       accent: palette.warningForeground,
     };
-  }, [gatewayStatus, palette, t]);
+  }, [gatewayStatus, gatewayUsageRecords, palette, t]);
 
   return (
     <Space direction="vertical" size={16} style={{ width: '100%' }}>

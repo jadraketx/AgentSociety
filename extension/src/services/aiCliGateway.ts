@@ -50,8 +50,10 @@ import {
   extractModelFromRequest,
   extractRequestId,
   parseSseMessages,
+  tokenUsageFromAnthropicUsageObject,
   type TokenUsageRecord,
   type UsageListener,
+  type UsageRecordContext,
 } from './gatewayUsageTracker';
 
 const DEFAULT_GATEWAY_PORT_START = 15721;
@@ -129,7 +131,7 @@ export function shouldRecordGatewayRequest(method: string, urlPath: string): boo
     return false;
   }
   if (method === 'GET' && path.includes('/models')) {
-    return true;
+    return false;
   }
   if (
     method === 'POST' &&
@@ -140,6 +142,17 @@ export function shouldRecordGatewayRequest(method: string, urlPath: string): boo
     return true;
   }
   return false;
+}
+
+export function normalizeGatewayRequestPath(urlPath: string): string {
+  const anthropicPrefix = '/api/anthropic';
+  if (urlPath === anthropicPrefix) {
+    return '/';
+  }
+  if (urlPath.startsWith(`${anthropicPrefix}/`)) {
+    return urlPath.slice(anthropicPrefix.length);
+  }
+  return urlPath;
 }
 
 function readRequestBody(req: IncomingMessage): Promise<Buffer> {
@@ -499,10 +512,41 @@ export class AiCliGateway {
   }
 
   private emitUsage(record: TokenUsageRecord): void {
-    this.usageListener?.(record);
+    this.usageListener?.({ ...record, source: 'proxy' });
   }
 
-  private emitRequestUsage(reqModel: string, upstream: string, urlPath: string): void {
+  private usageProviderLabel(upstreamUrl: string, providerName?: string): string | undefined {
+    const name = providerName?.trim();
+    if (name) {
+      return name;
+    }
+    try {
+      return new URL(upstreamUrl).hostname;
+    } catch {
+      return upstreamUrl || undefined;
+    }
+  }
+
+  private bridgeUsageCtx(
+    upstream: AiCliGatewayUpstream,
+    status: number,
+    startTime: number,
+    streaming: boolean
+  ): UsageRecordContext {
+    return {
+      status,
+      durationMs: Date.now() - startTime,
+      streaming,
+      providerName: upstream.providerName,
+    };
+  }
+
+  private emitRequestUsage(
+    reqModel: string,
+    upstream: string,
+    urlPath: string,
+    ctx?: UsageRecordContext
+  ): void {
     this.emitUsage({
       app: inferUsageApp(urlPath, reqModel),
       model: reqModel || 'unknown',
@@ -513,6 +557,10 @@ export class AiCliGateway {
       serverToolUseTokens: 0,
       requestId: '',
       upstream,
+      provider: this.usageProviderLabel(upstream, ctx?.providerName),
+      status: ctx?.status,
+      durationMs: ctx?.durationMs,
+      streaming: ctx?.streaming,
       ts: new Date().toISOString(),
     });
   }
@@ -523,20 +571,16 @@ export class AiCliGateway {
     status: number,
     reqModel: string,
     upstream: string,
-    captureUsage: boolean,
-    usageEmitted: boolean
+    usageEmitted: boolean,
+    ctx?: UsageRecordContext
   ): void {
-    if (usageEmitted || status < 200 || status >= 300) {
+    if (usageEmitted) {
       return;
     }
     if (!shouldRecordGatewayRequest(method, urlPath)) {
       return;
     }
-    if (captureUsage) {
-      this.emitRequestUsage(reqModel, upstream, urlPath);
-      return;
-    }
-    this.emitRequestUsage(reqModel || 'models-list', upstream, urlPath);
+    this.emitRequestUsage(reqModel, upstream, urlPath, { ...ctx, status });
   }
 
   private async handleRequest(clientReq: IncomingMessage, clientRes: ServerResponse): Promise<void> {
@@ -546,7 +590,7 @@ export class AiCliGateway {
     }
 
     const method = clientReq.method ?? 'GET';
-    const urlPath = clientReq.url ?? '/';
+    const urlPath = normalizeGatewayRequestPath(clientReq.url ?? '/');
     const startTime = Date.now();
 
     if (method === 'OPTIONS') {
@@ -586,8 +630,11 @@ export class AiCliGateway {
       }
 
       const isStreaming = clientReq.headers.accept?.includes('text/event-stream') ?? false;
-      const isMessages = urlPath.includes('/messages') || urlPath.includes('/responses');
-      const needsBodyCapture = isMessages && method === 'POST';
+      const needsBodyCapture =
+        method === 'POST' &&
+        (urlPath.includes('/messages') ||
+          urlPath.includes('/responses') ||
+          urlPath.includes('/chat/completions'));
 
       let body: Buffer;
       try {
@@ -619,7 +666,6 @@ export class AiCliGateway {
           const synthesized = buildAnthropicGatewayModelsResponse(primaryUpstream);
           if (synthesized) {
             this.writeJson(clientRes, 200, synthesized);
-            this.recordProxiedRequestIfNeeded(method, urlPath, 200, 'models-list', primaryUpstream.baseUrl, false, false);
             success = true;
             return;
           }
@@ -866,6 +912,12 @@ export class AiCliGateway {
         proxyRes.pipe(clientRes);
         proxyRes.on('end', () => {
           const ms = Date.now() - startTime;
+          const usageCtx: UsageRecordContext = {
+            status,
+            durationMs: ms,
+            streaming: true,
+            providerName: upstream.providerName,
+          };
           this.emitLog({
             ts: new Date().toISOString(),
             method,
@@ -876,7 +928,7 @@ export class AiCliGateway {
             model: reqModel || undefined,
           });
           if (captureUsage && fullResponse) {
-            this.processUsageFromSSE(fullResponse, reqModel, targetUrl, urlPath);
+            this.processUsageFromSSE(fullResponse, reqModel, targetUrl, urlPath, usageCtx);
           } else {
             this.recordProxiedRequestIfNeeded(
               method,
@@ -884,8 +936,8 @@ export class AiCliGateway {
               status,
               reqModel,
               targetUrl,
-              captureUsage,
-              false
+              false,
+              usageCtx
             );
           }
           resolve({ ok: status > 0 && status < 500, status, canRetry: false });
@@ -971,6 +1023,12 @@ export class AiCliGateway {
           proxyRes.pipe(clientRes);
           proxyRes.on('end', () => {
             const ms = Date.now() - startTime;
+            const usageCtx: UsageRecordContext = {
+              status,
+              durationMs: ms,
+              streaming: true,
+              providerName: upstream.providerName,
+            };
             this.emitLog({
               ts: new Date().toISOString(),
               method,
@@ -981,7 +1039,7 @@ export class AiCliGateway {
               model: reqModel || undefined,
             });
             if (captureUsage && fullResponse) {
-              this.processUsageFromSSE(fullResponse, reqModel, targetUrl, urlPath);
+              this.processUsageFromSSE(fullResponse, reqModel, targetUrl, urlPath, usageCtx);
             } else {
               this.recordProxiedRequestIfNeeded(
                 method,
@@ -989,8 +1047,8 @@ export class AiCliGateway {
                 status,
                 reqModel,
                 targetUrl,
-                captureUsage,
-                false
+                false,
+                usageCtx
               );
             }
             resolve({ ok: status > 0 && status < 500, status, canRetry: false });
@@ -1011,41 +1069,32 @@ export class AiCliGateway {
           clientRes.writeHead(status, respHeaders);
           clientRes.end(respBody);
           const ms = Date.now() - startTime;
+          const usageCtx: UsageRecordContext = {
+            status,
+            durationMs: ms,
+            streaming: false,
+            providerName: upstream.providerName,
+          };
           let usageInfo: { model: string; inputTokens: number; outputTokens: number } | null = null;
+          let usageEmitted = false;
           if (captureUsage && respBody.length > 0) {
             try {
-              const parsedBody = JSON.parse(respBody.toString('utf-8'));
-              const extracted = extractTokenUsage(parsedBody);
-              if (extracted) {
-                usageInfo = extracted;
-                this.emitUsage({
-                  app: inferUsageApp(urlPath, extracted.model || reqModel),
-                  model: extracted.model || reqModel || 'unknown',
-                  inputTokens: extracted.inputTokens,
-                  outputTokens: extracted.outputTokens,
-                  cacheReadTokens: extracted.cacheReadTokens,
-                  cacheCreationTokens: extracted.cacheCreationTokens,
-                  serverToolUseTokens: extracted.serverToolUseTokens,
-                  requestId: extractRequestId(parsedBody),
-                  upstream: targetUrl,
-                  ts: new Date().toISOString(),
-                });
-              }
+              const parsedBody = JSON.parse(respBody.toString('utf-8')) as Record<string, unknown>;
+              usageInfo = this.emitUsageFromResponseBody(parsedBody, reqModel, targetUrl, urlPath, usageCtx);
+              usageEmitted = Boolean(usageInfo);
             } catch {
               /* ignore */
             }
           }
-          if (captureUsage && !usageInfo) {
-            this.emitRequestUsage(reqModel, targetUrl, urlPath);
-          } else if (!captureUsage) {
+          if (!usageEmitted) {
             this.recordProxiedRequestIfNeeded(
               method,
               urlPath,
               status,
               reqModel,
               targetUrl,
-              false,
-              false
+              usageEmitted,
+              usageCtx
             );
           }
           this.emitLog({
@@ -1082,7 +1131,50 @@ export class AiCliGateway {
     });
   }
 
-  private processUsageFromSSE(fullResponse: string, reqModel: string, upstream: string, urlPath: string): void {
+  private parseOpenAiSseDataChunk(block: string): Record<string, unknown> | null {
+    const dataLine = block.split(/\r?\n/).find((line) => line.startsWith('data:'));
+    if (!dataLine) {
+      return null;
+    }
+    const payload = dataLine.slice(5).trim();
+    if (!payload || payload === '[DONE]') {
+      return null;
+    }
+    try {
+      return JSON.parse(payload) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+  }
+
+  private mergeStreamUsage(
+    current: {
+      model: string;
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadTokens: number;
+      cacheCreationTokens: number;
+      serverToolUseTokens: number;
+    } | null,
+    chunk: Record<string, unknown>
+  ): {
+    model: string;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheCreationTokens: number;
+    serverToolUseTokens: number;
+  } | null {
+    return extractTokenUsage(chunk) ?? current;
+  }
+
+  private processUsageFromSSE(
+    fullResponse: string,
+    reqModel: string,
+    upstream: string,
+    urlPath: string,
+    ctx?: UsageRecordContext
+  ): void {
     let lastUsage: {
       model: string;
       inputTokens: number;
@@ -1110,6 +1202,31 @@ export class AiCliGateway {
         /* ignore */
       }
     }
+    if (!lastUsage) {
+      for (const line of fullResponse.split('\n')) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) {
+          continue;
+        }
+        const payload = trimmed.slice(5).trim();
+        if (!payload || payload === '[DONE]') {
+          continue;
+        }
+        try {
+          const parsed = JSON.parse(payload);
+          const usage = extractTokenUsage(parsed);
+          if (usage) {
+            lastUsage = usage;
+          }
+          const rid = extractRequestId(parsed);
+          if (rid) {
+            lastRequestId = rid;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+    }
     if (lastUsage) {
       this.emitUsage({
         app: inferUsageApp(urlPath, lastUsage.model || reqModel),
@@ -1121,18 +1238,23 @@ export class AiCliGateway {
         serverToolUseTokens: lastUsage.serverToolUseTokens,
         requestId: lastRequestId,
         upstream,
+        provider: this.usageProviderLabel(upstream, ctx?.providerName),
+        status: ctx?.status,
+        durationMs: ctx?.durationMs,
+        streaming: ctx?.streaming,
         ts: new Date().toISOString(),
       });
       return;
     }
-    this.emitRequestUsage(reqModel, upstream, urlPath);
+    this.emitRequestUsage(reqModel, upstream, urlPath, ctx);
   }
 
   private emitUsageFromResponseBody(
     body: Record<string, unknown>,
     reqModel: string,
     upstream: string,
-    urlPath: string
+    urlPath: string,
+    ctx?: UsageRecordContext
   ): { model: string; inputTokens: number; outputTokens: number } | null {
     const extracted = extractTokenUsage(body);
     if (!extracted) {
@@ -1148,6 +1270,10 @@ export class AiCliGateway {
       serverToolUseTokens: extracted.serverToolUseTokens,
       requestId: extractRequestId(body),
       upstream,
+      provider: this.usageProviderLabel(upstream, ctx?.providerName),
+      status: ctx?.status,
+      durationMs: ctx?.durationMs,
+      streaming: ctx?.streaming,
       ts: new Date().toISOString(),
     });
     return {
@@ -1271,11 +1397,12 @@ export class AiCliGateway {
               completion.response && typeof completion.response === 'object'
                 ? completion.response as Record<string, unknown>
                 : null;
+            const usageCtx = this.bridgeUsageCtx(upstream, 200, startTime, true);
             const usageInfo = responseBody
-              ? this.emitUsageFromResponseBody(responseBody, chatModel, targetUrl, urlPath)
+              ? this.emitUsageFromResponseBody(responseBody, chatModel, targetUrl, urlPath, usageCtx)
               : null;
             if (!usageInfo) {
-              this.emitRequestUsage(chatModel, targetUrl, urlPath);
+              this.emitRequestUsage(chatModel, targetUrl, urlPath, usageCtx);
             }
             this.emitLog({
               ts: new Date().toISOString(),
@@ -1319,9 +1446,10 @@ export class AiCliGateway {
             'content-length': Buffer.byteLength(out),
           });
           clientRes.end(out);
-          const usageInfo = this.emitUsageFromResponseBody(translated, chatModel, targetUrl, urlPath);
+          const usageCtx = this.bridgeUsageCtx(upstream, 200, startTime, false);
+          const usageInfo = this.emitUsageFromResponseBody(translated, chatModel, targetUrl, urlPath, usageCtx);
           if (!usageInfo) {
-            this.emitRequestUsage(chatModel, targetUrl, urlPath);
+            this.emitRequestUsage(chatModel, targetUrl, urlPath, usageCtx);
           }
           this.emitLog({
             ts: new Date().toISOString(),
@@ -1440,51 +1568,42 @@ export class AiCliGateway {
           } | null = null;
           proxyRes.on('data', (chunk: Buffer) => {
             buffer += chunk.toString('utf-8');
-            const blocks = buffer.split(/\r?\n\r?\n/);
+            const blocks = buffer.split(/\n\n/);
             buffer = blocks.pop() ?? '';
             for (const block of blocks) {
-              for (const message of parseSseMessages(block)) {
-                if (!message.data || message.data === '[DONE]') {
-                  continue;
-                }
-                try {
-                  const parsedChunk = JSON.parse(message.data) as Record<string, unknown>;
-                  const usage = extractTokenUsage(parsedChunk);
-                  if (usage) {
-                    usageInfo = usage;
-                  }
-                  for (const event of translator.acceptChunk(parsedChunk)) {
-                    clientRes.write(event);
-                  }
-                } catch {
-                  /* ignore malformed chunks */
-                }
+              const parsedChunk = this.parseOpenAiSseDataChunk(block);
+              if (!parsedChunk) {
+                continue;
+              }
+              usageInfo = this.mergeStreamUsage(usageInfo, parsedChunk);
+              for (const event of translator.acceptChunk(parsedChunk)) {
+                clientRes.write(event);
               }
             }
           });
           proxyRes.on('end', () => {
             if (buffer) {
-              for (const message of parseSseMessages(buffer)) {
-                if (!message.data || message.data === '[DONE]') {
-                  continue;
+              const parsedChunk = this.parseOpenAiSseDataChunk(buffer);
+              if (parsedChunk) {
+                usageInfo = this.mergeStreamUsage(usageInfo, parsedChunk);
+                for (const event of translator.acceptChunk(parsedChunk)) {
+                  clientRes.write(event);
                 }
-                try {
-                  const parsedChunk = JSON.parse(message.data) as Record<string, unknown>;
-                  const usage = extractTokenUsage(parsedChunk);
-                  if (usage) {
-                    usageInfo = usage;
-                  }
-                  for (const event of translator.acceptChunk(parsedChunk)) {
-                    clientRes.write(event);
-                  }
-                } catch {
-                  /* ignore malformed final chunk */
-                }
+              }
+            }
+            if (!usageInfo) {
+              const fromTranslator = tokenUsageFromAnthropicUsageObject(
+                translator.getLatestUsage(),
+                chatModel
+              );
+              if (fromTranslator) {
+                usageInfo = fromTranslator;
               }
             }
             if (!clientRes.writableEnded) {
               clientRes.end();
             }
+            const usageCtx = this.bridgeUsageCtx(upstream, status, startTime, true);
             if (usageInfo) {
               this.emitUsage({
                 app: 'claude',
@@ -1496,10 +1615,14 @@ export class AiCliGateway {
                 serverToolUseTokens: usageInfo.serverToolUseTokens,
                 requestId: '',
                 upstream: targetUrl,
+                provider: this.usageProviderLabel(targetUrl, upstream.providerName),
+                status: usageCtx.status,
+                durationMs: usageCtx.durationMs,
+                streaming: usageCtx.streaming,
                 ts: new Date().toISOString(),
               });
             } else {
-              this.emitRequestUsage(chatModel, targetUrl, urlPath);
+              this.emitRequestUsage(chatModel, targetUrl, urlPath, usageCtx);
             }
             const ms = Date.now() - startTime;
             this.emitLog({
@@ -1529,9 +1652,10 @@ export class AiCliGateway {
           try {
             const parsedBody = JSON.parse(rawBody.toString('utf-8')) as Record<string, unknown>;
             const translated = translateOpenAiChatToAnthropicMessage(parsedBody, chatModel);
-            const usageInfo = this.emitUsageFromResponseBody(translated, chatModel, targetUrl, urlPath);
+            const usageCtx = this.bridgeUsageCtx(upstream, status, startTime, false);
+            const usageInfo = this.emitUsageFromResponseBody(translated, chatModel, targetUrl, urlPath, usageCtx);
             if (!usageInfo) {
-              this.emitRequestUsage(chatModel, targetUrl, urlPath);
+              this.emitRequestUsage(chatModel, targetUrl, urlPath, usageCtx);
             }
             const responseBody = Buffer.from(JSON.stringify(translated), 'utf-8');
             clientRes.writeHead(status, {
@@ -1708,11 +1832,12 @@ export class AiCliGateway {
               completion.response && typeof completion.response === 'object'
                 ? completion.response as Record<string, unknown>
                 : null;
+            const usageCtx = this.bridgeUsageCtx(upstream, 200, startTime, true);
             const usageInfo = responseBody
-              ? this.emitUsageFromResponseBody(responseBody, anthropicModel, targetUrl, urlPath)
+              ? this.emitUsageFromResponseBody(responseBody, anthropicModel, targetUrl, urlPath, usageCtx)
               : null;
             if (!usageInfo) {
-              this.emitRequestUsage(anthropicModel, targetUrl, urlPath);
+              this.emitRequestUsage(anthropicModel, targetUrl, urlPath, usageCtx);
             }
             this.emitLog({
               ts: new Date().toISOString(),
@@ -1747,9 +1872,10 @@ export class AiCliGateway {
               'content-length': Buffer.byteLength(out),
             });
             clientRes.end(out);
-            const usageInfo = this.emitUsageFromResponseBody(translated, anthropicModel, targetUrl, urlPath);
+            const usageCtx = this.bridgeUsageCtx(upstream, 200, startTime, false);
+            const usageInfo = this.emitUsageFromResponseBody(translated, anthropicModel, targetUrl, urlPath, usageCtx);
             if (!usageInfo) {
-              this.emitRequestUsage(anthropicModel, targetUrl, urlPath);
+              this.emitRequestUsage(anthropicModel, targetUrl, urlPath, usageCtx);
             }
             this.emitLog({
               ts: new Date().toISOString(),

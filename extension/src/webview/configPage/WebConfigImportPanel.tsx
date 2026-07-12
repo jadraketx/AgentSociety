@@ -38,6 +38,7 @@ export type PendingWebImport = {
   claudeConfig?: Partial<ClaudeCodeConfigValues>;
   easyPaperConfig?: Partial<EasyPaperConfigValues>;
   gatewayProvider?: WebImportGatewayProviderDraft;
+  gatewayProviderHasApiKey?: boolean;
   modelOptions?: ImportedModelOptions;
   authPath?: string;
 };
@@ -48,12 +49,14 @@ type Props = {
   vscode: VSCodeAPI;
   deviceAuth: DeviceAuthState;
   pendingImport: PendingWebImport | null;
+  applying: boolean;
   onStart: () => void;
   onCancel: () => void;
   onConfirm: (imported: PendingWebImport) => void;
   onDismissConfirm: () => void;
   notify: (type: 'success' | 'error', message: string, description?: string) => void;
   prominent?: boolean;
+  compact?: boolean;
 };
 
 export function WebConfigImportPanel({
@@ -61,12 +64,14 @@ export function WebConfigImportPanel({
   vscode,
   deviceAuth,
   pendingImport,
+  applying,
   onStart,
   onCancel,
   onConfirm,
   onDismissConfirm,
   notify,
   prominent = false,
+  compact = false,
 }: Props) {
   const copyToClipboard = React.useCallback(
     (value: string, message: string) => {
@@ -87,6 +92,10 @@ export function WebConfigImportPanel({
         title={t('configPage.webImport.confirmTitle')}
         okText={t('configPage.webImport.confirmApply')}
         cancelText={t('configPage.webImport.confirmCancel')}
+        confirmLoading={applying}
+        cancelButtonProps={{ disabled: applying }}
+        closable={!applying}
+        maskClosable={!applying}
         onOk={() => {
           if (pendingImport) {
             onConfirm(pendingImport);
@@ -122,6 +131,14 @@ export function WebConfigImportPanel({
               </Text>
               <Text>
                 {t('configPage.llm.modelName')}: <code>{gateway.model || '-'}</code>
+              </Text>
+              <Text>
+                {t('configPage.llm.apiKey')}:{' '}
+                <code>
+                  {pendingImport?.gatewayProviderHasApiKey || pendingImport?.config?.llmApiKey
+                    ? '********'
+                    : '-'}
+                </code>
               </Text>
               <Text>
                 Sonnet / Opus / Haiku:{' '}
@@ -164,7 +181,7 @@ export function WebConfigImportPanel({
         </Space>
       </Modal>
 
-      {prominent ? (
+      {prominent && !compact ? (
         <div style={{ marginBottom: 16 }}>
           <Title level={5} style={{ margin: '0 0 8px', fontSize: 14 }}>
             {t('configPage.webImport.prominentTitle')}
@@ -175,11 +192,11 @@ export function WebConfigImportPanel({
         </div>
       ) : null}
 
-      <div style={{ marginBottom: 14 }}>
-        <Space wrap align="start">
+      <div style={{ marginBottom: compact ? 0 : 14 }}>
+        <Space wrap align="center" style={compact ? { width: '100%' } : undefined}>
           <Button
-            type={prominent ? 'primary' : 'default'}
-            size={prominent ? 'middle' : 'middle'}
+            type={prominent && !compact ? 'primary' : 'default'}
+            size={compact ? 'small' : prominent ? 'middle' : 'middle'}
             icon={<CloudDownloadOutlined />}
             loading={importBusy}
             onClick={onStart}
@@ -198,7 +215,7 @@ export function WebConfigImportPanel({
         <Alert
           type="info"
           showIcon
-          style={{ marginBottom: 14, borderRadius: 10 }}
+          style={{ marginTop: compact ? 10 : 0, marginBottom: compact ? 0 : 14, borderRadius: 10 }}
           message={t('configPage.webImport.deviceTitle')}
           description={(
             <Space direction="vertical" size={8} style={{ width: '100%' }}>

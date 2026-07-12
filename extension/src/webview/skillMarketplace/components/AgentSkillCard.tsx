@@ -1,13 +1,11 @@
 import * as React from 'react';
-import { Button, Card, Dropdown, Space, Switch, Tag, Tooltip, Typography } from 'antd';
+import { Button, Card, Dropdown, Space, Tag, Typography } from 'antd';
 import type { MenuProps } from 'antd';
 import {
   BookOutlined,
-  DeleteOutlined,
   FolderOpenOutlined,
   MoreOutlined,
   RobotOutlined,
-  SyncOutlined,
   ThunderboltOutlined,
   ToolOutlined,
 } from '@ant-design/icons';
@@ -27,11 +25,8 @@ type Props = {
   detail?: AgentSkillDetailPayload;
   detailLoading: boolean;
   t: TFunction;
-  onToggleEnabled: (name: string, enabled: boolean) => void;
-  onReload: (name: string) => void;
   onOpenDoc: (skill: AgentSkill) => void;
   onOpenFolder: (path: string) => void;
-  onRemove: (name: string) => void;
   onExpandDetail: (skill: AgentSkill) => void;
 };
 
@@ -43,11 +38,8 @@ export function AgentSkillCard({
   detail,
   detailLoading,
   t,
-  onToggleEnabled,
-  onReload,
   onOpenDoc,
   onOpenFolder,
-  onRemove,
   onExpandDetail,
 }: Props) {
   const scriptText = (detail?.script ?? skill.script ?? '').trim();
@@ -68,24 +60,6 @@ export function AgentSkillCard({
       icon: <FolderOpenOutlined />,
       onClick: () => onOpenFolder(skill.path),
     },
-    ...(!isBuiltin
-      ? [
-          {
-            key: 'reload',
-            label: t('skillManagement.reload'),
-            icon: <SyncOutlined />,
-            onClick: () => onReload(skill.name),
-          },
-          { type: 'divider' as const },
-          {
-            key: 'remove',
-            label: t('skillManagement.archiveAgentTooltip'),
-            icon: <DeleteOutlined />,
-            danger: true,
-            onClick: () => onRemove(skill.name),
-          },
-        ]
-      : []),
   ];
 
   return (
@@ -143,17 +117,7 @@ export function AgentSkillCard({
                 <Tag color="blue" style={{ margin: 0 }}>
                   {t('skillManagement.builtinAgentSkillTag')}
                 </Tag>
-              ) : (
-                <Tooltip title={t('skillManagement.agentCatalogToggleHint')}>
-                  <Switch
-                    size="small"
-                    checked={skill.enabled}
-                    checkedChildren={t('skillManagement.enable')}
-                    unCheckedChildren={t('skillManagement.disable')}
-                    onChange={(checked) => onToggleEnabled(skill.name, checked)}
-                  />
-                </Tooltip>
-              )}
+              ) : null}
               <Dropdown trigger={['click']} menu={{ items: menuItems }}>
                 <Button type="text" size="small" icon={<MoreOutlined />} aria-label={t('skillManagement.moreActions')} />
               </Dropdown>

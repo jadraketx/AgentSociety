@@ -11,6 +11,8 @@ import {
 import type { TFunction } from 'i18next';
 import type { VscodeThemePalette } from '../theme';
 import type { AiCliGatewayStatus } from './claudeCodeTypes';
+import type { TokenUsageRecord } from './gatewayUsageTypes';
+import { formatTokenCount, resolveGatewayUsageView } from './gatewayUsageView';
 import type { BackendStatus, ValidationState } from './types';
 
 const { Text } = Typography;
@@ -25,6 +27,7 @@ type Props = {
   defaultValidation: ValidationState;
   backendStatus: BackendStatus;
   gatewayStatus: AiCliGatewayStatus;
+  gatewayUsageRecords?: TokenUsageRecord[];
   onOpenSimulation: () => void;
   onOpenBackendUrl?: (url: string) => void;
   onStartBackend?: () => void;
@@ -42,6 +45,7 @@ export function ConfigReadinessOverview({
   defaultValidation,
   backendStatus,
   gatewayStatus,
+  gatewayUsageRecords = [],
   onOpenSimulation,
   onOpenBackendUrl,
   onStartBackend,
@@ -160,10 +164,15 @@ export function ConfigReadinessOverview({
         gatewayStatus.stats?.totalRequests != null
           ? t('configPage.metrics.requests', { count: gatewayStatus.stats.totalRequests })
           : null;
+      const usageView = resolveGatewayUsageView(gatewayUsageRecords, { range: '7d', app: 'all' });
+      const tokens =
+        usageView && (usageView.totalInputTokens > 0 || usageView.totalOutputTokens > 0)
+          ? `${t('claudeCodeConfig.usageColInput')} ${formatTokenCount(usageView.totalInputTokens)} · ${t('claudeCodeConfig.usageColOutput')} ${formatTokenCount(usageView.totalOutputTokens)}`
+          : null;
       return {
         value: t('configPage.readiness.gatewayOn', { port: gatewayStatus.port ?? '' }),
         accent: palette.successForeground,
-        hint: [uptime, requests].filter(Boolean).join(' · ') || undefined,
+        hint: [uptime, requests, tokens].filter(Boolean).join(' · ') || undefined,
       };
     }
     return {
@@ -171,7 +180,7 @@ export function ConfigReadinessOverview({
       accent: palette.warningForeground,
       hint: gatewayStatus.error ?? t('configPage.metrics.gatewayStoppedHint'),
     };
-  }, [gatewayStatus, palette, t]);
+  }, [gatewayStatus, gatewayUsageRecords, palette, t]);
 
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>

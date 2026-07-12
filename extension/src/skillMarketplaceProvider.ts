@@ -100,20 +100,6 @@ export class SkillMarketplacePanel {
           case 'listAgentSkills':
             await this._loadAgentSkills();
             break;
-          case 'reloadAgentSkill':
-            await this._reloadAgentSkill(data.payload.name);
-            break;
-          case 'setAgentSkillEnabled': {
-            const pl = data.payload as { name?: string; enabled?: boolean };
-            const n = typeof pl?.name === 'string' ? pl.name : '';
-            if (n && typeof pl?.enabled === 'boolean') {
-              await this._setAgentSkillEnabled(n, pl.enabled);
-            }
-            break;
-          }
-          case 'removeAgentSkill':
-            await this._archiveAgentSkill(data.payload.name);
-            break;
 
           // Claude Code Skills
           case 'listClaudeCodeSkills':
@@ -417,7 +403,6 @@ export class SkillMarketplacePanel {
           name: s.name,
           description: s.description,
           source: s.source,
-          enabled: s.enabled ?? false,
           path: s.path,
           has_skill_md: s.has_skill_md,
           script: s.script,
@@ -432,50 +417,6 @@ export class SkillMarketplacePanel {
       this._log(`[SkillManagement] Failed to load agent skills: ${message}`);
       await this._postMessage({ type: 'agentSkillsLoaded', payload: [] });
       await this._postMessage({ type: 'error', payload: message });
-    }
-  }
-
-  private async _reloadAgentSkill(name: string): Promise<void> {
-    try {
-      const response = await this._apiClient.reloadAgentSkill(name);
-      await this._postMessage({ type: 'agentSkillReloaded', payload: { message: response.message } });
-      await this._loadAgentSkills();
-    } catch (error: any) {
-      await this._postMessage({ type: 'error', payload: `Failed to reload skill: ${error.message}` });
-    }
-  }
-
-  private async _setAgentSkillEnabled(name: string, enabled: boolean): Promise<void> {
-    try {
-      if (!enabled) {
-        const list = await this._apiClient.listAgentSkills();
-        const row = list.skills.find((s) => s.name === name);
-        if (row?.source === 'builtin') {
-          vscode.window.showWarningMessage(
-            'Built-in agent skills cannot be disabled.'
-          );
-          await this._loadAgentSkills();
-          return;
-        }
-      }
-      const response = enabled
-        ? await this._apiClient.enableAgentSkill(name)
-        : await this._apiClient.disableAgentSkill(name);
-      vscode.window.showInformationMessage(response.message);
-      await this._loadAgentSkills();
-    } catch (error: any) {
-      await this._postMessage({ type: 'error', payload: error.message || String(error) });
-    }
-  }
-
-  private async _archiveAgentSkill(name: string): Promise<void> {
-    try {
-      const response = await this._apiClient.archiveAgentSkill(name);
-      vscode.window.showInformationMessage(response.message);
-      await this._postMessage({ type: 'agentSkillRemoved', payload: { message: response.message } });
-      await this._loadAgentSkills();
-    } catch (error: any) {
-      await this._postMessage({ type: 'error', payload: error.message || String(error) });
     }
   }
 
@@ -960,7 +901,6 @@ export class SkillMarketplacePanel {
               name: r.name,
               description: r.description,
               source: r.source,
-              enabled: skill.enabled,
               path: r.path,
               script: r.script,
               skill_md: r.skill_md,
@@ -984,7 +924,6 @@ export class SkillMarketplacePanel {
         name: skill.name,
         description: skill.description,
         source: skill.source,
-        enabled: skill.enabled,
         path: skill.path,
         script: skill.script,
         skill_md: localMd ?? '',

@@ -148,7 +148,14 @@ export function ProviderEditor({
       autoMappedRef.current = false;
       autoFetchFingerprintRef.current = '';
       setDraft(provider);
+      return;
     }
+    setDraft((prev) => {
+      if (prev.apiKey.trim() || !provider.apiKey.trim()) {
+        return prev;
+      }
+      return { ...prev, apiKey: provider.apiKey };
+    });
   }, [provider]);
 
   const patch = (partial: Partial<AiCliProviderRecord>) => {

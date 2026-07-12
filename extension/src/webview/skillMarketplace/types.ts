@@ -19,7 +19,6 @@ export interface AgentSkill {
   name: string;
   description: string;
   source: 'builtin' | 'custom' | string; // builtin | custom | env:xxx
-  enabled: boolean;
   path: string;
   has_skill_md: boolean;
   script: string;
@@ -165,7 +164,6 @@ export interface AgentSkillDetailPayload {
   name: string;
   description: string;
   source: string;
-  enabled: boolean;
   path: string;
   script: string;
   skill_md: string;
@@ -208,9 +206,6 @@ export interface ExtensionMessage {
   | 'ready'
   // Agent Skills
   | 'listAgentSkills'
-  | 'reloadAgentSkill'
-  | 'setAgentSkillEnabled'
-  | 'removeAgentSkill'
   | 'fetchAgentSkillDetail'
   | 'fetchLocalSkillMarkdown'
   | 'importAgentSkill'
@@ -262,8 +257,6 @@ export interface WebviewMessage {
   type:
   // Agent Skills
   | 'agentSkillsLoaded'
-  | 'agentSkillReloaded'
-  | 'agentSkillRemoved'
   | 'agentSkillImported'
   | 'agentSkillDetailLoaded'
   | 'localSkillMarkdownLoaded'

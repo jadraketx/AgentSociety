@@ -21,7 +21,6 @@ import {
 import {
   claudeSettingsBaseUrl,
   inferApiKindFromBaseUrl,
-  isOfficialAnthropicBaseUrl,
   providerUpstream,
   resolveProviderBaseUrl,
   type AiCliApiKind,
@@ -30,8 +29,6 @@ import { inferOpenAiApiFormat } from './codexApiFormat';
 import { resolveCodexChatModel } from './codexModelMapping';
 import {
   type TokenUsageRecord,
-  type UsageAggregation,
-  aggregateUsage,
 } from './gatewayUsageTracker';
 import {
   type ModelPricingMap,
@@ -66,12 +63,17 @@ import {
   getSharedOutputChannel,
   OUTPUT_CHANNEL_GATEWAY,
 } from '../shared/outputChannels';
+import {
+  scanClaudeSessionUsage,
+  type ClaudeSessionUsageCursor,
+} from './claudeSessionUsage';
 
 const UPSTREAM_SECRET_KEY = 'aiCliGateway.upstream.secret';
 const ENABLED_STATE_KEY = 'aiCliGateway.enabled';
 const PROVIDERS_STATE_KEY = 'aiCliGateway.providers';
 const PROVIDER_SECRET_PREFIX = 'aiCliGateway.provider.apiKey.';
 const USAGE_STATE_KEY = 'aiCliGateway.usageRecords';
+const CLAUDE_SESSION_CURSOR_STATE_KEY = 'aiCliGateway.claudeSessionUsageCursor';
 const CUSTOM_PRICING_STATE_KEY = 'aiCliGateway.customPricing';
 const REMOTE_PRICING_STATE_KEY = 'aiCliGateway.remotePricing';
 const REMOTE_PRICING_FETCHED_AT_STATE_KEY = 'aiCliGateway.remotePricingFetchedAt';
@@ -366,6 +368,7 @@ export class AiCliGatewayManager {
     return {
       baseUrl: upstream.baseUrl,
       apiKey: upstream.apiKey,
+      providerName: normalized.name.trim() || undefined,
       apiKind: upstream.apiKind,
       model: normalized.model,
       sonnetModel: normalized.sonnetModel,
@@ -494,35 +497,6 @@ export class AiCliGatewayManager {
       baseUrl: upstream.baseUrl,
       apiKey: upstream.apiKey,
     };
-  }
-
-  async ensureDefaultProviderFromClaudeConfig(): Promise<AiCliProviderConfig[]> {
-    await this.initialize();
-    let providers = this.getProviders();
-    if (providers.length > 0) {
-      await this.saveProviders(providers);
-      return providers;
-    }
-    const live = readClaudeConfig();
-    if (!live.apiKey.trim() && !live.baseUrl.trim()) {
-      return providers;
-    }
-    const official = !live.baseUrl.trim() || isOfficialAnthropicBaseUrl(live.baseUrl);
-    const entry = await this.addProvider({
-      name: official
-        ? 'Anthropic Official'
-        : live.baseUrl.trim() || 'Default',
-      baseUrl: live.baseUrl.trim(),
-      apiKey: live.apiKey.trim(),
-      apiKind: 'anthropic',
-      model: live.model,
-      sonnetModel: live.sonnetModel,
-      opusModel: live.opusModel,
-      haikuModel: live.haikuModel,
-      permissionMode: live.permissionMode,
-    });
-    providers = [entry];
-    return providers;
   }
 
   private buildClaudeLiveConfig(
@@ -822,10 +796,13 @@ export class AiCliGatewayManager {
   }): Promise<AiCliProviderConfig> {
     await this.initialize();
     const providers = this.getProviders();
-    const existing = providers.find((p) => p.name === draft.name);
     const apiKind = draft.apiKind ?? inferApiKindFromBaseUrl(draft.baseUrl);
-    const hasActiveClaude = providers.some((p) => p.activeClaude);
-    const hasActiveCodex = providers.some((p) => p.activeCodex);
+    const normalizedBaseUrl = resolveProviderBaseUrl(draft.baseUrl, apiKind);
+    const existing = providers.find(
+      (provider) =>
+        provider.name === draft.name ||
+        providerUpstream(provider).baseUrl === normalizedBaseUrl
+    );
     const payload = {
       name: draft.name,
       baseUrl: draft.baseUrl.trim(),
@@ -844,11 +821,12 @@ export class AiCliGatewayManager {
       declareOpus1m: draft.declareOpus1m,
       declareFable1m: draft.declareFable1m,
       codexEnable1m: draft.codexEnable1m,
-      activeClaude: existing?.activeClaude ?? !hasActiveClaude,
-      activeCodex: existing?.activeCodex ?? !hasActiveCodex,
+      activeClaude: true,
+      activeCodex: true,
     };
     if (existing) {
-      return this.updateProvider(existing.id, payload);
+      const apiKey = draft.apiKey.trim() || existing.apiKey.trim();
+      return this.updateProvider(existing.id, { ...payload, apiKey });
     }
     return this.addProvider(payload);
   }
@@ -1022,12 +1000,51 @@ export class AiCliGatewayManager {
     }
   }
 
-  getSessionUsage(): TokenUsageRecord[] {
-    return this.sessionUsage;
+  async syncClaudeSessionUsage(): Promise<number> {
+    await this.initialize();
+    await this.persistUsage();
+    const stored = await this.getPersistedUsage();
+    const persisted = stored.filter((record) => record.model !== 'models-list');
+    if (persisted.length !== stored.length) {
+      await this.context.globalState.update(USAGE_STATE_KEY, persisted);
+    }
+    const cursor =
+      this.context.globalState.get<ClaudeSessionUsageCursor>(
+        CLAUDE_SESSION_CURSOR_STATE_KEY
+      ) ?? {};
+    const activeProvider = this.getActiveClaudeProvider();
+    const result = await scanClaudeSessionUsage(
+      cursor,
+      activeProvider?.name
+    );
+    if (result.records.length > 0) {
+      const merged = [...persisted];
+      for (const record of result.records) {
+        const index = merged.findIndex(
+          (existing) =>
+            existing.source === 'session' &&
+            existing.requestId === record.requestId
+        );
+        if (index >= 0) {
+          merged[index] = record;
+        } else {
+          merged.push(record);
+        }
+      }
+      await this.context.globalState.update(
+        USAGE_STATE_KEY,
+        merged.slice(-MAX_USAGE_RECORDS)
+      );
+    }
+    await this.context.globalState.update(
+      CLAUDE_SESSION_CURSOR_STATE_KEY,
+      result.cursor
+    );
+    return result.records.length;
   }
 
-  getSessionAggregation(): UsageAggregation {
-    return aggregateUsage(this.sessionUsage);
+  getSessionUsage(): TokenUsageRecord[] {
+    return this.sessionUsage;
   }
 
   clearSessionUsage(): void {

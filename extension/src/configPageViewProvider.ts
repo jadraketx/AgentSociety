@@ -29,6 +29,7 @@ import { fetchProviderModels } from './services/claudeCodeModels';
 import { inferApiKindFromBaseUrl } from './aiCli/officialEndpoints';
 import type { AiCliGatewayManager, AiCliProviderConfig } from './services/aiCliGatewayManager';
 import type { ClaudeCodeConfigValues } from './webview/configPage/claudeCodeTypes';
+import type { WebImportGatewayProviderDraft } from './services/webConfigGatewayImport';
 import * as path from 'path';
 import { localize } from './i18n';
 import type { ConfigValues, WorkspaceInfo, EasyPaperConfigValues } from './webview/configPage/types';
@@ -76,6 +77,7 @@ export class ConfigPageViewProvider {
   private readonly _context: vscode.ExtensionContext;
   private readonly _envManager: EnvManager;
   private _webConfigImport: AgentsocietyWebConfigService | undefined;
+  private _pendingImportedGateway: WebImportGatewayProviderDraft | undefined;
   private _disposables: vscode.Disposable[] = [];
 
   public static createOrShow(
@@ -261,9 +263,10 @@ export class ConfigPageViewProvider {
             this._cancelCasdoorDeviceAuth();
             break;
           case 'gatewayUpsertWebImportProvider':
-            await this._handleGatewayUpsertWebImportProvider(
-              message.provider as Partial<AiCliProviderConfig> | undefined
-            );
+            await this._handleGatewayUpsertWebImportProvider();
+            break;
+          case 'dismissWebConfigImport':
+            this._clearPendingImportedGateway();
             break;
           case 'saveEasyPaperConfig':
             await this._handleSaveEasyPaperConfig(
@@ -469,10 +472,10 @@ export class ConfigPageViewProvider {
 
   private async _handleGatewayListProviders(): Promise<void> {
     const manager = ConfigPageViewProvider.gatewayManager;
-    const providers = manager
-      ? await manager.ensureDefaultProviderFromClaudeConfig()
-      : [];
+    let providers: AiCliProviderConfig[] = [];
     if (manager) {
+      await manager.initialize();
+      providers = manager.getProviders();
       await manager.syncGatewayRoutesWithProviders();
     }
     this._panel.webview.postMessage({
@@ -624,19 +627,18 @@ export class ConfigPageViewProvider {
   private async _handleGatewayGetUsage(): Promise<void> {
     const manager = ConfigPageViewProvider.gatewayManager;
     if (!manager) {
-      this._panel.webview.postMessage({ command: 'gatewayUsageData', records: [], aggregation: null });
+      this._panel.webview.postMessage({ command: 'gatewayUsageData', records: [] });
       return;
     }
+    await manager.syncClaudeSessionUsage();
     await manager.persistUsage();
     const persisted = await manager.getPersistedUsage();
     const session = manager.getSessionUsage();
     const records = session.length > 0 ? [...persisted, ...session] : persisted;
-    const { aggregateUsage } = await import('./services/gatewayUsageTracker');
-    const aggregation = aggregateUsage(records);
     this._panel.webview.postMessage({
       command: 'gatewayUsageData',
       records,
-      aggregation,
+      gatewayStatus: manager.getPublicStatus(),
     });
   }
 
@@ -656,7 +658,6 @@ export class ConfigPageViewProvider {
     this._panel.webview.postMessage({
       command: 'gatewayUsageData',
       records: [],
-      aggregation: null,
     });
   }
 
@@ -810,12 +811,16 @@ export class ConfigPageViewProvider {
       if (this._webConfigImport !== service) {
         return;
       }
+      this._pendingImportedGateway = imported.gatewayProvider;
       this._panel.webview.postMessage({
         command: 'webConfigImported',
         config: imported.config,
         claudeConfig: imported.claudeConfig,
         easyPaperConfig: imported.easyPaperConfig,
-        gatewayProvider: imported.gatewayProvider,
+        gatewayProvider: imported.gatewayProvider
+          ? { ...imported.gatewayProvider, apiKey: '' }
+          : undefined,
+        gatewayProviderHasApiKey: Boolean(imported.gatewayProvider?.apiKey?.trim()),
         modelOptions: imported.modelOptions,
         defaults: imported.defaults,
         authPath: imported.authPath,
@@ -841,36 +846,60 @@ export class ConfigPageViewProvider {
       this._webConfigImport.cancel();
       this._webConfigImport = undefined;
     }
+    this._clearPendingImportedGateway();
   }
 
-  private async _handleGatewayUpsertWebImportProvider(
-    provider: Partial<AiCliProviderConfig> | undefined
-  ): Promise<void> {
+  private _clearPendingImportedGateway(): void {
+    this._pendingImportedGateway = undefined;
+  }
+
+  private async _handleGatewayUpsertWebImportProvider(): Promise<void> {
     const manager = ConfigPageViewProvider.gatewayManager;
-    if (!manager || !provider?.name?.trim() || !provider.baseUrl?.trim() || !provider.apiKey?.trim()) {
+    const draft = this._pendingImportedGateway;
+    if (
+      !manager ||
+      !draft?.name?.trim() ||
+      !draft.baseUrl?.trim() ||
+      !draft.apiKey?.trim() ||
+      !draft.model?.trim() ||
+      !draft.sonnetModel?.trim() ||
+      !draft.opusModel?.trim() ||
+      !draft.haikuModel?.trim()
+    ) {
+      this._panel.webview.postMessage({
+        command: 'webConfigApplyResult',
+        success: false,
+        error: '导入数据缺少 Gateway 供应商、API 地址、API Key 或 Claude 角色模型。',
+      });
       return;
     }
-    await manager.upsertImportedGatewayProvider({
-      name: provider.name.trim(),
-      baseUrl: provider.baseUrl.trim(),
-      apiKey: provider.apiKey.trim(),
-      apiKind: provider.apiKind,
-      model: provider.model,
-      sonnetModel: provider.sonnetModel,
-      opusModel: provider.opusModel,
-      fableModel: provider.fableModel,
-      haikuModel: provider.haikuModel,
-      sonnetDisplayName: provider.sonnetDisplayName,
-      opusDisplayName: provider.opusDisplayName,
-      fableDisplayName: provider.fableDisplayName,
-      haikuDisplayName: provider.haikuDisplayName,
-      declareSonnet1m: provider.declareSonnet1m,
-      declareOpus1m: provider.declareOpus1m,
-      declareFable1m: provider.declareFable1m,
-      codexEnable1m: provider.codexEnable1m,
-    });
-    await this._postProvidersAndActiveConfig();
-    await this._postGatewayStatus();
+    try {
+      const provider = await manager.upsertImportedGatewayProvider(draft);
+      this._pendingImportedGateway = undefined;
+      await this._postProvidersAndActiveConfig();
+      await this._postGatewayStatus();
+      this._panel.webview.postMessage({
+        command: 'webConfigApplyResult',
+        success: true,
+        provider: {
+          name: provider.name,
+          baseUrl: provider.baseUrl,
+          hasApiKey: Boolean(provider.apiKey.trim()),
+          model: provider.model,
+          sonnetModel: provider.sonnetModel,
+          opusModel: provider.opusModel,
+          haikuModel: provider.haikuModel,
+          activeClaude: provider.activeClaude,
+          activeCodex: provider.activeCodex,
+        },
+      });
+    } catch (error) {
+      this._panel.webview.postMessage({
+        command: 'webConfigApplyResult',
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   private async _sendEasyPaperInitialConfig(): Promise<void> {

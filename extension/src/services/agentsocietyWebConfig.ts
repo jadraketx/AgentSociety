@@ -12,6 +12,7 @@ import type {
 import type { ClaudeCodeConfigValues } from '../webview/configPage/claudeCodeTypes';
 import {
   buildGatewayProviderFromWebImport,
+  resolveWebImportClaudeConfig,
   type WebImportGatewayProviderDraft,
 } from './webConfigGatewayImport';
 
@@ -284,8 +285,18 @@ export class AgentsocietyWebConfigService {
     const defaults = pricing?.defaults ?? {};
     const apiBase = this.normalizeOpenAiBase(user.litellm_api_base || litellm?.api_base || '');
     const rawBase = user.litellm_api_base || litellm?.api_base || '';
+    if (!rawBase.trim()) {
+      throw new Error('AgentSociety Web 未返回 LiteLLM API 地址，无法配置 Gateway 供应商。');
+    }
     const searchUrl = user.search_api_url || this.normalizeMcpUrl(rawBase);
     const apiKey = user.litellm_api_key || '';
+    const importedClaudeModels = resolveWebImportClaudeConfig(
+      modelOptions,
+      defaults
+    );
+    if (!importedClaudeModels.model) {
+      throw new Error('AgentSociety Web 未返回可用的 Claude Code 模型，无法配置 Gateway 供应商。');
+    }
 
     return {
       config: {
@@ -305,10 +316,10 @@ export class AgentsocietyWebConfigService {
       claudeConfig: {
         apiKey,
         baseUrl: this.normalizeClaudeBase(rawBase),
-        model: this.pickModel(modelOptions.claudeCode, defaults.claudeCode),
-        sonnetModel: this.pickModel(modelOptions.claudeCode, defaults.claudeCodeSonnet),
-        opusModel: this.pickModel(modelOptions.claudeCode, defaults.claudeCodeOpus),
-        haikuModel: this.pickModel(modelOptions.claudeCode, defaults.claudeCodeHaiku),
+        model: importedClaudeModels.model ?? '',
+        sonnetModel: importedClaudeModels.sonnetModel ?? '',
+        opusModel: importedClaudeModels.opusModel ?? '',
+        haikuModel: importedClaudeModels.haikuModel ?? '',
       },
       easyPaperConfig: {
         llmModelName: this.pickModel(modelOptions.openaiCompatible, defaults.simulation),
@@ -319,12 +330,7 @@ export class AgentsocietyWebConfigService {
         vlmApiKey: apiKey,
         vlmBaseUrl: apiBase,
       },
-      gatewayProvider: buildGatewayProviderFromWebImport(apiKey, apiBase, {
-        model: this.pickModel(modelOptions.claudeCode, defaults.claudeCode),
-        sonnetModel: this.pickModel(modelOptions.claudeCode, defaults.claudeCodeSonnet),
-        opusModel: this.pickModel(modelOptions.claudeCode, defaults.claudeCodeOpus),
-        haikuModel: this.pickModel(modelOptions.claudeCode, defaults.claudeCodeHaiku),
-      }, {
+      gatewayProvider: buildGatewayProviderFromWebImport(apiKey, apiBase, importedClaudeModels, {
         enableCodex1m: true,
       }),
       modelOptions,
