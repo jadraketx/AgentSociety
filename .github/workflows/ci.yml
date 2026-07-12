@@ -8,22 +8,20 @@ on:
     branches: [main, develop]
     paths:
       - "packages/agentsociety2/**"
+      - "!packages/agentsociety2/docs/**"
+      - "!packages/agentsociety2/**/*.md"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/ci.yml"
-    paths-ignore:
-      - "packages/agentsociety2/docs/**"
-      - "packages/agentsociety2/**.md"
   pull_request:
     branches: [main, develop]
     paths:
       - "packages/agentsociety2/**"
+      - "!packages/agentsociety2/docs/**"
+      - "!packages/agentsociety2/**/*.md"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/ci.yml"
-    paths-ignore:
-      - "packages/agentsociety2/docs/**"
-      - "packages/agentsociety2/**.md"
 
 concurrency:
   group: ci-${{ github.ref }}

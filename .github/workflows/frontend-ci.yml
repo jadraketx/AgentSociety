@@ -8,16 +8,14 @@ on:
     branches: [main, develop]
     paths:
       - "frontend/**"
+      - "!frontend/**/*.md"
       - ".github/workflows/frontend-ci.yml"
-    paths-ignore:
-      - "frontend/**.md"
   pull_request:
     branches: [main, develop]
     paths:
       - "frontend/**"
+      - "!frontend/**/*.md"
       - ".github/workflows/frontend-ci.yml"
-    paths-ignore:
-      - "frontend/**.md"
 
 concurrency:
   group: frontend-ci-${{ github.ref }}

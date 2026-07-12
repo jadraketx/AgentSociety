@@ -8,18 +8,16 @@ on:
     branches: [main, develop]
     paths:
       - "extension/**"
+      - "!extension/docs/**"
+      - "!extension/**/*.md"
       - ".github/workflows/extension-ci.yml"
-    paths-ignore:
-      - "extension/docs/**"
-      - "extension/**.md"
   pull_request:
     branches: [main, develop]
     paths:
       - "extension/**"
+      - "!extension/docs/**"
+      - "!extension/**/*.md"
       - ".github/workflows/extension-ci.yml"
-    paths-ignore:
-      - "extension/docs/**"
-      - "extension/**.md"
 
 concurrency:
   group: extension-ci-${{ github.ref }}
