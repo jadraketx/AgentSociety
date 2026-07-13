@@ -57,7 +57,7 @@ function collectRoleSpecs(upstream: AnthropicRoleMappingUpstream & {
     ),
     buildRoleEntry(
       CLAUDE_ROLE_ROUTE_IDS.fable,
-      upstream.fableModel ?? upstream.opusModel,
+      upstream.fableModel,
       upstream.fableDisplayName,
       upstream.declareFable1m
     ),

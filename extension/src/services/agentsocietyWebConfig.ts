@@ -319,6 +319,7 @@ export class AgentsocietyWebConfigService {
         model: importedClaudeModels.model ?? '',
         sonnetModel: importedClaudeModels.sonnetModel ?? '',
         opusModel: importedClaudeModels.opusModel ?? '',
+        fableModel: importedClaudeModels.fableModel ?? '',
         haikuModel: importedClaudeModels.haikuModel ?? '',
       },
       easyPaperConfig: {

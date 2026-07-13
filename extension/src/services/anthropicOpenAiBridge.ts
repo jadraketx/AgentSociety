@@ -97,7 +97,14 @@ function supportsReasoningEffort(model: string): boolean {
 function resolveReasoningEffort(body: JsonObject): string | undefined {
   const outputConfig = isObject(body.output_config) ? body.output_config : {};
   if (typeof outputConfig.effort === 'string') {
-    return outputConfig.effort === 'max' ? 'xhigh' : outputConfig.effort;
+    const effort = outputConfig.effort.trim().toLowerCase();
+    if (effort === 'max' || effort === 'xhigh') {
+      return 'xhigh';
+    }
+    if (effort === 'low' || effort === 'medium' || effort === 'high') {
+      return effort;
+    }
+    return undefined;
   }
   const thinking = isObject(body.thinking) ? body.thinking : {};
   if (thinking.type === 'adaptive') {

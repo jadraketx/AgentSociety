@@ -1,4 +1,4 @@
-import type { AiCliApiKind } from './officialEndpoints';
+import type { AiCliApiKind } from '../../aiCli/officialEndpoints';
 import type { AiCliAuthMode } from './providerAuth';
 import type { ClaudeModelOption } from './claudeCodeTypes';
 
@@ -98,12 +98,11 @@ export function autoMapClaudeRoleModels(
   const fable = findModelIdByRole(models, 'fable');
   const haiku = findModelIdByRole(models, 'haiku');
   const fallback = sonnet ?? opus ?? models[0]?.id ?? '';
-  const resolvedOpus = current.opusModel?.trim() ? current.opusModel : (opus ?? '');
   return {
     model: current.model?.trim() ? current.model : fallback,
     sonnetModel: current.sonnetModel?.trim() ? current.sonnetModel : (sonnet ?? ''),
-    opusModel: resolvedOpus,
-    fableModel: current.fableModel?.trim() ? current.fableModel : (fable ?? resolvedOpus),
+    opusModel: current.opusModel?.trim() ? current.opusModel : (opus ?? ''),
+    fableModel: current.fableModel?.trim() ? current.fableModel : (fable ?? ''),
     haikuModel: current.haikuModel?.trim() ? current.haikuModel : (haiku ?? ''),
   };
 }

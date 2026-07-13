@@ -134,6 +134,9 @@ export class ConfigPageViewProvider {
         apiKind?: 'anthropic' | 'openai';
         pricing?: Record<string, unknown>;
         dismissed?: boolean;
+        username?: string;
+        password?: string;
+        settings?: Record<string, boolean>;
       }) => {
         switch (message.command) {
           case 'requestConfig':
@@ -250,11 +253,46 @@ export class ConfigPageViewProvider {
           case 'gatewaySetFailover':
             await this._handleGatewaySetFailover(Boolean(message.enabled));
             break;
+          case 'gatewaySetOutboundProxy':
+            await this._handleGatewaySetOutboundProxy(
+              typeof message.url === 'string' ? message.url : '',
+              typeof message.username === 'string' ? message.username : undefined,
+              typeof message.password === 'string' ? message.password : undefined
+            );
+            break;
+          case 'gatewaySetRectifier':
+            await this._handleGatewaySetRectifier(
+              message.settings && typeof message.settings === 'object'
+                ? (message.settings as Record<string, boolean>)
+                : {}
+            );
+            break;
+          case 'refreshCodexOfficialLogin':
+            await this._postGatewayStatus();
+            {
+              const present =
+                ConfigPageViewProvider.gatewayManager?.getPublicStatus().codexOfficialLoginPresent;
+              vscode.window.showInformationMessage(
+                present
+                  ? localize('aiCliGateway.codexLoginDetected')
+                  : localize('aiCliGateway.codexLoginNotDetected')
+              );
+            }
+            break;
           case 'gatewayQueryProviderUsage':
             await this._handleGatewayQueryProviderUsage(String(message.providerId ?? ''));
             break;
           case 'restartCodexCli':
             await this._handleRestartCodexCli();
+            break;
+          case 'restartClaudeCli':
+            await this._handleRestartClaudeCli();
+            break;
+          case 'syncClaudeConfigFiles':
+            await this._handleSyncClaudeConfigFiles();
+            break;
+          case 'syncCodexConfigFiles':
+            await this._handleSyncCodexConfigFiles();
             break;
           case 'startCasdoorDeviceAuth':
             await this._handleStartCasdoorDeviceAuth();
@@ -415,6 +453,9 @@ export class ConfigPageViewProvider {
     try {
       await manager.setGatewayRoute(target, enabled);
       await this._postGatewayStatus();
+      if (target === 'codex' && enabled) {
+        await this._offerCodexRestart(localize('aiCliGateway.codexRestartNeeded'));
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       const localized =
@@ -499,7 +540,7 @@ export class ConfigPageViewProvider {
       this._panel.webview.postMessage({ command: 'gatewayProvidersList', providers: [] });
       return;
     }
-    await manager.addProvider({
+    const created = await manager.addProvider({
       name: provider.name?.trim() || provider.baseUrl?.trim() || 'Provider',
       baseUrl: provider.baseUrl?.trim() ?? '',
       apiKey: provider.apiKey?.trim() ?? '',
@@ -527,6 +568,13 @@ export class ConfigPageViewProvider {
       permissionMode: provider.permissionMode,
     });
     await this._postProvidersAndActiveConfig();
+    await this._postGatewayStatus();
+    if (created.activeClaude) {
+      vscode.window.showInformationMessage(localize('aiCliGateway.claudeHotSwitchHint'));
+    }
+    if (created.activeCodex) {
+      await this._offerCodexRestart(localize('aiCliGateway.codexRestartNeeded'));
+    }
   }
 
   private async _handleGatewayUpdateProvider(provider: AiCliProviderConfig): Promise<void> {
@@ -534,9 +582,15 @@ export class ConfigPageViewProvider {
     if (!manager || !provider.id) {
       return;
     }
-    await manager.updateProvider(provider.id, provider);
+    const updated = await manager.updateProvider(provider.id, provider);
     await this._postGatewayStatus();
     await this._postProvidersAndActiveConfig();
+    if (updated.activeClaude) {
+      vscode.window.showInformationMessage(localize('aiCliGateway.claudeHotSwitchHint'));
+    }
+    if (updated.activeCodex) {
+      await this._offerCodexRestart(localize('aiCliGateway.codexRestartNeeded'));
+    }
   }
 
   private async _postProvidersAndActiveConfig(): Promise<void> {
@@ -581,11 +635,47 @@ export class ConfigPageViewProvider {
       await manager.activateProvider(id, role);
       await this._postGatewayStatus();
       await this._postProvidersAndActiveConfig();
+      if (role === 'claude') {
+        vscode.window.showInformationMessage(localize('aiCliGateway.claudeHotSwitchHint'));
+      } else {
+        await this._offerCodexRestart(localize('aiCliGateway.codexRestartNeeded'));
+      }
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       vscode.window.showErrorMessage(localize('aiCliGateway.toggleFailed', message));
       await this._postGatewayStatus();
     }
+  }
+
+  private async _handleGatewaySetOutboundProxy(
+    url: string,
+    username?: string,
+    password?: string
+  ): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      return;
+    }
+    await manager.setOutboundProxy(
+      url.trim()
+        ? { url: url.trim(), username: username?.trim() || undefined, password: password?.trim() || undefined }
+        : null
+    );
+    await this._postGatewayStatus();
+    vscode.window.showInformationMessage(
+      url.trim()
+        ? localize('aiCliGateway.outboundProxySaved')
+        : localize('aiCliGateway.outboundProxyCleared')
+    );
+  }
+
+  private async _handleGatewaySetRectifier(settings: Record<string, boolean>): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      return;
+    }
+    await manager.setRectifierSettings(settings);
+    await this._postGatewayStatus();
   }
 
   private async _handleGatewayToggleFailover(
@@ -725,15 +815,29 @@ export class ConfigPageViewProvider {
     });
   }
 
-  private async _handleRestartCodexCli(): Promise<void> {
+  private async _offerCodexRestart(message: string): Promise<void> {
     const action = localize('aiCliGateway.restartCodexAction');
-    const picked = await vscode.window.showWarningMessage(
-      localize('aiCliGateway.restartCodexConfirm'),
-      { modal: true },
-      action
-    );
-    if (picked !== action) {
-      return;
+    const picked = await vscode.window.showInformationMessage(message, action);
+    if (picked === action) {
+      await this._restartCodexCli(false);
+    }
+  }
+
+  private async _handleRestartCodexCli(): Promise<void> {
+    await this._restartCodexCli(true);
+  }
+
+  private async _restartCodexCli(confirm: boolean): Promise<void> {
+    const action = localize('aiCliGateway.restartCodexAction');
+    if (confirm) {
+      const picked = await vscode.window.showWarningMessage(
+        localize('aiCliGateway.restartCodexConfirm'),
+        { modal: true },
+        action
+      );
+      if (picked !== action) {
+        return;
+      }
     }
 
     for (const terminal of vscode.window.terminals) {
@@ -742,10 +846,90 @@ export class ConfigPageViewProvider {
       }
     }
 
+    const manager = ConfigPageViewProvider.gatewayManager;
+    const proxyExports = manager?.buildOutboundProxyEnvExports() ?? '';
     const terminal = vscode.window.createTerminal('Codex');
     terminal.show(true);
+    if (proxyExports) {
+      terminal.sendText(proxyExports);
+    }
     terminal.sendText('codex');
     vscode.window.showInformationMessage(localize('aiCliGateway.restartCodexStarted'));
+  }
+
+  private async _handleRestartClaudeCli(): Promise<void> {
+    await this._restartClaudeCli(true);
+  }
+
+  private async _restartClaudeCli(confirm: boolean): Promise<void> {
+    const action = localize('aiCliGateway.restartClaudeAction');
+    if (confirm) {
+      const picked = await vscode.window.showWarningMessage(
+        localize('aiCliGateway.restartClaudeConfirm'),
+        { modal: true },
+        action
+      );
+      if (picked !== action) {
+        return;
+      }
+    }
+
+    for (const terminal of vscode.window.terminals) {
+      if (/\bclaude\b/i.test(terminal.name)) {
+        terminal.dispose();
+      }
+    }
+
+    const terminal = vscode.window.createTerminal('Claude Code');
+    terminal.show(true);
+    terminal.sendText('claude');
+    vscode.window.showInformationMessage(localize('aiCliGateway.restartClaudeStarted'));
+  }
+
+  private async _handleSyncClaudeConfigFiles(): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      return;
+    }
+    try {
+      await manager.syncClaudeConfigFiles();
+      await this._postGatewayStatus();
+      vscode.window.showInformationMessage(localize('aiCliGateway.syncClaudeConfigDone'));
+    } catch (error) {
+      const code = error instanceof Error ? error.message : '';
+      if (code === 'no_claude_provider') {
+        vscode.window.showErrorMessage(localize('aiCliGateway.syncClaudeConfigNoProvider'));
+        return;
+      }
+      if (code === 'gateway_not_running') {
+        vscode.window.showErrorMessage(localize('aiCliGateway.syncConfigGatewayStopped'));
+        return;
+      }
+      vscode.window.showErrorMessage(localize('aiCliGateway.syncClaudeConfigFailed'));
+    }
+  }
+
+  private async _handleSyncCodexConfigFiles(): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      return;
+    }
+    try {
+      await manager.syncCodexConfigFiles();
+      await this._postGatewayStatus();
+      vscode.window.showInformationMessage(localize('aiCliGateway.syncCodexConfigDone'));
+    } catch (error) {
+      const code = error instanceof Error ? error.message : '';
+      if (code === 'no_codex_provider') {
+        vscode.window.showErrorMessage(localize('aiCliGateway.syncCodexConfigNoProvider'));
+        return;
+      }
+      if (code === 'gateway_not_running') {
+        vscode.window.showErrorMessage(localize('aiCliGateway.syncConfigGatewayStopped'));
+        return;
+      }
+      vscode.window.showErrorMessage(localize('aiCliGateway.syncCodexConfigFailed'));
+    }
   }
 
   private async _handleSaveClaudeConfig(config: ClaudeCodeConfigValues): Promise<void> {
@@ -760,6 +944,7 @@ export class ConfigPageViewProvider {
           model: config.model,
           sonnetModel: config.sonnetModel,
           opusModel: config.opusModel,
+          fableModel: config.fableModel,
           haikuModel: config.haikuModel,
           permissionMode: config.permissionMode,
         });
@@ -888,6 +1073,7 @@ export class ConfigPageViewProvider {
           model: provider.model,
           sonnetModel: provider.sonnetModel,
           opusModel: provider.opusModel,
+          fableModel: provider.fableModel,
           haikuModel: provider.haikuModel,
           activeClaude: provider.activeClaude,
           activeCodex: provider.activeCodex,

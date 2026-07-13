@@ -48,9 +48,17 @@ import {
   applyCodexGatewayConfig,
   applyCodexOfficialSubscription,
   getCodexRoutingSnapshot,
+  getCodexOfficialLoginSnapshot,
   stripCodexGatewayConfig,
   type CodexProviderPatch,
 } from './codexSettings';
+import {
+  DEFAULT_GATEWAY_RECTIFIER_SETTINGS,
+  type GatewayRectifierSettings,
+} from './gatewayRequestRectifier';
+import type { OutboundProxyConfig } from './gatewayOutboundProxy';
+import { buildOutboundProxyUrl } from './gatewayOutboundProxy';
+import { resolveManualConfigSyncMode } from './manualConfigSync';
 import {
   inferProviderAuthMode,
   isOfficialSubscriptionProvider,
@@ -80,6 +88,8 @@ const REMOTE_PRICING_FETCHED_AT_STATE_KEY = 'aiCliGateway.remotePricingFetchedAt
 const FAILOVER_ENABLED_STATE_KEY = 'aiCliGateway.failoverEnabled';
 const ROUTE_CLAUDE_STATE_KEY = 'aiCliGateway.routeClaude';
 const ROUTE_CODEX_STATE_KEY = 'aiCliGateway.routeCodex';
+const OUTBOUND_PROXY_STATE_KEY = 'aiCliGateway.outboundProxy';
+const RECTIFIER_STATE_KEY = 'aiCliGateway.rectifier';
 const MAX_USAGE_RECORDS = 10000;
 const REMOTE_PRICING_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -89,6 +99,10 @@ export type AiCliGatewayPublicStatus = AiCliGatewayStatus & {
   routeCodex: boolean;
   claudeProxyAvailable: boolean;
   codexProxyAvailable: boolean;
+  codexOfficialLoginPresent: boolean;
+  codexAuthPath?: string;
+  outboundProxyUrl: string;
+  rectifier: GatewayRectifierSettings;
 };
 
 export type AiCliProviderConfig = {
@@ -175,6 +189,8 @@ export class AiCliGatewayManager {
     const routeCodex = this.isRouteCodexViaGateway();
     const claudeProxyAvailable = Boolean(this.getAnthropicProviderForGateway());
     const codexProxyAvailable = Boolean(this.getOpenAiProviderForGateway());
+    this.syncGatewayEnhancements();
+    const login = getCodexOfficialLoginSnapshot();
     return {
       ...this.gateway.getStatus(),
       enabled: routeClaude || routeCodex,
@@ -182,7 +198,82 @@ export class AiCliGatewayManager {
       routeCodex,
       claudeProxyAvailable,
       codexProxyAvailable,
+      codexOfficialLoginPresent: login.present,
+      codexAuthPath: login.authPath,
+      outboundProxyUrl: this.getOutboundProxy()?.url ?? '',
+      rectifier: this.getRectifierSettings(),
     };
+  }
+
+  getOutboundProxy(): OutboundProxyConfig | null {
+    const stored = this.context.globalState.get<OutboundProxyConfig>(OUTBOUND_PROXY_STATE_KEY);
+    if (!stored?.url?.trim()) {
+      return null;
+    }
+    return {
+      url: stored.url.trim(),
+      username: stored.username?.trim() || undefined,
+      password: stored.password?.trim() || undefined,
+    };
+  }
+
+  async setOutboundProxy(proxy: OutboundProxyConfig | null): Promise<AiCliGatewayPublicStatus> {
+    await this.initialize();
+    if (!proxy?.url.trim()) {
+      await this.context.globalState.update(OUTBOUND_PROXY_STATE_KEY, undefined);
+    } else {
+      await this.context.globalState.update(OUTBOUND_PROXY_STATE_KEY, {
+        url: proxy.url.trim(),
+        username: proxy.username?.trim() || undefined,
+        password: proxy.password?.trim() || undefined,
+      });
+    }
+    this.syncGatewayEnhancements();
+    return this.getPublicStatus();
+  }
+
+  getRectifierSettings(): GatewayRectifierSettings {
+    const stored = this.context.globalState.get<Partial<GatewayRectifierSettings>>(RECTIFIER_STATE_KEY);
+    return { ...DEFAULT_GATEWAY_RECTIFIER_SETTINGS, ...(stored ?? {}) };
+  }
+
+  async setRectifierSettings(
+    patch: Partial<GatewayRectifierSettings>
+  ): Promise<AiCliGatewayPublicStatus> {
+    await this.initialize();
+    const next = { ...this.getRectifierSettings(), ...patch };
+    await this.context.globalState.update(RECTIFIER_STATE_KEY, next);
+    this.syncGatewayEnhancements();
+    return this.getPublicStatus();
+  }
+
+  private syncGatewayEnhancements(): void {
+    this.gateway.configureOutboundProxy(this.getOutboundProxy());
+    this.gateway.configureRectifier(this.getRectifierSettings());
+  }
+
+  /** Shell exports so Codex CLI itself (including login) can reach OpenAI via the outbound proxy. */
+  buildOutboundProxyEnvExports(): string {
+    const proxy = this.getOutboundProxy();
+    const url = proxy ? buildOutboundProxyUrl(proxy) : null;
+    if (!url) {
+      return '';
+    }
+    const quoted = JSON.stringify(url);
+    return `export HTTP_PROXY=${quoted} HTTPS_PROXY=${quoted} ALL_PROXY=${quoted} http_proxy=${quoted} https_proxy=${quoted} all_proxy=${quoted}`;
+  }
+
+  /**
+   * Apply live Codex projection to config.toml / model catalog only.
+   * Never overwrite auth.json so ChatGPT OAuth (mobile remote / plugins) stays intact.
+   */
+  private projectCodexProviderLive(provider: AiCliProviderConfig, gatewayPort?: number): void {
+    const patch = this.providerToCodexPatch(provider);
+    if (typeof gatewayPort === 'number' && gatewayPort > 0) {
+      applyCodexGatewayConfig(gatewayPort, patch);
+    } else {
+      applyCodexDirectProvider(patch);
+    }
   }
 
   isRouteClaudeViaGateway(): boolean {
@@ -345,7 +436,8 @@ export class AiCliGatewayManager {
     return this.getProviders().find(
       (p) =>
         p.activeCodex &&
-        this.providerHasApiUpstream(p)
+        this.providerHasApiUpstream(p) &&
+        Boolean(this.resolveCodexProviderModel(p))
     );
   }
 
@@ -466,6 +558,7 @@ export class AiCliGatewayManager {
       model: provider.model?.trim() ?? '',
       sonnetModel: provider.sonnetModel?.trim() ?? '',
       opusModel: provider.opusModel?.trim() ?? '',
+      fableModel: provider.fableModel?.trim() ?? '',
       haikuModel: provider.haikuModel?.trim() ?? '',
       permissionMode: provider.permissionMode?.trim() ?? '',
     };
@@ -595,11 +688,16 @@ export class AiCliGatewayManager {
 
     if (routeCodex && gatewayStatus.running && gatewayStatus.port) {
       const openaiActive = this.getOpenAiProviderForGateway();
-      applyCodexGatewayConfig(
-        gatewayStatus.port,
-        openaiActive ? this.providerToCodexPatch(openaiActive) : undefined
-      );
-      this.log(`Codex gateway config applied on port ${gatewayStatus.port}`);
+      if (openaiActive) {
+        this.projectCodexProviderLive(openaiActive, gatewayStatus.port);
+      } else {
+        await this.context.globalState.update(ROUTE_CODEX_STATE_KEY, false);
+        stripCodexGatewayConfig();
+        this.log('Codex gateway route disabled: active provider has no resolvable model');
+      }
+      if (openaiActive) {
+        this.log(`Codex gateway config applied on port ${gatewayStatus.port}`);
+      }
     } else {
       stripCodexGatewayConfig();
       this.applyCodexDirectFromActiveProvider();
@@ -704,10 +802,9 @@ export class AiCliGatewayManager {
     const providers = this.getProviders();
     const id = `p${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
     const kind = provider.apiKind ?? inferApiKindFromBaseUrl(provider.baseUrl);
-    const activeClaude =
-      provider.activeClaude ?? !providers.some((p) => p.activeClaude);
-    const activeCodex =
-      provider.activeCodex ?? (!providers.some((p) => p.activeCodex) && Boolean(provider.apiKey?.trim()));
+    // Only activate when explicitly requested (e.g. Web import). Do not auto-pick a default vendor.
+    const activeClaude = provider.activeClaude === true;
+    const activeCodex = provider.activeCodex === true;
     const failoverClaude = provider.failoverClaude ?? false;
     const failoverCodex = provider.failoverCodex ?? false;
     const entry: AiCliProviderConfig = this.normalizeProvider({
@@ -979,6 +1076,77 @@ export class AiCliGatewayManager {
     this.outputChannel.show();
   }
 
+  async syncClaudeConfigFiles(): Promise<AiCliGatewayPublicStatus> {
+    await this.initialize();
+    const routeClaude = this.isRouteClaudeViaGateway();
+    const gatewayStatus = this.gateway.getStatus();
+    const mode = resolveManualConfigSyncMode(
+      routeClaude,
+      Boolean(gatewayStatus.running && gatewayStatus.port)
+    );
+
+    if (mode === 'gateway' && gatewayStatus.port) {
+      const anthropicProvider = this.getAnthropicProviderForGateway();
+      if (!anthropicProvider) {
+        throw new Error('no_claude_provider');
+      }
+      const claudeConfig = this.providerToClaudeConfig(anthropicProvider);
+      writeClaudeConfig(this.buildClaudeLiveConfig(gatewayStatus.port, claudeConfig));
+      this.ensureGatewayDiscoveryEnv();
+    } else {
+      const active = this.getActiveClaudeProvider();
+      if (!active || !this.isAnthropicProvider(active)) {
+        throw new Error('no_claude_provider');
+      }
+      if (isOfficialSubscriptionProvider(active)) {
+        applyClaudeOfficialSubscription(active.permissionMode);
+        return this.getPublicStatus();
+      }
+      writeClaudeConfig(this.providerToClaudeConfig(active));
+      const upstream = providerUpstream(active);
+      if (upstream.baseUrl && upstream.apiKey) {
+        await this.persistUpstream({ baseUrl: upstream.baseUrl, apiKey: upstream.apiKey });
+      }
+    }
+
+    this.log('Claude config files synced');
+    return this.getPublicStatus();
+  }
+
+  async syncCodexConfigFiles(): Promise<AiCliGatewayPublicStatus> {
+    await this.initialize();
+    const routeCodex = this.isRouteCodexViaGateway();
+    const gatewayStatus = this.gateway.getStatus();
+    const mode = resolveManualConfigSyncMode(
+      routeCodex,
+      Boolean(gatewayStatus.running && gatewayStatus.port)
+    );
+
+    if (mode === 'gateway' && gatewayStatus.port) {
+      const openaiActive = this.getOpenAiProviderForGateway();
+      if (!openaiActive) {
+        throw new Error('no_codex_provider');
+      }
+      this.projectCodexProviderLive(openaiActive, gatewayStatus.port);
+    } else {
+      stripCodexGatewayConfig();
+      const active = this.getActiveCodexProvider();
+      if (!active) {
+        throw new Error('no_codex_provider');
+      }
+      if (isOfficialSubscriptionProvider(active) && active.apiKind === 'openai') {
+        applyCodexOfficialSubscription();
+      } else if ((active.apiKind ?? inferApiKindFromBaseUrl(active.baseUrl)) === 'openai') {
+        this.projectCodexProviderLive(active);
+      } else {
+        throw new Error('no_codex_provider');
+      }
+    }
+
+    this.log('Codex config files synced');
+    return this.getPublicStatus();
+  }
+
   setUsageChangeListener(listener: (() => void) | null): void {
     this.usageChangeListener = listener;
   }
@@ -1118,7 +1286,7 @@ export class AiCliGatewayManager {
       this.log(`Codex direct provider skipped for Anthropic-compatible upstream; use gateway: ${openai.baseUrl}`);
       return;
     }
-    applyCodexDirectProvider(this.providerToCodexPatch(openai));
+    this.projectCodexProviderLive(openai);
     this.log(`Codex direct provider: ${openai.baseUrl}`);
   }
 

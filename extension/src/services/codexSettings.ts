@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { parse as parseToml } from 'smol-toml';
+import writeFileAtomic from 'write-file-atomic';
 import {
   AI_CLI_GATEWAY_PLACEHOLDER_TOKEN,
   buildLocalGatewayBaseUrl,
@@ -8,6 +10,7 @@ import {
 } from './aiCliGatewayUpstream';
 import { resolveProviderBaseUrl } from '../aiCli/officialEndpoints';
 import {
+  CODEX_MODEL_CATALOG_FILENAME,
   CODEX_ONE_M_AUTO_COMPACT_LIMIT,
   inferCodexContextWindow,
   writeCodexModelCatalog,
@@ -47,31 +50,25 @@ function atomicWriteFile(filePath: string, content: string): void {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
   }
-  if (process.platform === 'win32') {
-    fs.writeFileSync(filePath, content, 'utf-8');
-    return;
-  }
-  const tmpPath = `${filePath}.tmp`;
-  fs.writeFileSync(tmpPath, content, 'utf-8');
-  try {
-    fs.chmodSync(tmpPath, 0o600);
-  } catch {
-    /* ignore */
-  }
-  fs.renameSync(tmpPath, filePath);
+  writeFileAtomic.sync(filePath, content, { encoding: 'utf8', mode: 0o600 });
 }
 
 export type CodexAuthTokens = {
   access_token?: string;
+  refresh_token?: string;
   account_id?: string;
-  id_token?: {
+  /** Newer Codex builds store a JWT string; older ones used a decoded object. */
+  id_token?: string | {
     chatgpt_account_id?: string;
   };
 };
 
 export type CodexAuthDocument = {
-  OPENAI_API_KEY?: string;
-  tokens?: CodexAuthTokens;
+  auth_mode?: string;
+  OPENAI_API_KEY?: string | null;
+  tokens?: CodexAuthTokens | null;
+  last_refresh?: string;
+  personal_access_token?: string;
   [key: string]: unknown;
 };
 
@@ -87,41 +84,129 @@ export function readCodexAuthDocument(): CodexAuthDocument | null {
   }
 }
 
-export function readCodexAuth(): Record<string, string> {
-  const parsed = readCodexAuthDocument();
-  if (!parsed) {
-    return {};
+function extractAccountIdFromIdToken(idToken: CodexAuthTokens['id_token']): string | undefined {
+  if (!idToken) {
+    return undefined;
   }
-  const out: Record<string, string> = {};
-  for (const [key, value] of Object.entries(parsed)) {
-    if (typeof value === 'string') {
-      out[key] = value;
-    }
+  if (typeof idToken === 'object') {
+    return idToken.chatgpt_account_id?.trim() || undefined;
   }
-  return out;
+  const parts = idToken.split('.');
+  if (parts.length < 2) {
+    return undefined;
+  }
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf-8')) as Record<string, unknown>;
+    const account =
+      (typeof payload.chatgpt_account_id === 'string' && payload.chatgpt_account_id) ||
+      (typeof payload['https://api.openai.com/auth'] === 'object' &&
+        payload['https://api.openai.com/auth'] &&
+        typeof (payload['https://api.openai.com/auth'] as Record<string, unknown>).chatgpt_account_id ===
+          'string' &&
+        ((payload['https://api.openai.com/auth'] as Record<string, unknown>).chatgpt_account_id as string)) ||
+      '';
+    return typeof account === 'string' && account.trim() ? account.trim() : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
+/**
+ * ChatGPT / Codex official login material in auth.json.
+ * Aligns with cc-switch: any non-empty OAuth payload counts, not only access_token.
+ */
 export function readCodexSubscriptionSession(): { accessToken: string; accountId?: string } | null {
   const auth = readCodexAuthDocument();
-  const accessToken = auth?.tokens?.access_token?.trim();
-  if (!accessToken) {
+  if (!auth) {
+    return null;
+  }
+  const tokens = auth.tokens && typeof auth.tokens === 'object' ? auth.tokens : undefined;
+  const accessToken =
+    tokens?.access_token?.trim() ||
+    tokens?.refresh_token?.trim() ||
+    auth.personal_access_token?.trim() ||
+    '';
+  const authMode = (auth.auth_mode ?? '').trim().toLowerCase();
+  const hasOauthObject = Boolean(
+    tokens &&
+      Object.values(tokens).some((value) => {
+        if (typeof value === 'string') {
+          return Boolean(value.trim());
+        }
+        return Boolean(value);
+      })
+  );
+  if (!accessToken && !(authMode === 'chatgpt' && hasOauthObject)) {
     return null;
   }
   const accountId =
-    auth?.tokens?.account_id?.trim() || auth?.tokens?.id_token?.chatgpt_account_id?.trim();
-  return accountId ? { accessToken, accountId } : { accessToken };
+    tokens?.account_id?.trim() || extractAccountIdFromIdToken(tokens?.id_token);
+  const token = accessToken || (hasOauthObject ? 'chatgpt-session' : '');
+  if (!token) {
+    return null;
+  }
+  return accountId ? { accessToken: token, accountId } : { accessToken: token };
 }
 
-export function writeCodexAuth(entries: Record<string, string>): void {
+export type CodexOfficialLoginSnapshot = {
+  present: boolean;
+  authPath: string;
+  authMode?: string;
+  storeHint: 'file' | 'missing' | 'api_key_only';
+};
+
+export function getCodexOfficialLoginSnapshot(): CodexOfficialLoginSnapshot {
   const authPath = resolveCodexAuthPath();
-  const existing = readCodexAuthDocument() ?? {};
-  const merged = { ...existing, ...entries };
-  for (const [key, value] of Object.entries(merged)) {
-    if (typeof value === 'string' && !value.trim()) {
-      delete merged[key];
-    }
+  const auth = readCodexAuthDocument();
+  if (!auth) {
+    return { present: false, authPath, storeHint: 'missing' };
   }
-  atomicWriteFile(authPath, `${JSON.stringify(merged, null, 2)}\n`);
+  if (readCodexSubscriptionSession()) {
+    return {
+      present: true,
+      authPath,
+      authMode: typeof auth.auth_mode === 'string' ? auth.auth_mode : undefined,
+      storeHint: 'file',
+    };
+  }
+  if (typeof auth.OPENAI_API_KEY === 'string' && auth.OPENAI_API_KEY.trim()) {
+    return {
+      present: false,
+      authPath,
+      authMode: typeof auth.auth_mode === 'string' ? auth.auth_mode : undefined,
+      storeHint: 'api_key_only',
+    };
+  }
+  return {
+    present: false,
+    authPath,
+    authMode: typeof auth.auth_mode === 'string' ? auth.auth_mode : undefined,
+    storeHint: 'missing',
+  };
+}
+
+/**
+ * True when ~/.codex/auth.json still has ChatGPT/Codex OAuth material.
+ * Used for mobile remote control / official plugins while model traffic
+ * goes through config.toml + local gateway (cc-switch style).
+ */
+export function hasCodexOfficialLogin(): boolean {
+  return Boolean(readCodexSubscriptionSession()?.accessToken);
+}
+
+/**
+ * Project third-party API key into auth.json (legacy overwrite path).
+ * Prefer config.toml experimental_bearer_token when preserving official login.
+ */
+export function writeCodexApiKeyAuth(apiKey: string): void {
+  const key = apiKey.trim();
+  if (!key) {
+    return;
+  }
+  atomicWriteFile(
+    resolveCodexAuthPath(),
+    `${JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: key }, null, 2)}\n`
+  );
 }
 
 export function readCodexConfigText(): string {
@@ -133,7 +218,19 @@ export function readCodexConfigText(): string {
 }
 
 export function writeCodexConfigText(text: string): void {
-  atomicWriteFile(resolveCodexConfigPath(), text.endsWith('\n') ? text : `${text}\n`);
+  const normalized = text.endsWith('\n') ? text : `${text}\n`;
+  parseCodexConfigText(normalized);
+  atomicWriteFile(resolveCodexConfigPath(), normalized);
+}
+
+function parseCodexConfigText(text: string): Record<string, unknown> {
+  try {
+    return parseToml(text) as Record<string, unknown>;
+  } catch (error) {
+    throw new Error(
+      `Invalid Codex config.toml: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
 
 function tomlString(value: string): string {
@@ -141,23 +238,45 @@ function tomlString(value: string): string {
 }
 
 function removeProviderBlock(text: string, providerId: string): string {
-  const escaped = providerId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return text.replace(new RegExp(`\\n?\\[model_providers\\.${escaped}\\][^\\n]*(?:\\n[^\\n\\[]*)*`, 'g'), '');
+  const newline = text.includes('\r\n') ? '\r\n' : '\n';
+  const target = `model_providers.${providerId}`;
+  const lines = text.split(/\r?\n/);
+  const output: string[] = [];
+  let removing = false;
+  for (const line of lines) {
+    const header = line.match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/)?.[1]?.trim();
+    if (header) {
+      removing = header === target || header.startsWith(`${target}.`);
+    }
+    if (!removing) {
+      output.push(line);
+    }
+  }
+  return output.join(newline).replace(/\n{3,}/g, '\n\n');
 }
 
 function readProviderBlock(text: string, providerId: string): string {
-  const escaped = providerId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  return text.match(new RegExp(`^\\[model_providers\\.${escaped}\\][^\\n]*(?:\\n(?!\\[)[^\\n]*)*`, 'm'))?.[0] ?? '';
+  const target = `model_providers.${providerId}`;
+  const lines = text.split(/\r?\n/);
+  const block: string[] = [];
+  let reading = false;
+  for (const line of lines) {
+    const header = line.match(/^\s*\[([^\]]+)\]\s*(?:#.*)?$/)?.[1]?.trim();
+    if (header) {
+      if (reading) {
+        break;
+      }
+      reading = header === target;
+    }
+    if (reading) {
+      block.push(line);
+    }
+  }
+  return block.join('\n');
 }
 
 function upsertModelProvider(text: string, providerId: string): string {
-  let updated = text;
-  if (updated.match(/^model_provider\s*=/m)) {
-    updated = updated.replace(/^model_provider\s*=\s*"[^"]*"/m, `model_provider = "${providerId}"`);
-  } else {
-    updated = `model_provider = "${providerId}"\n${updated}`;
-  }
-  return updated;
+  return updateTopLevelTomlField(text, 'model_provider', tomlString(providerId));
 }
 
 function appendProviderBlock(
@@ -171,21 +290,74 @@ function appendProviderBlock(
 }
 
 function codexBaseUrlForProvider(baseUrl: string): string {
-  const resolved = resolveProviderBaseUrl(baseUrl, 'openai');
-  return resolved.endsWith('/v1') ? resolved : `${resolved}/v1`;
+  const resolved = resolveProviderBaseUrl(baseUrl, 'openai').replace(/\/+$/, '');
+  return /\/v\d+(?:[a-z]+\d*)?$/i.test(resolved) ? resolved : `${resolved}/v1`;
 }
 
 function upsertTopLevelTomlField(text: string, key: string, value: string): string {
-  const pattern = new RegExp(`^${key}\\s*=.*$`, 'm');
-  const line = `${key} = ${value}`;
-  if (pattern.test(text)) {
-    return text.replace(pattern, line);
-  }
-  return `${line}\n${text}`;
+  return updateTopLevelTomlField(text, key, value);
 }
 
 function removeTopLevelTomlField(text: string, key: string): string {
-  return text.replace(new RegExp(`^${key}\\s*=.*\\n?`, 'm'), '');
+  return updateTopLevelTomlField(text, key, null);
+}
+
+function updateTopLevelTomlField(text: string, key: string, value: string | null): string {
+  const newline = text.includes('\r\n') ? '\r\n' : '\n';
+  const escapedKey = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const assignment = new RegExp(`^\\s*${escapedKey}\\s*=`);
+  const lines = text.split(/\r?\n/);
+  const output: string[] = [];
+  let inTopLevel = true;
+  let written = false;
+
+  for (const line of lines) {
+    if (/^\s*\[/.test(line)) {
+      inTopLevel = false;
+    }
+    if (inTopLevel && assignment.test(line)) {
+      if (!written && value !== null) {
+        output.push(`${key} = ${value}`);
+        written = true;
+      }
+      continue;
+    }
+    output.push(line);
+  }
+
+  if (!written && value !== null) {
+    output.unshift(`${key} = ${value}`);
+  }
+  return output.join(newline);
+}
+
+function readTopLevelTomlString(text: string, key: string): string | undefined {
+  if (!text.trim()) {
+    return undefined;
+  }
+  const value = parseCodexConfigText(text)[key];
+  return typeof value === 'string' ? value.trim() || undefined : undefined;
+}
+
+function isAgentSocietyProvider(providerId: string | undefined): boolean {
+  return providerId === CODEX_GATEWAY_PROVIDER_ID || providerId === CODEX_DIRECT_PROVIDER_ID;
+}
+
+function isAgentSocietyCatalog(catalogRef: string | undefined): boolean {
+  const basename = catalogRef?.replace(/\\/g, '/').split('/').pop();
+  return basename === CODEX_MODEL_CATALOG_FILENAME;
+}
+
+function removeAgentSocietyCatalogPolicy(text: string): string {
+  if (!isAgentSocietyCatalog(readTopLevelTomlString(text, 'model_catalog_json'))) {
+    return text;
+  }
+  let updated = removeTopLevelTomlField(text, 'model_catalog_json');
+  updated = removeTopLevelTomlField(updated, 'model_auto_compact_token_limit');
+  if (readTopLevelTomlString(updated, 'web_search') === CODEX_WEB_SEARCH_DISABLED_VALUE) {
+    updated = removeTopLevelTomlField(updated, 'web_search');
+  }
+  return updated;
 }
 
 function applyCodexCatalogAndPolicy(text: string, provider: CodexProviderPatch): string {
@@ -197,7 +369,7 @@ function applyCodexCatalogAndPolicy(text: string, provider: CodexProviderPatch):
     provider.codexContextWindow && provider.codexContextWindow > 0
       ? provider.codexContextWindow
       : inferCodexContextWindow(modelName, provider.codexEnable1m);
-  const catalogPath = writeCodexModelCatalog({
+  writeCodexModelCatalog({
     entries: [
       {
         modelId: modelName,
@@ -207,7 +379,11 @@ function applyCodexCatalogAndPolicy(text: string, provider: CodexProviderPatch):
       },
     ],
   });
-  let updated = upsertTopLevelTomlField(text, 'model_catalog_json', tomlString(catalogPath));
+  let updated = upsertTopLevelTomlField(
+    text,
+    'model_catalog_json',
+    tomlString(CODEX_MODEL_CATALOG_FILENAME)
+  );
   if (provider.codexEnable1m) {
     const compactLimit =
       provider.codexAutoCompactLimit && provider.codexAutoCompactLimit > 0
@@ -228,7 +404,7 @@ function applyCodexCatalogAndPolicy(text: string, provider: CodexProviderPatch):
       tomlString(CODEX_WEB_SEARCH_DISABLED_VALUE)
     );
   } else {
-    const current = updated.match(/^web_search\s*=\s*"([^"]*)"/m)?.[1];
+    const current = readTopLevelTomlString(updated, 'web_search');
     if (current === CODEX_WEB_SEARCH_DISABLED_VALUE) {
       updated = removeTopLevelTomlField(updated, 'web_search');
     }
@@ -239,30 +415,34 @@ function applyCodexCatalogAndPolicy(text: string, provider: CodexProviderPatch):
 export function applyCodexGatewayConfig(port: number, provider?: CodexProviderPatch): void {
   const gatewayUrl = `${buildLocalGatewayBaseUrl(port)}/v1`;
   let text = readCodexConfigText();
+  parseCodexConfigText(text);
+  const previousProvider = readTopLevelTomlString(text, 'model_provider');
   text = removeProviderBlock(text, CODEX_DIRECT_PROVIDER_ID);
   text = appendProviderBlock(text, CODEX_GATEWAY_PROVIDER_ID, [
     'name = "AgentSociety Gateway"',
     `base_url = ${tomlString(gatewayUrl)}`,
     'wire_api = "responses"',
-    'requires_openai_auth = true',
+    'requires_openai_auth = false',
+    'supports_websockets = false',
     `experimental_bearer_token = ${tomlString(AI_CLI_GATEWAY_PLACEHOLDER_TOKEN)}`,
   ]);
   text = upsertModelProvider(text, CODEX_GATEWAY_PROVIDER_ID);
   const modelName = provider?.model?.trim();
   if (modelName) {
-    if (text.match(/^model\s*=/m)) {
-      text = text.replace(/^model\s*=\s*"[^"]*"/m, `model = ${tomlString(modelName)}`);
-    } else {
-      text = `model = ${tomlString(modelName)}\n${text}`;
-    }
+    text = upsertTopLevelTomlField(text, 'model', tomlString(modelName));
     text = applyCodexCatalogAndPolicy(text, {
-      baseUrl: gatewayUrl,
+      baseUrl: provider?.baseUrl ?? gatewayUrl,
       apiKey: AI_CLI_GATEWAY_PLACEHOLDER_TOKEN,
       model: modelName,
       codexEnable1m: provider?.codexEnable1m,
       codexContextWindow: provider?.codexContextWindow,
       codexAutoCompactLimit: provider?.codexAutoCompactLimit,
     });
+  } else {
+    if (isAgentSocietyProvider(previousProvider)) {
+      text = removeTopLevelTomlField(text, 'model');
+    }
+    text = removeAgentSocietyCatalogPolicy(text);
   }
   writeCodexConfigText(text);
 }
@@ -270,36 +450,39 @@ export function applyCodexGatewayConfig(port: number, provider?: CodexProviderPa
 export function applyCodexDirectProvider(provider: CodexProviderPatch): void {
   const baseUrl = codexBaseUrlForProvider(provider.baseUrl);
   let text = readCodexConfigText();
+  parseCodexConfigText(text);
+  const previousProvider = readTopLevelTomlString(text, 'model_provider');
   text = removeProviderBlock(text, CODEX_GATEWAY_PROVIDER_ID);
   text = appendProviderBlock(text, CODEX_DIRECT_PROVIDER_ID, [
     'name = "AgentSociety Codex"',
     `base_url = ${tomlString(baseUrl)}`,
     'wire_api = "responses"',
-    'requires_openai_auth = true',
+    'requires_openai_auth = false',
+    'supports_websockets = false',
     `experimental_bearer_token = ${tomlString(provider.apiKey.trim())}`,
   ]);
   text = upsertModelProvider(text, CODEX_DIRECT_PROVIDER_ID);
   if (provider.model?.trim()) {
-    if (text.match(/^model\s*=/m)) {
-      text = text.replace(/^model\s*=\s*"[^"]*"/m, `model = ${tomlString(provider.model.trim())}`);
-    } else {
-      text = `model = ${tomlString(provider.model.trim())}\n${text}`;
-    }
+    text = upsertTopLevelTomlField(text, 'model', tomlString(provider.model.trim()));
     text = applyCodexCatalogAndPolicy(text, provider);
+  } else {
+    if (isAgentSocietyProvider(previousProvider)) {
+      text = removeTopLevelTomlField(text, 'model');
+    }
+    text = removeAgentSocietyCatalogPolicy(text);
   }
   writeCodexConfigText(text);
 }
 
 function stripAgentsocietyCodexProviders(text: string): string {
+  const activeProvider = readTopLevelTomlString(text, 'model_provider');
   let updated = removeProviderBlock(text, CODEX_GATEWAY_PROVIDER_ID);
   updated = removeProviderBlock(updated, CODEX_DIRECT_PROVIDER_ID);
-  const activeMatch = updated.match(/^model_provider\s*=\s*"([^"]*)"/m);
-  const activeProvider = activeMatch?.[1]?.trim();
   if (
     activeProvider === CODEX_GATEWAY_PROVIDER_ID ||
     activeProvider === CODEX_DIRECT_PROVIDER_ID
   ) {
-    updated = updated.replace(/^model_provider\s*=\s*"[^"]*"\n?/m, '');
+    updated = removeTopLevelTomlField(updated, 'model_provider');
   }
   return updated;
 }
@@ -307,6 +490,11 @@ function stripAgentsocietyCodexProviders(text: string): string {
 export function applyCodexOfficialSubscription(): void {
   let text = readCodexConfigText();
   if (text) {
+    const activeProvider = readTopLevelTomlString(text, 'model_provider');
+    if (isAgentSocietyProvider(activeProvider)) {
+      text = removeTopLevelTomlField(text, 'model');
+    }
+    text = removeAgentSocietyCatalogPolicy(text);
     text = stripAgentsocietyCodexProviders(text);
     writeCodexConfigText(text);
   }
@@ -317,10 +505,14 @@ export function stripCodexGatewayConfig(): void {
   if (!text) {
     return;
   }
+  parseCodexConfigText(text);
+  const activeProvider = readTopLevelTomlString(text, 'model_provider');
   text = removeProviderBlock(text, CODEX_GATEWAY_PROVIDER_ID);
-  if (text.match(new RegExp(`^model_provider\\s*=\\s*"${CODEX_GATEWAY_PROVIDER_ID}"`, 'm'))) {
-    text = text.replace(/^model_provider\s*=\s*"[^"]*"\n?/m, '');
+  if (activeProvider === CODEX_GATEWAY_PROVIDER_ID) {
+    text = removeTopLevelTomlField(text, 'model_provider');
+    text = removeTopLevelTomlField(text, 'model');
   }
+  text = removeAgentSocietyCatalogPolicy(text);
   writeCodexConfigText(text);
 }
 

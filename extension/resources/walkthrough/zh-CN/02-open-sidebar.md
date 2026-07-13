@@ -38,7 +38,7 @@ AI Social Scientist 的日常操作都从**左侧活动栏**开始。这里负�
 ![AI Social Scientist 项目结构侧边栏](../images/project-structure-sidebar.png)
 
 ```
-📂 your-project/
+📂 workspace-root/
 ├── 📄 TOPIC.md           → 研究话题（点击预览，右键可编辑）
 ├── 📂 papers/            → 文献资料
 │   ├── 📂 pdf/           → PDF 原文
@@ -50,6 +50,8 @@ AI Social Scientist 的日常操作都从**左侧活动栏**开始。这里负�
 ├── 📂 custom/skills/     → 已安装的技能
 └── 📂 .agentsociety/     → 分析 harness 状态（自动维护）
 ```
+
+> 💡 `workspace-root/` 是你打开的工作区根目录，不是固定路径。
 
 > 💡 点击文件可直接查看：JSON/YAML 可折叠树形查看、CSV 可排序搜索、Markdown 预览、HTML 报告。右键查看更多操作。
 

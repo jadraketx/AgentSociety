@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import writeFileAtomic from 'write-file-atomic';
 
 export const CODEX_MODEL_CATALOG_FILENAME = 'agentsociety-model-catalog.json';
 export const CODEX_DEFAULT_CONTEXT_WINDOW = 272_000;
@@ -9,11 +10,19 @@ export const CODEX_DEFAULT_EFFECTIVE_CONTEXT_PERCENT = 95;
 export const CODEX_ONE_M_AUTO_COMPACT_LIMIT = 900_000;
 
 const DEFAULT_BASE_INSTRUCTIONS =
-  'You are Codex, a coding agent built by OpenAI. Follow the user instructions and use available tools when helpful.';
+  'You are Codex, a coding agent. Follow the user instructions and use available tools when helpful.';
+
+const DEFAULT_SUPPORTED_REASONING_LEVELS = [
+  { effort: 'low', description: 'Fast responses with lighter reasoning' },
+  { effort: 'medium', description: 'Balances speed and reasoning depth' },
+  { effort: 'high', description: 'Greater reasoning depth for complex problems' },
+  { effort: 'xhigh', description: 'Extra reasoning depth for complex problems' },
+] as const;
 
 export type CodexCatalogEntry = {
   modelId: string;
   displayName?: string;
+  description?: string;
   contextWindow: number;
   effectiveContextPercent?: number;
   baseInstructions?: string;
@@ -38,8 +47,20 @@ export function resolveCodexModelCatalogPath(codexHome?: string): string {
 }
 
 export function buildCodexModelCatalogDocument(entries: CodexCatalogEntry[]): Record<string, unknown> {
-  const models = entries.map((entry) => {
+  if (entries.length === 0) {
+    throw new Error('Codex model catalog requires at least one entry');
+  }
+  const seenModelIds = new Set<string>();
+  const models = entries.map((entry, index) => {
     const modelId = entry.modelId.trim();
+    if (!modelId) {
+      throw new Error('Codex model catalog modelId must not be empty');
+    }
+    if (seenModelIds.has(modelId)) {
+      throw new Error(`Codex model catalog contains duplicate modelId: ${modelId}`);
+    }
+    seenModelIds.add(modelId);
+    const displayName = entry.displayName?.trim() || modelId;
     const contextWindow = entry.contextWindow > 0 ? entry.contextWindow : CODEX_DEFAULT_CONTEXT_WINDOW;
     const effectiveContextPercent =
       entry.effectiveContextPercent && entry.effectiveContextPercent > 0
@@ -47,13 +68,29 @@ export function buildCodexModelCatalogDocument(entries: CodexCatalogEntry[]): Re
         : CODEX_DEFAULT_EFFECTIVE_CONTEXT_PERCENT;
     return {
       slug: modelId,
-      model: modelId,
-      display_name: entry.displayName?.trim() || modelId,
+      display_name: displayName,
+      description: entry.description?.trim() || `${displayName} coding model`,
+      default_reasoning_level: 'medium',
+      supported_reasoning_levels: DEFAULT_SUPPORTED_REASONING_LEVELS.map((level) => ({ ...level })),
+      shell_type: 'shell_command',
+      visibility: 'list',
+      supported_in_api: true,
+      priority: index + 1,
+      availability_nux: null,
+      upgrade: null,
+      base_instructions: entry.baseInstructions?.trim() || DEFAULT_BASE_INSTRUCTIONS,
+      support_verbosity: false,
+      default_verbosity: null,
+      default_reasoning_summary: 'auto',
+      apply_patch_tool_type: 'freeform',
+      web_search_tool_type: 'text',
+      truncation_policy: { mode: 'bytes', limit: 10_000 },
+      supports_parallel_tool_calls: true,
       context_window: contextWindow,
       effective_context_window_percent: effectiveContextPercent,
-      base_instructions: entry.baseInstructions?.trim() || DEFAULT_BASE_INSTRUCTIONS,
-      supports_parallel_tool_calls: true,
+      experimental_supported_tools: [] as string[],
       input_modalities: ['text'],
+      supports_reasoning_summaries: false,
     };
   });
   return { models };
@@ -67,15 +104,21 @@ export function writeCodexModelCatalog(options: CodexCatalogWriteOptions): strin
   }
   const payload = buildCodexModelCatalogDocument(options.entries);
   const json = `${JSON.stringify(payload, null, 2)}\n`;
-  const tmpPath = `${catalogPath}.tmp`;
-  fs.writeFileSync(tmpPath, json, 'utf-8');
-  try {
-    fs.chmodSync(tmpPath, 0o600);
-  } catch {
-    /* ignore */
-  }
-  fs.renameSync(tmpPath, catalogPath);
+  writeFileAtomic.sync(catalogPath, json, { encoding: 'utf8', mode: 0o600 });
   return catalogPath;
+}
+
+export function readCodexModelCatalogDocument(codexHome?: string): Record<string, unknown> | null {
+  const catalogPath = resolveCodexModelCatalogPath(codexHome);
+  if (!fs.existsSync(catalogPath)) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(catalogPath, 'utf-8')) as Record<string, unknown>;
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
 }
 
 export function inferCodexContextWindow(modelId: string, enable1m?: boolean): number {

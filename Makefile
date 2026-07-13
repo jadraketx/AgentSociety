@@ -8,7 +8,7 @@
 
 .PHONY: all sync build build-extension build-webview watch watch-extension watch-webview clean clean-extension clean-all help dev rebuild
 .PHONY: html html-zh html-en html-all gettext update-po build-po
-.PHONY: install-node install-frontend check lint-frontend build-frontend
+.PHONY: install-node install-frontend check lint-frontend build-frontend package-extension
 
 # =============================================================================
 # Extension Development Targets
@@ -81,11 +81,17 @@ rebuild: build-extension build-webview
 check:
 	@echo "==> Python lint + test..."
 	cd packages/agentsociety2 && uv run ruff check . && uv run pytest -q
-	@echo "==> Extension lint + build..."
-	cd extension && npm run lint && npm run build
+	@echo "==> Extension lint + test + build..."
+	cd extension && npm run check
 	@echo "==> Frontend lint + build..."
 	cd frontend && npm run lint && npm run build
 	@echo "==> All checks passed."
+
+# 扩展：检查后打包 VSIX（产出 extension/ai-social-scientist.vsix）
+package-extension:
+	@echo "==> Packaging extension VSIX..."
+	cd extension && npm run package:check
+	@echo "==> Done: extension/ai-social-scientist.vsix"
 
 lint-frontend:
 	cd frontend && npm run lint
@@ -182,6 +188,7 @@ help:
 	@echo "  watch-extension  监听 TypeScript 编译"
 	@echo "  watch-webview    监听 Webview 构建"
 	@echo "  rebuild          快速重新构建"
+	@echo "  package-extension  lint+测+构建并打包 VSIX"
 	@echo "  dev              完整开发环境准备 (sync + install + build)"
 	@echo "  check            全栈 lint + test + build (AS2 scope)"
 	@echo "  install-frontend npm ci in frontend/"

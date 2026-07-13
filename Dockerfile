@@ -1,15 +1,20 @@
 # syntax=docker/dockerfile:1.7
 #
-# Build-speed & layer-reuse notes:
-#   * BuildKit cache mounts for apt / uv / npm -> no re-download on rebuild.
-#   * Layer order = least-changing first: system pkgs -> node/claude -> user ->
-#     python deps (manifest-only) -> project source -> extension vsix (last).
-#   * agentsociety2 deps are pure-PyPI, so we install them from a throwaway stub
-#     of pyproject.toml (cached across source edits), then register the real
-#     source as a cheap `--no-deps` editable install.
+# Layer invalidation graph (each line invalidates everything below it):
+#
+#   extension-builder ──► vsix (changes every extension edit)
+#   node-cli          ──► global claude-code / codex (changes on npm package bumps)
+#
+#   stage-2 foundation: apt, uv, coder user
+#   stage-2 static stacks: office document tools + pipx
+#   stage-2 locked deps: uv.lock / pyproject.toml
+#   stage-2 node COPY from node-cli
+#   stage-2 agentsociety2 source + editable install
+#   stage-2 vsix COPY  ◄── keep last
+#
+# BuildKit cache mounts (apt / uv / npm) avoid re-downloading on cache miss.
 
 # ================= Stage 1: Build VSCode extension as vsix =================
-# engines.node: ^22.13.0 || >=24
 FROM node:22 AS extension-builder
 
 WORKDIR /app/extension
@@ -17,13 +22,12 @@ WORKDIR /app/extension
 RUN npm config set registry https://registry.npmmirror.com \
     && npm install -g @vscode/vsce
 
-# Dependency files first for better caching
 COPY ./extension/package.json ./extension/package-lock.json ./
+COPY ./extension/package.nls.json ./extension/package.nls.zh-cn.json ./
 COPY ./extension/.npmrc ./
 RUN --mount=type=cache,target=/root/.npm \
     npm ci
 
-# Source + config (changes more often than the lockfile)
 COPY ./extension/tsconfig.json ./extension/webpack.config.js ./
 COPY ./extension/src/ ./src/
 COPY ./extension/media/ ./media/
@@ -32,16 +36,23 @@ COPY ./extension/skills/ ./skills/
 COPY ./extension/plugins/ ./plugins/
 COPY ./extension/runtime/ ./runtime/
 COPY ./extension/.vscodeignore ./
-# LICENSE lives at repo root and is needed by vsce packaging
+COPY ./extension/NOTICE ./NOTICE
 COPY LICENSE /LICENSE
 
 RUN npm run vscode:prepublish \
     && vsce package --out /app/extension.vsix
 
+# ================= Stage 1b: Global Claude Code / Codex CLIs =================
+# Independent of Python lockfile and agentsociety2 source; shares node:22 base cache
+# with extension-builder on the runner.
+FROM node:22 AS node-cli
+
+RUN --mount=type=cache,target=/root/.npm \
+    npm install -g @anthropic-ai/claude-code @openai/codex
+
 # ================= Stage 2: Python runtime with extension =================
 FROM python:3.12
 
-# ---- System packages (Tsinghua TUNA mirror, BuildKit-cached) ----
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     --mount=type=cache,target=/var/lib/apt,sharing=locked \
     set -eux; \
@@ -69,50 +80,32 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         unzip \
         ripgrep
 
-# apt packages (libreoffice, etc.) may pull a newer Python into /usr/bin/,
-# creating a mismatch with the base image's Python in /usr/local/bin/.
-# Overwrite /usr/bin/python* symlinks so every path resolves to the same interpreter.
 RUN ln -sf /usr/local/bin/python3 /usr/bin/python3 \
     && ln -sf /usr/local/bin/python3-config /usr/bin/python3-config \
     && ( [ -f /usr/local/bin/python3.12 ] && ln -sf /usr/local/bin/python3.12 /usr/bin/python3.12 || true )
 
 WORKDIR /app
 
-# ---- uv + Tsinghua pypi mirror ----
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /usr/local/bin/
 RUN ln -sf /usr/local/bin/python3 /usr/local/bin/python
 RUN mkdir -p /etc/uv \
     && printf '[[index]]\nurl = "https://mirrors.tuna.tsinghua.edu.cn/pypi/web/simple/"\ndefault = true\n' > /etc/uv/uv.toml
 
-# uv cache mount lives on a different filesystem than the install target, so
-# hardlinking is impossible; tell uv up-front to copy and skip the warning.
 ENV UV_LINK_MODE=copy
 
-# ---- coder user (rarely changes) ----
 RUN mkdir -p /etc/sudoers.d \
     && useradd coder --create-home --shell=/bin/bash --uid=1000 --user-group \
     && echo "coder ALL=(ALL) NOPASSWD:ALL" >>/etc/sudoers.d/nopasswd
 
-# Unicode support in terminal (C.UTF-8 ships with Debian by default)
 ENV LANG=C.UTF-8
 ENV LANGUAGE=C.UTF-8
 ENV LC_ALL=C.UTF-8
 
-# ---- Python dependencies: manifest-only layer (cached across source edits) ----
-# Export the pinned dependency set from the lockfile (excluding the project
-# itself) and install just those third-party packages. This layer only depends
-# on pyproject/lock, so source changes don't trigger reinstalling ~155 packages.
-COPY pyproject.toml uv.lock ./
-COPY packages/agentsociety2/pyproject.toml packages/agentsociety2/pyproject.toml
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv export --frozen --no-dev --no-emit-package agentsociety2 \
-        --format requirements-txt -o /tmp/reqs.txt \
-    && uv pip install --system -r /tmp/reqs.txt \
-    && rm /tmp/reqs.txt
-
-# Office skills (PDF/DOCX/XLSX/PPTX) + paper-toolkit CLI: independent of project source
+# ---- Static Python tool stacks (independent of uv.lock / AS2 source) ----
+# Office skills + paper-toolkit + pipx: bumping agentsociety2 must not reinstall these.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system \
+        pipx \
         pypdf \
         pdfplumber \
         reportlab \
@@ -125,32 +118,31 @@ RUN --mount=type=cache,target=/root/.cache/uv \
         python-docx \
         python-dotenv \
         "easypaper[docling,images]" \
-        "paper-toolkit"
-
-# pipx (used by some tooling)
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv pip install --system pipx \
+        "paper-toolkit" \
     && pipx ensurepath
 
-# ---- Project source: register editable install cheaply (deps already present) ----
+# ---- Node.js + Claude Code / Codex (independent of uv.lock / AS2 source) ----
+COPY --from=node-cli /usr/local/bin/node /usr/local/bin/node
+COPY --from=node-cli /usr/local/bin/npm /usr/local/bin/npm
+COPY --from=node-cli /usr/local/bin/npx /usr/local/bin/npx
+COPY --from=node-cli /usr/local/lib/node_modules /usr/local/lib/node_modules
+
+# ---- Locked third-party deps from workspace manifest (uv.lock changes only) ----
+COPY pyproject.toml uv.lock ./
+COPY packages/agentsociety2/pyproject.toml packages/agentsociety2/pyproject.toml
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv export --frozen --no-dev --no-emit-package agentsociety2 \
+        --format requirements-txt -o /tmp/reqs.txt \
+    && uv pip install --system -r /tmp/reqs.txt \
+    && rm /tmp/reqs.txt
+
+# ---- agentsociety2 source (editable, deps already present) ----
 COPY README.md LICENSE ./
-COPY packages/ ./packages/
+COPY packages/agentsociety2/ ./packages/agentsociety2/
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv pip install --system --no-deps -e ./packages/agentsociety2
 
-# ---- Node.js + Claude Code / Codex (version bumps only invalidate this
-#      layer; placed before vsix so it stays cached across extension changes) ----
-ARG NODE_VERSION=22.14.0
-RUN --mount=type=cache,target=/tmp/node-dl,sharing=locked \
-    --mount=type=cache,target=/root/.npm \
-    set -eux; \
-    curl -fsSLO https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz; \
-    tar -C /usr/local -xJf node-v${NODE_VERSION}-linux-x64.tar.xz --strip-components=1; \
-    rm node-v${NODE_VERSION}-linux-x64.tar.xz; \
-    npm install -g @anthropic-ai/claude-code @openai/codex; \
-    npm cache clean --force
-
-# ---- Extension vsix (changes every build -> truly last layer) ----
+# ---- Extension vsix (changes most often among runtime layers) ----
 COPY --from=extension-builder /app/extension.vsix /app/extension.vsix
 
 USER coder

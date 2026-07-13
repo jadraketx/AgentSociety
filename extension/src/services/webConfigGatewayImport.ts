@@ -21,12 +21,32 @@ export function isFiblabLlmBase(url: string): boolean {
   try {
     return new URL(url.trim()).hostname.toLowerCase() === 'llmapi.fiblab.net';
   } catch {
-    return url.toLowerCase().includes('llmapi.fiblab.net');
+    return false;
   }
+}
+
+export function formatGatewayClaudeModels(provider: {
+  sonnetModel?: string;
+  opusModel?: string;
+  fableModel?: string;
+  haikuModel?: string;
+}): string {
+  return [
+    provider.sonnetModel,
+    provider.opusModel,
+    provider.fableModel,
+    provider.haikuModel,
+  ]
+    .filter((model): model is string => Boolean(model))
+    .join(' · ') || '-';
 }
 
 function pickImportedModel(options: string[], preferred?: string): string {
   return preferred?.trim() || options[0] || '';
+}
+
+function pickFableModel(options: string[], preferred?: string): string {
+  return preferred?.trim() || options.find((model) => /fable/i.test(model)) || '';
 }
 
 export function resolveWebImportClaudeConfig(
@@ -51,6 +71,7 @@ export function resolveWebImportClaudeConfig(
       options,
       defaults.claudeCodeOpus || model
     ),
+    fableModel: pickFableModel(options, defaults.claudeCodeFable),
     haikuModel: pickImportedModel(
       options,
       defaults.claudeCodeHaiku || model
@@ -80,6 +101,7 @@ export function buildGatewayProviderFromWebImport(
     model: claudeConfig.model?.trim() || undefined,
     sonnetModel: claudeConfig.sonnetModel?.trim() || undefined,
     opusModel: claudeConfig.opusModel?.trim() || undefined,
+    fableModel: claudeConfig.fableModel?.trim() || undefined,
     haikuModel: claudeConfig.haikuModel?.trim() || undefined,
     codexEnable1m: options?.enableCodex1m,
   };

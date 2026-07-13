@@ -36,7 +36,7 @@ function resolveRoleUpstreamModel(
   const lower = normalizedRequested.toLowerCase();
 
   if (lower.includes('fable')) {
-    return upstream.fableModel?.trim() || upstream.opusModel?.trim() || upstream.model?.trim();
+    return upstream.fableModel?.trim();
   }
   if (lower.includes('haiku')) {
     return upstream.haikuModel?.trim() || upstream.model?.trim();

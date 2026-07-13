@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { mapCodexReasoningToChat } from './codexReasoning';
 
 type JsonObject = Record<string, unknown>;
 
@@ -147,7 +148,8 @@ export function buildResponseShell(request: JsonObject, ids: {
  */
 export function translateResponsesRequestToChat(
   request: JsonObject,
-  upstreamModel?: string
+  upstreamModel?: string,
+  upstreamBaseUrl = ''
 ): JsonObject {
   const messages: JsonObject[] = [];
 
@@ -221,9 +223,14 @@ export function translateResponsesRequestToChat(
   if (request.top_p !== undefined) {
     chat.top_p = request.top_p;
   }
-  if (request.reasoning !== undefined) {
-    chat.reasoning = request.reasoning;
-  }
+  Object.assign(
+    chat,
+    mapCodexReasoningToChat(
+      request.reasoning,
+      upstreamBaseUrl,
+      String(chat.model)
+    )
+  );
 
   if (Array.isArray(request.tools) && request.tools.length > 0) {
     const tools: JsonObject[] = [];

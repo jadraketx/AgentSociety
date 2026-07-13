@@ -13,6 +13,7 @@ const ENV_KEY_MAP: Record<EnvMappedKeys, string> = {
   model: 'ANTHROPIC_MODEL',
   sonnetModel: 'ANTHROPIC_DEFAULT_SONNET_MODEL',
   opusModel: 'ANTHROPIC_DEFAULT_OPUS_MODEL',
+  fableModel: 'ANTHROPIC_DEFAULT_FABLE_MODEL',
   haikuModel: 'ANTHROPIC_DEFAULT_HAIKU_MODEL',
 };
 
@@ -36,6 +37,7 @@ export function extractClaudeConfig(settings: Record<string, unknown>): ClaudeCo
     model: env[ENV_KEY_MAP.model] || '',
     sonnetModel: env[ENV_KEY_MAP.sonnetModel] || '',
     opusModel: env[ENV_KEY_MAP.opusModel] || '',
+    fableModel: env[ENV_KEY_MAP.fableModel] || '',
     haikuModel: env[ENV_KEY_MAP.haikuModel] || '',
     permissionMode: '',
   };
@@ -63,7 +65,7 @@ export function writeClaudeConfig(config: ClaudeCodeConfigValues): void {
     delete env[ENV_KEY_MAP.baseUrl];
   }
 
-  (['model', 'sonnetModel', 'opusModel', 'haikuModel'] as const).forEach((key) => {
+  (['model', 'sonnetModel', 'opusModel', 'fableModel', 'haikuModel'] as const).forEach((key) => {
     const val = (config[key] || '').trim();
     if (val) {
       env[ENV_KEY_MAP[key]] = val;
@@ -115,6 +117,7 @@ export function isClaudeCodeEnvCustomized(): boolean {
       'ANTHROPIC_MODEL',
       'ANTHROPIC_DEFAULT_SONNET_MODEL',
       'ANTHROPIC_DEFAULT_OPUS_MODEL',
+      'ANTHROPIC_DEFAULT_FABLE_MODEL',
       'ANTHROPIC_DEFAULT_HAIKU_MODEL',
     ].some((key) => Boolean((env[key] ?? '').trim()));
   } catch {
@@ -132,6 +135,7 @@ export function applyClaudeOfficialSubscription(permissionMode?: string): void {
     'ANTHROPIC_MODEL',
     'ANTHROPIC_DEFAULT_SONNET_MODEL',
     'ANTHROPIC_DEFAULT_OPUS_MODEL',
+    'ANTHROPIC_DEFAULT_FABLE_MODEL',
     'ANTHROPIC_DEFAULT_HAIKU_MODEL',
   ]) {
     delete env[key];

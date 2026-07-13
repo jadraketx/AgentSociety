@@ -34,6 +34,9 @@ DEBUG_STEPS.md
 # 开发/调试脚本与单元测试
 test-extension.js
 test-http-client.js
+test-gateway-enhancements.js
+test-*.js
+__vscode_mock.js
 
 # 构建产物中的测试与 source map
 out/test/**
@@ -50,10 +53,16 @@ yarn-error.log*
 **/__pycache__
 **/__pycache__/**
 
-# 主扩展进程仅依赖 js-yaml；其余依赖由 webview bundle 内联或仅开发期使用
+# 主扩展进程运行时依赖；其余依赖由 webview bundle 内联或仅开发期使用
 node_modules/**
 !node_modules/js-yaml/
 !node_modules/js-yaml/index.js
 !node_modules/js-yaml/package.json
 !node_modules/js-yaml/lib/
 !node_modules/js-yaml/lib/**
+!node_modules/smol-toml/
+!node_modules/smol-toml/**
+!node_modules/write-file-atomic/
+!node_modules/write-file-atomic/**
+!node_modules/signal-exit/
+!node_modules/signal-exit/**

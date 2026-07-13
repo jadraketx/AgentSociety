@@ -50,4 +50,4 @@ jobs:
         run: npm run build
 
       - name: Audit
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high --registry=https://registry.npmjs.org

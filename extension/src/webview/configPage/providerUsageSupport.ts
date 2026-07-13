@@ -1,4 +1,4 @@
-import { isOfficialOpenAiBaseUrl } from './officialEndpoints';
+import { isOfficialOpenAiBaseUrl } from '../../aiCli/officialEndpoints';
 import type { AiCliAuthMode } from './providerAuth';
 
 const KNOWN_PROVIDER_HOSTS = [

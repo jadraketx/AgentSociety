@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import inspect
+import os
 from pathlib import Path
 from typing import Any
 
@@ -36,14 +37,22 @@ AGENT_COMPATIBILITY_RULES = [
 
 
 def ensure_relative_to_workspace(workspace_path: Path, target_path: Path | str) -> str:
-    """Normalize a path to a workspace-relative string when possible."""
+    """Return a normalized path relative to its workspace."""
 
-    resolved_target = Path(target_path).resolve()
-    resolved_workspace = workspace_path.resolve()
-    try:
-        return str(resolved_target.relative_to(resolved_workspace))
-    except ValueError:
-        return str(target_path)
+    resolved_workspace = os.path.realpath(os.fspath(workspace_path))
+    resolved_target = os.path.realpath(os.fspath(target_path))
+    normalized_workspace = os.path.normcase(resolved_workspace)
+    normalized_target = os.path.normcase(resolved_target)
+    workspace_prefix = (
+        normalized_workspace
+        if normalized_workspace.endswith(os.sep)
+        else normalized_workspace + os.sep
+    )
+    if normalized_target != normalized_workspace and not normalized_target.startswith(
+        workspace_prefix
+    ):
+        raise ValueError("Target path escapes workspace")
+    return os.path.relpath(resolved_target, resolved_workspace)
 
 
 def get_registered_tool_names(obj: Any) -> list[str]:

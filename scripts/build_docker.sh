@@ -56,7 +56,8 @@ fi
 
 # Build Docker image
 echo "Building Docker image..."
-docker build -t $TAG -f "$PROJECT_ROOT/Dockerfile" "$PROJECT_ROOT"
+export DOCKER_BUILDKIT=1
+docker build --progress=plain -t "$TAG" -f "$PROJECT_ROOT/Dockerfile" "$PROJECT_ROOT"
 
 # Check build result
 if [ $? -eq 0 ]; then

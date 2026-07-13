@@ -225,6 +225,12 @@ export type ConfigWizardStepPanelProps = {
   providerUsage: Record<string, import('./claudeCodeTypes').ProviderUsageQueryResult & { loading?: boolean }>;
   onQueryProviderUsage: (providerId: string) => void;
   onRestartCodex: () => void;
+  onRestartClaude: () => void;
+  onSyncClaudeConfig: () => void;
+  onSyncCodexConfig: () => void;
+  onSaveOutboundProxy: (url: string) => void;
+  onRectifierChange: (settings: Record<string, boolean>) => void;
+  onRefreshCodexOfficialLogin: () => void;
   easyPaperForm: FormInstance<EasyPaperConfigValues>;
   onSaveEasyPaper: () => void;
 };
@@ -392,6 +398,12 @@ export function ConfigWizardStepPanel(props: ConfigWizardStepPanelProps) {
         providerUsage={props.providerUsage}
         onQueryProviderUsage={props.onQueryProviderUsage}
         onRestartCodex={props.onRestartCodex}
+        onRestartClaude={props.onRestartClaude}
+        onSyncClaudeConfig={props.onSyncClaudeConfig}
+        onSyncCodexConfig={props.onSyncCodexConfig}
+        onSaveOutboundProxy={props.onSaveOutboundProxy}
+        onRectifierChange={props.onRectifierChange}
+        onRefreshCodexOfficialLogin={props.onRefreshCodexOfficialLogin}
       />
     </div>
   );

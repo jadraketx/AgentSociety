@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { execSync } from 'child_process';
+import { execFileSync } from 'child_process';
 
 const AGENTSOCIETY2_CHECK = [
   'import importlib.util',
@@ -69,7 +69,7 @@ function isExecutableFile(filePath: string): boolean {
   }
 }
 
-function venvPythonIn(baseDir: string): string | null {
+export function venvPythonIn(baseDir: string): string | null {
   const unix = path.join(baseDir, '.venv', 'bin', 'python');
   if (isExecutableFile(unix)) {
     return unix;
@@ -81,13 +81,9 @@ function venvPythonIn(baseDir: string): string | null {
   return null;
 }
 
-function shellQuote(value: string): string {
-  return `"${value.replace(/"/g, '\\"')}"`;
-}
-
-function execPython(pythonPath: string, args: string): string | null {
+function execPython(pythonPath: string, args: string[]): string | null {
   try {
-    return execSync(`${shellQuote(pythonPath)} ${args}`, {
+    return execFileSync(pythonPath, args, {
       stdio: ['ignore', 'pipe', 'pipe'],
       timeout: 20_000,
       env: process.env,
@@ -113,7 +109,7 @@ export function pythonHasAgentsociety2(pythonPath: string): boolean {
     return false;
   }
   try {
-    execSync(`${shellQuote(trimmed)} -c ${shellQuote(AGENTSOCIETY2_CHECK)}`, {
+    execFileSync(trimmed, ['-c', AGENTSOCIETY2_CHECK], {
       stdio: 'ignore',
       timeout: 20_000,
       env: process.env,
@@ -125,7 +121,7 @@ export function pythonHasAgentsociety2(pythonPath: string): boolean {
 }
 
 function inspectPythonEnvironment(pythonPath: string): Omit<PythonEnvironmentCandidate, 'path' | 'source'> {
-  const output = execPython(pythonPath, `-c ${shellQuote(INSPECT_SCRIPT)}`);
+  const output = execPython(pythonPath, ['-c', INSPECT_SCRIPT]);
   if (!output) {
     return { compatible: false, error: 'python_unavailable' };
   }
@@ -172,7 +168,7 @@ function resolveUvPython(workspacePath?: string, extensionPath?: string): string
       continue;
     }
     try {
-      const output = execSync('uv run python -c "import sys; print(sys.executable)"', {
+      const output = execFileSync('uv', ['run', 'python', '-c', 'import sys; print(sys.executable)'], {
         cwd: root,
         stdio: ['ignore', 'pipe', 'ignore'],
         timeout: 20_000,

@@ -15,7 +15,7 @@ Agent Skills API 路由
 API 端点：
 - GET  /api/v1/agent-skills/list       — 列出所有已发现的 agent skill（built-in + custom + env）
 - POST /api/v1/agent-skills/scan       — 扫描 workspace/custom/skills/ 下的自定义 skill
-- POST /api/v1/agent-skills/import     — 从路径导入 skill 目录
+- POST /api/v1/agent-skills/import     — 从工作区内路径导入 skill 目录
 - POST /api/v1/agent-skills/create     — 在线创建新 skill（SKILL.md + 可选脚本）
 - POST /api/v1/agent-skills/upload     — 上传 zip 包导入 skill
 - GET  /api/v1/agent-skills/{skill_id}/info — 获取 SKILL.md 内容
@@ -27,6 +27,7 @@ import io
 import os
 import shutil
 import zipfile
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
@@ -39,6 +40,7 @@ from agentsociety2.agent.base.skill_registry import (
 from agentsociety2.backend.path_security import (
     custom_skills_root,
     extract_zip_under,
+    require_disjoint_copy_paths,
     require_safe_skill_name,
     resolve_existing_directory,
     resolve_skill_relative,
@@ -85,7 +87,7 @@ class ScanResponse(BaseModel):
 
 
 class ImportRequest(BaseModel):
-    source_path: str = Field(..., description="skill 目录的绝对路径")
+    source_path: str = Field(..., description="工作区内 skill 目录的绝对路径")
     workspace_path: str | None = Field(None, description="工作区路径")
 
 
@@ -112,11 +114,7 @@ class SimpleResponse(BaseModel):
 
 
 def _skill_has_skill_md(path_str: str) -> bool:
-    try:
-        root = resolve_existing_directory(path_str)
-    except HTTPException:
-        return False
-    return resolve_under_root(root, "SKILL.md").is_file()
+    return (Path(os.path.realpath(path_str)) / "SKILL.md").is_file()
 
 
 def _require_workspace(workspace_path: str | None) -> str:
@@ -173,7 +171,7 @@ async def scan_custom_skills(req: ScanRequest):
 
 @router.post("/import", response_model=ImportResponse)
 async def import_skill(req: ImportRequest):
-    """从外部路径导入 Agent Skill（复制到 custom/skills/）。"""
+    """从工作区内路径导入 Agent Skill（复制到 custom/skills/）。"""
     source = resolve_existing_directory(req.source_path)
     skill_md = resolve_under_root(source, "SKILL.md")
     scripts_dir = resolve_under_root(source, "scripts")
@@ -185,6 +183,7 @@ async def import_skill(req: ImportRequest):
     workspace = _require_workspace(req.workspace_path)
     skill_name = require_safe_skill_name(source.name)
     dest = skill_install_dir(workspace, skill_name)
+    require_disjoint_copy_paths(source, dest)
     if dest.exists():
         shutil.rmtree(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
@@ -232,7 +231,9 @@ async def create_skill(req: CreateRequest):
 
     if req.script and req.script_content:
         # Validate the relative script path before writing
-        safe_script = require_safe_skill_name(req.script.strip().replace("/", "_").replace("\\", "_"))
+        safe_script = require_safe_skill_name(
+            req.script.strip().replace("/", "_").replace("\\", "_")
+        )
         script_path = resolve_skill_relative(dest, safe_script)
         script_path.parent.mkdir(parents=True, exist_ok=True)
         script_path.write_text(req.script_content, encoding="utf-8")

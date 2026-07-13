@@ -65,6 +65,7 @@ export interface ImportedModelDefaults {
   claudeCode: string;
   claudeCodeSonnet: string;
   claudeCodeOpus: string;
+  claudeCodeFable?: string;
   claudeCodeHaiku: string;
   claudeCodeSonnet1m?: string;
   claudeCodeOpus1m?: string;

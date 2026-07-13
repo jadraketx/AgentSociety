@@ -1,8 +1,9 @@
 import * as React from 'react';
-import { Alert, Button, Modal, Space, Typography } from 'antd';
+import { Alert, Button, Modal, Space, Tag, Tooltip, Typography } from 'antd';
 import { CloudDownloadOutlined, CopyOutlined, LinkOutlined } from '@ant-design/icons';
 import type { TFunction } from 'i18next';
 import type { VscodeThemePalette } from '../theme';
+import { formatGatewayClaudeModels } from '../../services/webConfigGatewayImport';
 import type { ClaudeCodeConfigValues } from './claudeCodeTypes';
 import type { ConfigValues, ImportedModelOptions, EasyPaperConfigValues, VSCodeAPI } from './types';
 
@@ -141,12 +142,8 @@ export function WebConfigImportPanel({
                 </code>
               </Text>
               <Text>
-                Sonnet / Opus / Haiku:{' '}
-                <code>
-                  {[gateway.sonnetModel, gateway.opusModel, gateway.haikuModel]
-                    .filter(Boolean)
-                    .join(' · ') || '-'}
-                </code>
+                Sonnet / Opus / Fable / Haiku:{' '}
+                <code>{formatGatewayClaudeModels(gateway)}</code>
               </Text>
               {gateway.declareSonnet1m || gateway.declareOpus1m || gateway.declareFable1m ? (
                 <Text>
@@ -192,11 +189,11 @@ export function WebConfigImportPanel({
         </div>
       ) : null}
 
-      <div style={{ marginBottom: compact ? 0 : 14 }}>
-        <Space wrap align="center" style={compact ? { width: '100%' } : undefined}>
+      <div style={{ marginBottom: compact ? 0 : 14, display: compact ? 'inline-flex' : undefined, alignItems: compact ? 'center' : undefined }}>
+        <Space wrap={!compact} align="center" size={compact ? 8 : undefined}>
           <Button
             type={prominent && !compact ? 'primary' : 'default'}
-            size={compact ? 'small' : prominent ? 'middle' : 'middle'}
+            size="middle"
             icon={<CloudDownloadOutlined />}
             loading={importBusy}
             onClick={onStart}
@@ -204,9 +201,21 @@ export function WebConfigImportPanel({
             {t('configPage.webImport.button')}
           </Button>
           {deviceAuth.authPath ? (
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              {t('configPage.webImport.cachedAt', { path: deviceAuth.authPath })}
-            </Text>
+            compact ? (
+              <Tooltip title={deviceAuth.authPath}>
+                <Tag style={{ margin: 0, maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {t('configPage.webImport.cachedShort')}
+                </Tag>
+              </Tooltip>
+            ) : (
+              <Text
+                type="secondary"
+                ellipsis={{ tooltip: deviceAuth.authPath }}
+                style={{ fontSize: 12, maxWidth: 420, display: 'inline-block', verticalAlign: 'middle' }}
+              >
+                {t('configPage.webImport.cachedAt', { path: deviceAuth.authPath })}
+              </Text>
+            )
           ) : null}
         </Space>
       </div>
