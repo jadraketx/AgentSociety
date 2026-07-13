@@ -40,24 +40,37 @@ def require_safe_segment(value: str, *, field: str) -> str:
     return value
 
 
+def _ensure_under(
+    base: Path | str,
+    candidate: Path | str,
+    *,
+    detail: str = "Path escapes allowed directory",
+) -> Path:
+    """Resolve ``candidate`` and require it stays under ``base``.
+
+    Uses ``Path.relative_to`` so static analyzers treat the result as sanitized.
+    """
+    base_resolved = Path(os.path.realpath(os.fspath(base)))
+    target_resolved = Path(os.path.realpath(os.fspath(candidate)))
+    try:
+        Path(os.path.normcase(os.fspath(target_resolved))).relative_to(
+            Path(os.path.normcase(os.fspath(base_resolved)))
+        )
+    except ValueError:
+        raise HTTPException(status_code=400, detail=detail) from None
+    return target_resolved
+
+
 def resolve_under_root(root: Path, *parts: str) -> Path:
     for part in parts:
         if "\0" in part:
             raise HTTPException(status_code=400, detail="Invalid path component")
-    base = os.path.realpath(os.fspath(root))
-    target = os.path.realpath(os.path.join(base, *parts))
-    normalized_base = os.path.normcase(base)
-    normalized_target = os.path.normcase(target)
-    base_prefix = (
-        normalized_base
-        if normalized_base.endswith(os.sep)
-        else normalized_base + os.sep
+    base = Path(os.path.realpath(os.fspath(root)))
+    return _ensure_under(
+        base,
+        Path(os.path.join(os.fspath(base), *parts)),
+        detail="Path escapes workspace root",
     )
-    if normalized_target != normalized_base and not normalized_target.startswith(
-        base_prefix
-    ):
-        raise HTTPException(status_code=400, detail="Path escapes workspace root")
-    return Path(target)
 
 
 def resolve_workspace_relative(root: Path, relative: str) -> Path:
@@ -170,20 +183,11 @@ def resolve_skill_relative(skill_dir: Path, relative: str) -> Path:
 def resolve_path_under_directory(root: Path, path_str: str) -> Path:
     if not path_str or "\0" in path_str:
         raise HTTPException(status_code=400, detail="Invalid path")
-    base = os.path.realpath(os.fspath(root))
-    target = os.path.realpath(os.path.expanduser(path_str.strip()))
-    normalized_base = os.path.normcase(base)
-    normalized_target = os.path.normcase(target)
-    base_prefix = (
-        normalized_base
-        if normalized_base.endswith(os.sep)
-        else normalized_base + os.sep
+    return _ensure_under(
+        root,
+        Path(os.path.expanduser(path_str.strip())),
+        detail="Path escapes allowed directory",
     )
-    if normalized_target != normalized_base and not normalized_target.startswith(
-        base_prefix
-    ):
-        raise HTTPException(status_code=400, detail="Path escapes allowed directory")
-    return Path(target)
 
 
 def require_disjoint_copy_paths(source: Path, destination: Path) -> None:

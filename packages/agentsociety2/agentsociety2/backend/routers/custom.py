@@ -203,9 +203,11 @@ async def scan_custom_modules(request: ScanRequest):
             message=message,
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"[Custom Modules] Scan failed: {e}")
-        raise HTTPException(status_code=500, detail=f"扫描失败: {e!s}") from None
+        logger.error(f"[Custom Modules] Scan failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="扫描失败") from None
 
 
 @router.post("/clean", response_model=CleanResponse)
@@ -238,8 +240,11 @@ async def clean_custom_modules(request: ScanRequest):
             message=f"已清理 {count} 个自定义模块配置",
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"清理失败: {e!s}") from e
+        logger.error(f"[Custom Modules] Clean failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="清理失败") from None
 
 
 @router.post("/test", response_model=TestResponse)
@@ -387,9 +392,11 @@ async def test_custom_modules(request: TestRequest):
             failed_tests=result.get("failed_tests"),
         )
 
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"[Custom Modules] Test failed: {e}")
-        raise HTTPException(status_code=500, detail=f"测试失败: {e!s}") from None
+        logger.error(f"[Custom Modules] Test failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="测试失败") from None
 
 
 @router.get("/list", response_model=ListResponse)
@@ -466,9 +473,11 @@ async def list_custom_modules():
             total_agents=len(result["agents"]),
             total_envs=len(result["envs"]),
         )
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"[Custom Modules] List failed: {e}")
-        raise HTTPException(status_code=500, detail=f"列表获取失败: {e!s}") from None
+        logger.error(f"[Custom Modules] List failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="列表获取失败") from None
 
 
 @router.get("/status")
@@ -484,7 +493,6 @@ async def get_custom_modules_status():
     workspace_path = os.getenv("WORKSPACE_PATH")
     if not workspace_path:
         raise HTTPException(status_code=400, detail="Workspace path not set")
-
 
     workspace = resolve_workspace_root(workspace_path)
     custom_dir = resolve_under_root(workspace, "custom")
@@ -639,7 +647,7 @@ async def list_available_classes(
     except Exception as e:
         logger.error(f"Failed to list available classes: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500, detail=f"Failed to list available classes: {e!s}"
+            status_code=500, detail="Failed to list available classes"
         ) from None
 
 
@@ -674,8 +682,10 @@ async def rescan_custom_modules(
             "message": f"Scanned {len(scan_result.get('envs', []))} env modules and "
             f"{len(scan_result.get('agents', []))} agents",
         }
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to rescan custom modules: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500, detail=f"Failed to rescan custom modules: {e!s}"
+            status_code=500, detail="Failed to rescan custom modules"
         ) from None

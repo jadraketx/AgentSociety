@@ -42,9 +42,10 @@ from agentsociety2.backend.path_security import (
     extract_zip_under,
     require_disjoint_copy_paths,
     require_safe_skill_name,
-    resolve_existing_directory,
+    resolve_path_under_directory,
     resolve_skill_relative,
     resolve_under_root,
+    resolve_workspace_root,
     skill_install_dir,
 )
 from agentsociety2.logger import get_logger
@@ -172,7 +173,13 @@ async def scan_custom_skills(req: ScanRequest):
 @router.post("/import", response_model=ImportResponse)
 async def import_skill(req: ImportRequest):
     """从工作区内路径导入 Agent Skill（复制到 custom/skills/）。"""
-    source = resolve_existing_directory(req.source_path)
+    workspace = _require_workspace(req.workspace_path)
+    workspace_root = resolve_workspace_root(workspace)
+    source = resolve_path_under_directory(workspace_root, req.source_path)
+    if not source.is_dir():
+        raise HTTPException(
+            status_code=400, detail=f"Directory not found: {req.source_path}"
+        )
     skill_md = resolve_under_root(source, "SKILL.md")
     scripts_dir = resolve_under_root(source, "scripts")
     if not skill_md.is_file() and not scripts_dir.is_dir():
@@ -180,14 +187,13 @@ async def import_skill(req: ImportRequest):
             400, "Directory does not look like a skill (missing SKILL.md and scripts/)"
         )
 
-    workspace = _require_workspace(req.workspace_path)
     skill_name = require_safe_skill_name(source.name)
     dest = skill_install_dir(workspace, skill_name)
     require_disjoint_copy_paths(source, dest)
     if dest.exists():
         shutil.rmtree(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(str(source), str(dest))
+    shutil.copytree(source, dest)
 
     reg = get_skill_registry()
     reg.scan_custom(custom_skills_root(workspace))

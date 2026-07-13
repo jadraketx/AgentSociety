@@ -130,7 +130,27 @@ function normalizeGatewayErrorPayload(status: number, payload: unknown): Record<
     if (obj.error && typeof obj.error === 'object' && !Array.isArray(obj.error)) {
       const nested = obj.error as Record<string, unknown>;
       if (typeof nested.message === 'string' && nested.message.trim()) {
-        return obj;
+        const out: Record<string, unknown> = {
+          error: {
+            message: nested.message,
+            type:
+              typeof nested.type === 'string' && nested.type.trim()
+                ? nested.type
+                : 'agentsociety_gateway_error',
+            code:
+              typeof nested.code === 'string' && nested.code.trim()
+                ? nested.code
+                : typeof obj.error === 'string'
+                  ? obj.error
+                  : 'gateway_error',
+          },
+        };
+        if (typeof nested.hint === 'string' && nested.hint.trim()) {
+          (out.error as Record<string, unknown>).hint = nested.hint;
+        } else if (typeof obj.hint === 'string' && obj.hint.trim()) {
+          (out.error as Record<string, unknown>).hint = obj.hint;
+        }
+        return out;
       }
     }
     const code = typeof obj.error === 'string' ? obj.error : 'gateway_error';
@@ -2097,7 +2117,7 @@ export class AiCliGateway {
     res.end(body);
   }
 
-  /** Recursively sanitize error payload: truncate suspicious 'message' fields */
+  /** Recursively sanitize error payload: drop stacks and truncate messages. */
   private sanitizeErrorPayload(payload: unknown): unknown {
     if (typeof payload !== 'object' || payload === null) {
       return payload;
@@ -2105,10 +2125,21 @@ export class AiCliGateway {
     if (Array.isArray(payload)) {
       return payload.map((item) => this.sanitizeErrorPayload(item));
     }
+    const blockedKeys = new Set([
+      'stack',
+      'stackTrace',
+      'stacktrace',
+      'traceback',
+      'exception',
+      'cause',
+      'trace',
+    ]);
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
+      if (blockedKeys.has(key)) {
+        continue;
+      }
       if (key === 'message' && typeof value === 'string') {
-        // Keep only the first line; full stack traces are never useful to the client
         const firstLine = value.split('\n')[0].trim();
         out[key] = firstLine.length > 280 ? firstLine.slice(0, 280) + '…' : firstLine;
       } else if (typeof value === 'object' && value !== null) {
