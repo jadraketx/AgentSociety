@@ -4,10 +4,10 @@ Thanks for contributing to AgentSociety.
 
 ## Where to contribute
 
-| Platform | Role |
-| -------- | ---- |
-| **GitLab** (`git.fiblab.net`) | Primary remote — MRs, CI pipelines, Docker build, GitHub mirror |
-| **GitHub** (`tsinghua-fib-lab/AgentSociety`) | Public mirror — Issues, Discussions, Dependabot, CodeQL |
+| Platform                                     | Role                                                            |
+| -------------------------------------------- | --------------------------------------------------------------- |
+| **GitLab** (`git.fiblab.net`)                | Primary remote — MRs, CI pipelines, Docker build, GitHub mirror |
+| **GitHub** (`tsinghua-fib-lab/AgentSociety`) | Public mirror — Issues, Discussions, Dependabot, CodeQL         |
 
 Open merge requests on GitLab for code changes. GitHub Issues/Discussions are fine for public bug reports and questions.
 
@@ -109,6 +109,13 @@ git-cliff -o CHANGELOG.md
 
 6. The `agentsociety2-publish` workflow publishes to PyPI, builds the VSIX, and creates a GitHub Release
 
+Local VSIX without tagging:
+
+```bash
+cd extension && npm run package:check
+# or from repo root: make package-extension
+```
+
 ## CI overview
 
 | Check             | Workflow                      |
@@ -124,7 +131,7 @@ Local checks before pushing:
 
 ```bash
 cd packages/agentsociety2 && uv run ruff check . && uv run pytest -q
-cd extension && npm run lint && npm run build
+cd extension && npm run check
 cd frontend && npm run lint && npm run build
 ```
 

@@ -1,340 +1,135 @@
 # AI Social Scientist
 
-[![VS Code Version](https://img.shields.io/badge/VS%20Code-1.120%2B-blue)](https://code.visualstudio.com/)
-[![License](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+[![VS Code](https://img.shields.io/badge/VS%20Code-1.95%2B-blue)](https://code.visualstudio.com/)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-1.6.5-informational)](package.json)
 
-AI Social Scientist 是 LLM 驱动的智能自主社会科学研究智能体，提供完整的 VSCode 插件支持。
+VS Code / Cursor 扩展：面向社会科学研究的 LLM 工作台，对接 [AgentSociety2](https://github.com/tsinghua-fib-lab/agentsociety) 模拟框架，并统一管理 Claude Code / Codex 的本地路由与供应商。
 
-## 核心能力
+## 功能概览
 
-- **学术文献检索** - 经 MCP 网关的多源学术文献搜索与管理
-- **Agent 模拟实验** - 基于 AgentSociety2 的智能体模拟
-- **实验配置与执行** - 可视化配置、一键运行
-- **数据总结与分析** - LLM 驱动的数据分析与报告生成
+- **研究工作区**：项目树、文献索引、假设与实验目录、技能市场
+- **配置向导**：仿真 LLM、工作区 `.env`、后端、文献 MCP、CLI 网关
+- **本地 AI Gateway**：Anthropic Messages / OpenAI Chat / Responses 协议转换、用量统计、故障转移、请求整流
+- **Claude Code / Codex**：共享供应商池；官方订阅保持 CLI 登录直连；Codex 模型目录自动写入 `~/.codex/agentsociety-model-catalog.json`
+- **回放与分析**：实验回放 Webview、分析 harness 状态
 
-## 系统架构
+## 安装
 
+### 从 GitHub Release（推荐）
+
+发版标签 `agentsociety2-v*` 的 [GitHub Release](https://github.com/tsinghua-fib-lab/agentsociety/releases) 会附带 `ai-social-scientist.vsix`：
+
+```bash
+code --install-extension ai-social-scientist.vsix
+# 或 Cursor / code-server：Extensions → Install from VSIX…
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    VSCode 插件                          │
-├─────────────────────────────────────────────────────────┤
-│  项目结构视图  │  技能市场  │  配置页面  │  回放视图   │
-├─────────────────────────────────────────────────────────┤
-│                 本地 FastAPI 后端服务                   │
-├─────────────────────────────────────────────────────────┤
-│         AgentSociety2 核心模拟框架                      │
-└─────────────────────────────────────────────────────────┘
+
+Cursor / VS Code Remote（含 **Coder**）请将扩展安装到 **Workspace（远程）** 侧，以便读取远程环境中的 `~/.codex/auth.json` 与 CLI 配置。本扩展声明 `extensionKind: workspace`。
+
+同一机器上只保留一个版本。若升级后侧边栏仍异常，先删除旧目录再强制安装：
+
+```bash
+rm -rf ~/.local/share/code-server/extensions/tsinghua-fib-lab.ai-social-scientist-1.6.*
+code-server --install-extension ai-social-scientist.vsix --force
 ```
+
+然后执行 **Developer: Reload Window**。
+
+### 本地打包
+
+```bash
+cd extension
+npm ci
+npm run package:check    # lint + 单测 + 构建 + 打 VSIX
+code --install-extension ai-social-scientist.vsix
+```
+
+仅打包（跳过检查）：`npm run package`。
+
+### 开发调试
+
+```bash
+cd extension
+npm ci
+npm run build            # 或 npm run dev（watch）
+```
+
+在 VS Code 中打开 `extension` 目录，按 `F5` 启动 Extension Development Host。
 
 ## 快速开始
 
+1. **打开工作区文件夹**（不要只打开单个文件；Coder 上请打开项目根目录，而不是整个 `$HOME`）
+2. 命令面板运行 **「AI Social Scientist: 打开配置」**
+3. 按向导完成：仿真 LLM → 保存 `.env` → 启动后端 →（可选）文献 / CLI 网关
+4. 也可运行 **「AI Social Scientist: 打开快速入门」** 查看 Walkthrough（标题与正文随 VS Code 语言切换）
+
 ### 前置要求
 
-- Node.js ^22.13.0 或 >=24（与 `package.json` 的 `engines.node`、`.nvmrc` 一致）
-- Python >= 3.11
-- uv (Python 包管理器)
-- VSCode >= 1.120.0
+| 依赖             | 版本                            |
+| ---------------- | ------------------------------- |
+| Node.js          | ^22.13.0 或 >=24（见 `.nvmrc`） |
+| Python           | >= 3.11                         |
+| uv               | 推荐（AgentSociety2）           |
+| VS Code / Cursor | >= 1.95.0                       |
 
-### 安装步骤
+### 工作区 `.env`（常见项）
 
-1. **安装插件依赖**
+| 变量                                                                                | 说明                                                        |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| `AGENTSOCIETY_LLM_API_KEY` / `AGENTSOCIETY_LLM_API_BASE` / `AGENTSOCIETY_LLM_MODEL` | 仿真默认 LLM                                                |
+| `LITERATURE_SEARCH_API_KEY`                                                         | 文献 MCP（可选）                                            |
+| `PYTHON_PATH`                                                                       | Python 解释器（可自动检测；Coder 上建议显式设置以加快激活） |
+| `BACKEND_PORT`                                                                      | 本地后端端口                                                |
 
-   ```bash
-   cd extension
-   npm install
-   ```
+Claude / Codex 的供应商与 API Key 保存在扩展全局状态与 SecretStorage，不写入工作区 `.env`。
 
-2. **编译插件**
+## CLI 网关（Claude / Codex）
 
-   ```bash
-   npm run build
-   ```
+配置页 **Claude / Codex** 区域：
 
-3. **配置（推荐：在插件内完成）**
+1. **添加供应商**：Base URL + API Key（或官方订阅），勾选 Claude / Codex 用途；检测后自动识别协议
+2. **开启本地代理**：API Key 供应商经网关做格式转换与用量统计；官方订阅保持 CLI 登录直连
+3. **同步 Codex 配置**：保存后点 **「刷新配置」**，重写 `~/.codex/config.toml` 与 `agentsociety-model-catalog.json`
+4. **重启 CLI**：Claude / Codex 配置变更后可用页内「重启」按钮刷新终端会话
 
-   启动扩展后，使用命令 **「AI Social Scientist: 打开配置」** 打开统一配置页。
+网关覆盖 Anthropic Messages、OpenAI Chat Completions、OpenAI Responses；详情见配置页「格式转换」提示。
 
-   **首次进入工作区**时，扩展会自动打开配置页并显示 **5 步配置向导**（不会叠加额外的欢迎 Toast）：
+## 开发命令
 
-   | 步骤 | 内容 | 必填 |
-   | ---- | ---- | ---- |
-   | 1 仿真 LLM | API Key / Base / Model，验证通过后自动进入下一步 | 是 |
-   | 2 保存配置 | 摘要确认并写入工作区 `.env` | 是 |
-   | 3 启动后端 | Python 环境检测与「保存并启动后端」 | 是 |
-   | 4 文献检索 | MCP 网关与 API Key | 否（可跳过） |
-   | 5 CLI 网关 | Claude / Codex 本地 AI Gateway 路由 | 否（可跳过） |
+| 场景                 | 命令                    |
+| -------------------- | ----------------------- |
+| 安装依赖             | `npm ci`                |
+| 检查（lint+测+构建） | `npm run check`         |
+| 生产构建             | `npm run build`         |
+| 开发 watch           | `npm run dev`           |
+| 清理重建             | `npm run rebuild`       |
+| 打包 VSIX            | `npm run package`       |
+| 检查后打包           | `npm run package:check` |
+| Lint                 | `npm run lint`          |
+| 网关 / Codex 单测    | `npm run test:gateway`  |
 
-   向导可随时通过页内「退出向导」切换为完整配置页；退出状态会保存在扩展全局状态中。
-
-   **高级配置**（非向导模式）：专用模型（Coder / Embedding）、Python 环境、学术文献检索、Claude Code & Codex 网关路由。顶部概览卡片显示后端与各项验证状态。
-
-   配置写入**当前工作区**的 `.env`（常见路径 `agentsociety/.env`）。扩展默认启用 `python.terminal.useEnvFile`，以便集成终端自动加载 `.env`。
-
-   也可运行 **「AI Social Scientist: 打开快速入门」** 查看 VS Code Walkthrough（中英文随界面语言切换）。
-
-4. **启动后端服务（推荐：配置向导或状态栏）**
-
-   建议正常启动后端，这样 Agent 技能管理、模块探测与预填参数、自定义模块扫描/测试、回放 API、API 文档等能力都能直接使用。若后端暂未启动，你仍然可以编辑实验配置、查看本地文件、整理文献索引，或通过 CLI / Claude Code 按工作区配置运行实验。
-
-   ```bash
-   cd packages/agentsociety2
-   uv run python -m agentsociety2.backend.run
-   ```
-
-   更推荐在配置向导第 3 步点击「保存并启动后端」，或在 VSCode 内点击状态栏 Backend 图标 / 运行命令 **「AI Social Scientist: 后端状态菜单」** 进行启动/停止/查看日志。
-
-   - 插件启动后端时会**优先使用工作区 `.env` 的 `BACKEND_PORT`**；若端口占用，会**自动选择一个可用端口**并写回 `.env`。
-   - 从配置页启动后端时，错误与成功提示仅在配置页内显示，避免与命令层 Toast 重复。
-   - 如果你是**在终端手动启动**后端，请确保工作区 `.env` 中的 `BACKEND_PORT=port`，插件才会按该端口进行健康检查与连接。
-
-5. **调试插件**
-
-   - 在 VSCode 中打开 `extension` 文件夹
-   - 按 `F5` 启动调试
-
-## 功能特性
-
-### 项目结构管理
-
-```
-workspace/
-├── TOPIC.md                    # 研究话题
-├── papers/                     # 论文目录
-│   ├── literature_index.json   # 文献索引
-│   ├── pdf/                    # PDF 文献
-│   └── md/                     # Markdown 笔记
-├── paper/                      # 论文工作区（paper-toolkit）
-│   ├── sections/               # 论文章节
-│   ├── reviews/                # 审稿意见（右键查看结构化 review）
-│   └── compile_runs/           # 编译产物
-├── hypothesis_xxx/             # 假设目录
-│   ├── HYPOTHESIS.md          # 假设描述
-│   └── experiment_xxx/        # 实验目录
-│       ├── init/              # 初始化配置
-│       └── run/               # 运行结果
-└── .agentsociety/              # 分析 harness 机器状态
-```
-
-### 可视化文件查看器
-
-| 文件类型              | 功能                                     |
-| --------------------- | ---------------------------------------- |
-| JSON                  | 语法高亮、折叠展开、搜索、复制           |
-| YAML                  | 语法高亮、时间线视图                     |
-| pid.json              | 实验状态监控、自动刷新                   |
-| literature_index.json | 文献列表、搜索、批量操作                 |
-| Paper Review          | 结构化审稿意见查看（维度、阻塞项、评分） |
-| Evidence Graph        | 分析证据关系可视化                       |
-
-### AI CLI Gateway
-
-本地代理网关，将 Claude Code / Codex CLI 请求经统一供应商池路由转发。
-
-**核心能力**：
-- **统一供应商池**：新建供应商按“连接与认证 → 用途 → 模型映射”填写；可直接勾选设为 Claude Code / Codex 主供应商
-- **自动协议检测**：点击检测或获取模型后，网关通过 `/models` 自动识别 Chat/Responses 或 Messages，无需用户手动区分接口类型
-- **自动格式转换**：支持 Anthropic Messages、OpenAI Chat Completions、OpenAI Responses 之间的转换，覆盖流式与非流式响应；文本、system/instructions、工具定义、工具调用/结果、temperature、top_p、max tokens 与 usage 已有回归测试
-- **模型映射**：按角色（sonnet/opus/haiku）映射供应商模型；支持 1M 长上下文专用映射与 Codex `model_catalog_json` 生成
-- **Codex 策略**：自动为不支持 `web_search` 的国产网关写入禁用配置；1M 上下文通过 catalog 的 `context_window` 生效
-- **运行态监控**：活跃连接、总请求、成功率、运行时长；Failover 上游健康状态
-- **故障转移**：支持多供应商优先级排序和断路器保护，失败后自动切换
-- **用量追踪**：按天展示请求趋势，区分 Claude 与 Codex 来源，支持 7/30/全部 天筛选
-- **成本估算**：内置 + 远程 + 自定义模型定价，缓存读写费用独立计算
-- **状态栏集成**：实时显示 Gateway 路由状态，支持一键重启 Codex
-
-### 文件查看器
-
-- **JSON 查看器**：语法高亮、可折叠树形、搜索、复制
-- **YAML 查看器**：语法高亮、可折叠树形、搜索、复制为 JSON
-- **CSV 查看器**：表头固定、列排序、搜索过滤、复制 CSV
-- **Markdown 预览**：侧边栏点击 `.md` 文件直接预览
-- **HTML 报告**：使用 Live Preview 或默认浏览器打开
-- 论文工作区和分析工作区的文件均支持一键打开对应查看器
-
-### 技能管理
-
-- **Agent 技能** - 安装到 `custom/skills`
-- **Claude 技能** - 安装到 `.claude/skills`
-- 支持从 GitHub 仓库安装
-- 支持本地自定义开发
-
-### 后端服务管理
-
-- 状态栏显示 **Backend**（端口）、**Gateway**（路由/成功率）、**LLM**（验证通过时显示模型名）
-- 工作区导出 ZIP 位于项目树标题栏，不在状态栏
-- 一键启动/停止/重启（停止时若本无进程则不弹 Toast）
-- 快速打开 API 文档与复制服务 URL
-
-### 输出通道
-
-扩展合并为 3 个输出通道，子系统日志带前缀区分：
-
-| 通道 | 内容 |
-| ---- | ---- |
-| **AI Social Scientist** | 主通道：`[API]` `[Chat]` `[Export]` 等 |
-| **AI Social Scientist Backend** | FastAPI 后端进程 stdout/stderr |
-| **AI CLI Gateway** | Claude / Codex 本地代理请求日志 |
-
-建议在日常使用中启动后端，获得完整插件体验。需要本地 API 的交互功能依赖后端，例如 Agent 运行时技能管理、模块探测与预填参数、自定义模块扫描/测试、回放 Webview 和 API 文档。本地文件类能力不依赖后端，例如项目树浏览、Markdown/PDF/CSV/图片打开、配置文件编辑、文献索引预览、工作区导出。实验本身也可以由 AgentSociety2 CLI 或 Claude Code 在工作区中直接运行；此时关键依赖是 `.env`、Python 环境和实验配置。
-
-## 配置说明
-
-### 插件设置
-
-| 设置项                                | 说明                                         | 默认值   |
-| ------------------------------------- | -------------------------------------------- | -------- |
-| `aiSocialScientist.backend.autoStart` | 插件启动时自动启动本地后端；日常使用建议开启 | `false`  |
-| `aiSocialScientist.chat.viewColumn`   | Chat 面板位置                                | `beside` |
-| `agentSkills.githubToken`             | GitHub Token (可选)                          | `""`     |
-| `agentSkills.skillSources`            | Agent 技能源                                 | `[]`     |
-| `agentSkills.claudeSkillSources`      | Claude 技能源                                | 内置列表 |
-
-### 环境变量
-
-工作区 `.env` 主要项（完整列表见 [ReadTheDocs](https://agentsociety2.readthedocs.io/zh_CN/latest/) 或配置页）：
-
-| 变量                                            | 说明                                                       |
-| ----------------------------------------------- | ---------------------------------------------------------- |
-| `AGENTSOCIETY_LLM_API_KEY` / `_BASE` / `_MODEL` | 默认 LLM（必填）                                           |
-| `LITERATURE_SEARCH_MCP_URL`                     | 学术文献检索 MCP 网关，如 `https://llmapi.fiblab.net/mcp/` |
-| `LITERATURE_SEARCH_API_KEY`                     | 文献 MCP 鉴权 Key                                          |
-| `PYTHON_PATH`                                   | Python 解释器（留空则自动检测）                            |
-| `BACKEND_PORT`                                  | 本地后端端口                                               |
-
-Claude Code / Codex 的供应商、API Key、Base URL、用途开关和模型映射在配置页 **高级 → Claude / Codex 路由** 中统一管理。新增供应商时可选择预设或自定义 URL，勾选“设为 Claude Code 主供应商”和/或“设为 Codex 主供应商”；协议类型无需手动选择，点击“检测”或“获取模型”后会自动识别并写入内部缓存。
-
-## 开发指南
-
-### 项目结构
-
-```
-extension/
-├── src/
-│   ├── extension.ts              # 扩展入口
-│   ├── configPageViewProvider.ts  # 配置页 Webview 宿主
-│   ├── projectStructureProvider.ts # 项目树视图
-│   ├── services/                 # 服务层
-│   │   ├── aiCliGateway.ts       # HTTP 代理核心（路由、格式转换、上游转发）
-│   │   ├── aiCliGatewayManager.ts # 供应商生命周期、用量追踪、故障转移
-│   │   ├── aiCliGatewayUpstream.ts # 上游供应商类型定义
-│   │   ├── anthropicOpenAiBridge.ts # Anthropic Messages ↔ OpenAI Chat 格式转换
-│   │   ├── codexResponsesBridge.ts # Codex Responses ↔ OpenAI Chat 格式转换
-│   │   ├── responsesAnthropicBridge.ts # Codex Responses ↔ Anthropic Messages 格式转换
-│   │   ├── anthropicModelMapping.ts # Claude 角色模型名 → 供应商模型名映射
-│   │   ├── codexModelMapping.ts   # Codex 模型名 → 供应商模型名映射
-│   │   ├── gatewayFailover.ts     # 故障转移：断路器、优先级排序
-│   │   ├── gatewayUsageTracker.ts # Token 用量提取与聚合
-│   │   ├── gatewayModelPricing.ts # 模型定价与成本计算
-│   │   ├── gatewayRemotePricing.ts # 远程定价数据拉取与缓存
-│   │   ├── gatewayProviderUsage.ts # 供应商配额查询（按供应商适配）
-│   │   ├── claudeCodeSettings.ts  # ~/.claude/settings.json 读写
-│   │   ├── claudeCodeModels.ts    # 模型列表拉取
-│   │   ├── codexSettings.ts       # Codex 配置读写
-│   │   ├── codexApiFormat.ts      # OpenAI API 格式检测
-│   │   ├── backendService.ts      # 后端服务管理
-│   │   ├── llmValidator.ts        # LLM 连通性验证
-│   │   ├── officialBuiltinModels.ts # 内置模型列表（API 不可用时的兜底）
-│   │   └── ...
-│   ├── aiCli/                     # 供应商基础类型与工具（source of truth）
-│   │   ├── officialEndpoints.ts   # 官方端点常量、apiKind 推断
-│   │   ├── providerAuth.ts        # 认证模式判定
-│   │   └── providerPresets.ts     # 内置供应商预设
-│   └── webview/                   # Webview UI（独立 webpack 打包）
-│       └── configPage/            # 配置页 React 组件
-│           ├── AiCliProviderEditor.tsx   # 供应商添加/编辑表单
-│           ├── AiCliProviderGroup.tsx    # 供应商列表与路由开关
-│           ├── AiCliConfigSection.tsx    # 配置页主区域
-│           ├── GatewayUsagePanel.tsx     # 用量统计面板
-│           ├── GatewayUsageChart.tsx     # 用量趋势图表
-│           ├── ClaudeModelSelect.tsx     # 模型选择器
-│           └── officialEndpoints.ts      # aiCli/ 的 webview 副本
-├── test-codex-responses-bridge.js # 格式转换与模型映射单元测试
-├── scripts/                      # 构建与清理脚本
-└── package.json
-```
-
-### 开发命令
-
-按场景选用：
-
-| 场景              | 命令                        | 说明                             |
-| ----------------- | --------------------------- | -------------------------------- |
-| 新 clone          | `npm ci && npm run build`   | 安装依赖并生产构建               |
-| 日常开发          | `npm run dev` + F5          | TS watch + Webview watch，调试用 |
-| 生产构建          | `npm run build`             | 编译 TS + 打包 Webview           |
-| 构建异常          | `npm run rebuild`           | 清理后重新构建                   |
-| 深度清理          | `npm run clean:deep`        | 删 out、node_modules 等          |
-| 打包              | `npm run package`           | 生成 `.vsix`                     |
-| 代码检查          | `npm run lint`              | ESLint                           |
-| Codex Bridge 测试 | `npm run test:codex-bridge` | Codex 响应桥接单测               |
-
-### “Preview/预览”插件（最短路径）
-
-- 在 VSCode 里按 `F5`（Run Extension）启动 **Extension Development Host**，这就是“预览/调试插件”。  
-- 开发时推荐边改边编译：
-
-```bash
-npm run watch         # TS 增量编译（out/extension.js）
-npm run watch-webview # Webview 增量打包（out/webview）
-```
-
-也可以用一个命令同时启动两者：
-
-```bash
-npm run dev
-```
-
-### Node.js 版本
-
-`package.json` 的 `engines.node` 为 **^22.13.0 或 >=24**；依赖链（如 `@ant-design/x`、`mermaid`）也需要较新 Node。仓库提供 `extension/.nvmrc`（与上述范围对齐），使用 nvm 时：
-
-```bash
-nvm install
-nvm use
-```
-
-### 技术栈
-
-- TypeScript
-- React 18 + Ant Design 6
-- Webpack
-- VSCode Extension API
+更完整的模块说明见 [开发指南](docs/DEVELOPMENT.md)。发版与变更记录见 [CHANGELOG](CHANGELOG.md)（指向仓库根目录）。
 
 ## 故障排除
 
-### 首次启动弹窗过多
-
-若已完成向导或 `.env` 中已有 `AGENTSOCIETY_LLM_API_KEY`，扩展不会自动打开配置页，也不会显示欢迎 Toast。未完成配置时仅自动打开配置页 + 页内向导，不叠加第三条通知。
-
-### 后端连接问题
-
-Agent 技能运行时管理、预填参数、模块扫描/测试、回放 Webview 和 API 文档需要后端。如果这些页面不可用，优先检查后端连接。普通文件查看、配置编辑、文献索引预览和通过 CLI/Claude Code 运行实验不会因为后端暂未启动而被阻断。
-
-1. 检查后端服务是否运行（访问 `http://127.0.0.1:<port>/health` 应返回 200）
-2. 检查当前工作区 `.env` 的 `BACKEND_HOST/BACKEND_PORT` 是否与实际一致
-3. 在 VSCode 中打开 **“AI Social Scientist: 后端状态菜单”**：
-   - 先点“查看日志”定位启动失败原因
-   - 再点“打开配置”核对 Key/Base/Model 与 Python 路径
-
-> 常见误区：以“插件调试”方式运行时，Extension Development Host 的**工作区可能不是你以为的目录**，导致插件读取到另一份 `.env`，从而出现“状态栏显示/配置页显示不一致、检测不到后端”等现象。请确认调试窗口打开的是正确的工作区目录。
-
-### 编译错误
-
-```bash
-rm -rf out node_modules
-npm install && npm run compile
-```
-
-### Webview 构建内存不足（OOM）
-
-如果构建时出现 Node heap OOM，直接运行 `npm run build`（本项目已在脚本中设置了合适的 `NODE_OPTIONS`）；如果你在更低内存的环境中构建，建议关闭其它占用或提高可用内存。
+| 现象                                                   | 处理                                                                                                                            |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| 侧边栏 `no data provider` / 扩展一直 **Activating...** | 确认已打开**文件夹**；删除重复旧版扩展后 Reload；在 `.env` 设置 `PYTHON_PATH` 避免激活时阻塞式 Python 探测                      |
+| Codex catalog 仍是旧格式（含 `built by OpenAI`）       | 扩展激活后，在配置页点 **Codex「刷新配置」**；或确认 `~/.codex/agentsociety-model-catalog.json` 含 `supported_reasoning_levels` |
+| Codex 官方登录检测不到                                 | 扩展须运行在远程工作区；配置页「检测路径」应指向当前环境的 `~/.codex/auth.json`                                                 |
+| 后端连不上                                             | 检查状态栏 Backend、工作区 `.env` 的 `BACKEND_HOST` / `BACKEND_PORT`，或「查看日志」                                            |
+| Extension Development Host 读错 `.env`                 | 确认调试窗口打开的是正确工作区根目录                                                                                            |
 
 ## 相关链接
 
-- [AgentSociety 项目](https://github.com/tsinghua-fib-lab/AgentSociety)
-- [问题反馈](https://github.com/tsinghua-fib-lab/AgentSociety/issues)
-- [开发指南](DEVELOPMENT.md)
+- [AgentSociety 仓库](https://github.com/tsinghua-fib-lab/agentsociety)
+- [问题反馈](https://github.com/tsinghua-fib-lab/agentsociety/issues)
+- [变更记录](CHANGELOG.md)
+- [开发指南](docs/DEVELOPMENT.md)
+- [贡献指南](../CONTRIBUTING.md)
+- [用户文档（agentsociety2）](https://agentsociety2.readthedocs.io/)
 
 ## 许可证
 
-[MIT License](LICENSE)
+本扩展与 AgentSociety 主仓库一致，采用 [Apache License 2.0](LICENSE)。

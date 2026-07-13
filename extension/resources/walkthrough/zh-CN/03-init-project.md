@@ -6,28 +6,28 @@
 
 ### 方式一：初始化新项目
 
-在空白工作区中运行 **Initialize Research Project** 命令，自动创建完整的目录结构：
+在已打开的工作区文件夹中运行 **Initialize Research Project** 命令。插件会创建基础目录并写入 `TOPIC.md`、`.env` 模板与文献索引（需先在 `.env` 中配置 LLM API Key）：
 
 ![初始化工作区示例](../images/gif/initialize-workspace.gif)
 
-```
-your-project/
-├── custom/skills/          # Agent 运行时技能（从技能市场安装）
-├── .claude/skills/         # Claude Code 技能
+```text
+workspace-root/
+├── TOPIC.md                # 研究话题
+├── .env                    # 工作区 LLM / 后端配置
 ├── papers/                 # 文献资料
-│   ├── pdf/               # PDF 原文
-│   └── md/                # Markdown 笔记
-├── paper/                  # 论文工作区（使用 paper-toolkit 时自动创建）
-│   ├── sections/          # 论文章节
-│   ├── reviews/           # 审稿意见（右键可查看结构化 review）
-│   └── compile_runs/      # 编译产物
-├── experiment/             # 实验配置与结果
-├── output/                 # 输出文件
-├── .agentsociety/          # 分析 harness 机器状态（使用分析技能时自动创建）
-├── TOPIC.md               # 研究话题描述
-└── init/
-    └── init_config.json   # 项目初始化配置
+│   └── literature_index.json
+├── datasets/               # 数据集
+├── user_data/              # 用户数据
+├── custom/                 # 自定义 Agent / 环境模块与 Agent 技能
+├── .claude/skills/         # Claude Code 开发技能（初始化时同步）
+├── .agentsociety/          # 分析 harness 等机器状态（按需生成）
+├── hypothesis_<id>/        # 研究假设（后续由工作流创建）
+│   └── experiment_<id>/   # 实验与回放数据
+├── paper/                  # 论文工作区（使用 paper-toolkit 时创建）
+└── analysis/               # 分析工作区（使用分析技能时创建）
 ```
+
+> 💡 上表中的 `workspace-root/` 表示你当前打开的工作区根目录，不是固定文件夹名。
 
 ### 方式二：打开已有项目
 

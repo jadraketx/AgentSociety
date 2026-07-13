@@ -2,12 +2,26 @@
   "name": "ai-social-scientist",
   "displayName": "AI Social Scientist",
   "description": "AI Social Scientist - Next-generation human-AI interaction interface for social science research",
-  "version": "1.6.3",
+  "version": "1.6.5",
   "publisher": "tsinghua-fib-lab",
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/tsinghua-fib-lab/agentsociety",
+  "bugs": {
+    "url": "https://github.com/tsinghua-fib-lab/agentsociety/issues"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/tsinghua-fib-lab/agentsociety.git"
   },
+  "keywords": [
+    "agentsociety",
+    "social-science",
+    "llm",
+    "claude-code",
+    "codex",
+    "simulation",
+    "research"
+  ],
   "engines": {
     "node": "^22.13.0 || >=24",
     "vscode": "^1.95.0"
@@ -15,7 +29,11 @@
   "categories": [
     "Other"
   ],
+  "extensionKind": [
+    "workspace"
+  ],
   "activationEvents": [
+    "onStartupFinished",
     "onView:projectStructureView",
     "onCustomEditor:aiSocialScientist.simSettings",
     "onCustomEditor:aiSocialScientist.initConfig",
@@ -58,23 +76,23 @@
     "walkthroughs": [
       {
         "id": "aiSocialScientist.gettingStarted",
-        "title": "AI Social Scientist 快速入门",
-        "description": "完成项目初始化、LLM 配置、后端启动和技能安装，开始使用 AI Social Scientist 做研究",
+        "title": "%walkthrough.aiSocialScientist.gettingStarted.title%",
+        "description": "%walkthrough.aiSocialScientist.gettingStarted.description%",
         "steps": [
           {
             "id": "welcome",
-            "title": "欢迎使用 AI Social Scientist",
-            "description": "了解插件的研究工作流、系统组成和最短上手路径。",
+            "title": "%walkthrough.step.welcome.title%",
+            "description": "%walkthrough.step.welcome.description%",
             "media": {
-              "markdown": "resources/walkthrough/zh-CN/01-welcome.md"
+              "markdown": "%walkthrough.step.welcome.media%"
             }
           },
           {
             "id": "openSidebar",
-            "title": "认识侧边栏",
-            "description": "打开 AI Social Scientist 侧边栏，这是你管理项目、技能和配置的主要入口。",
+            "title": "%walkthrough.step.openSidebar.title%",
+            "description": "%walkthrough.step.openSidebar.description%",
             "media": {
-              "markdown": "resources/walkthrough/zh-CN/02-open-sidebar.md"
+              "markdown": "%walkthrough.step.openSidebar.media%"
             },
             "completionEvents": [
               "onView:projectStructureView"
@@ -82,10 +100,10 @@
           },
           {
             "id": "initProject",
-            "title": "初始化研究项目",
-            "description": "创建项目目录结构，或者打开一个已有的研究工作区。",
+            "title": "%walkthrough.step.initProject.title%",
+            "description": "%walkthrough.step.initProject.description%",
             "media": {
-              "markdown": "resources/walkthrough/zh-CN/03-init-project.md"
+              "markdown": "%walkthrough.step.initProject.media%"
             },
             "completionEvents": [
               "onCommand:aiSocialScientist.initProject"
@@ -93,10 +111,10 @@
           },
           {
             "id": "configureApi",
-            "title": "配置 LLM API",
-            "description": "填写你的 API Key 和 API Base URL，让插件连接到大语言模型服务。",
+            "title": "%walkthrough.step.configureApi.title%",
+            "description": "%walkthrough.step.configureApi.description%",
             "media": {
-              "markdown": "resources/walkthrough/zh-CN/04-configure-api.md"
+              "markdown": "%walkthrough.step.configureApi.media%"
             },
             "completionEvents": [
               "onCommand:aiSocialScientist.openConfigPage"
@@ -104,10 +122,10 @@
           },
           {
             "id": "startBackend",
-            "title": "启动后端服务",
-            "description": "启动本地 API 服务，获得完整插件体验：Agent 技能管理、模块探测、预填参数、回放接口和 API 文档都依赖它；配置编辑与 CLI/Claude Code 实验运行不会被后端状态阻断。",
+            "title": "%walkthrough.step.startBackend.title%",
+            "description": "%walkthrough.step.startBackend.description%",
             "media": {
-              "markdown": "resources/walkthrough/zh-CN/05-start-backend.md"
+              "markdown": "%walkthrough.step.startBackend.media%"
             },
             "completionEvents": [
               "onCommand:aiSocialScientist.startBackend"
@@ -115,10 +133,10 @@
           },
           {
             "id": "exploreSkills",
-            "title": "探索技能市场",
-            "description": "浏览和安装研究技能模块，为你的 Agent 添加文献检索、实验设计等能力。",
+            "title": "%walkthrough.step.exploreSkills.title%",
+            "description": "%walkthrough.step.exploreSkills.description%",
             "media": {
-              "markdown": "resources/walkthrough/zh-CN/06-explore-skills.md"
+              "markdown": "%walkthrough.step.exploreSkills.media%"
             },
             "completionEvents": [
               "onCommand:aiSocialScientist.openSkillMarketplace"
@@ -126,10 +144,10 @@
           },
           {
             "id": "claudeCode",
-            "title": "连接 Claude Code",
-            "description": "让 Claude Code 读取项目技能，并通过 MCP 连接本地后端，作为默认编码与研究协作入口。",
+            "title": "%walkthrough.step.claudeCode.title%",
+            "description": "%walkthrough.step.claudeCode.description%",
             "media": {
-              "markdown": "resources/walkthrough/zh-CN/07-claude-code.md"
+              "markdown": "%walkthrough.step.claudeCode.media%"
             },
             "completionEvents": [
               "onCommand:aiSocialScientist.openClaudeSkillSourcesSettings"
@@ -137,10 +155,10 @@
           },
           {
             "id": "nextSteps",
-            "title": "下一步",
-            "description": "了解更多功能，包括模拟回放、Chat 对话等进阶用法。",
+            "title": "%walkthrough.step.nextSteps.title%",
+            "description": "%walkthrough.step.nextSteps.description%",
             "media": {
-              "markdown": "resources/walkthrough/zh-CN/08-next-steps.md"
+              "markdown": "%walkthrough.step.nextSteps.media%"
             },
             "completionEvents": [
               "onCommand:aiSocialScientist.openChat",
@@ -150,10 +168,10 @@
           },
           {
             "id": "glossary",
-            "title": "术语附录",
-            "description": "集中解释 AgentSociety²、Agent、Skill、MCP 等关键概念。",
+            "title": "%walkthrough.step.glossary.title%",
+            "description": "%walkthrough.step.glossary.description%",
             "media": {
-              "markdown": "resources/walkthrough/zh-CN/09-glossary.md"
+              "markdown": "%walkthrough.step.glossary.media%"
             }
           }
         ]
@@ -715,10 +733,11 @@
     "clean-webview": "node -e \"const fs=require('fs'); fs.rmSync('out/webview', { recursive: true, force: true }); fs.mkdirSync('out/webview', { recursive: true });\"",
     "build-webview": "npm run clean-webview && NODE_ENV=production NODE_OPTIONS=--max-old-space-size=8192 node ./node_modules/webpack/bin/webpack.js --mode production",
     "watch-webview": "NODE_ENV=development NODE_OPTIONS=--max-old-space-size=4096 webpack --mode development --watch",
+    "check": "npm run lint && npm run test:gateway && npm run build",
     "package": "vsce package -o ai-social-scientist.vsix",
+    "package:check": "npm run check && npm run package",
     "lint": "eslint src",
-    "test:codex-bridge": "npm run compile && node --test test-codex-responses-bridge.js",
-    "test:gateway": "npm run compile && node --test test-gateway-enhancements.js"
+    "test:gateway": "npm run compile && node --test test/gateway-enhancements.test.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -727,6 +746,7 @@
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@types/vscode": "^1.95.0",
+    "@types/write-file-atomic": "^4.0.3",
     "@vscode/vsce": "^3.9.2",
     "concurrently": "^10.0.3",
     "css-loader": "^7.1.4",
@@ -752,13 +772,17 @@
     "@deck.gl/widgets": "^9.3.5",
     "antd": "^6.5.0",
     "dayjs": "^1.11.19",
+    "https-proxy-agent": "^7.0.6",
     "i18next": "^26.3.4",
     "js-yaml": "^4.1.0",
     "mapbox-gl": "^3.9.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-i18next": "^17.0.8",
-    "react-map-gl": "^8.1.1"
+    "react-map-gl": "^8.1.1",
+    "smol-toml": "^1.7.0",
+    "socks-proxy-agent": "^8.0.5",
+    "write-file-atomic": "^8.0.0"
   },
   "overrides": {
     "serialize-javascript": ">=7.0.3",

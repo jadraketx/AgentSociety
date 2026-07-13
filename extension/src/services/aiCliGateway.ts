@@ -15,6 +15,7 @@ import {
   translateChatCompletionToResponses,
   translateResponsesRequestToChat,
 } from './codexResponsesBridge';
+import { readCodexModelCatalogDocument } from './codexModelCatalog';
 import {
   buildLocalGatewayBaseUrl,
   resolveUpstreamTargetUrl,
@@ -44,6 +45,14 @@ import {
   type CircuitBreakerHealth,
   type CircuitBreakerState,
 } from './gatewayFailover';
+import {
+  applyPreflightRectifiers,
+  applyRectifierRetryFix,
+  classifyRectifierRetry,
+  DEFAULT_GATEWAY_RECTIFIER_SETTINGS,
+  type GatewayRectifierSettings,
+} from './gatewayRequestRectifier';
+import { createOutboundProxyAgent, type OutboundProxyConfig } from './gatewayOutboundProxy';
 import { GatewayRuntimeStatsTracker, type GatewayRuntimeStats } from './gatewayRuntimeStats';
 import {
   extractTokenUsage,
@@ -115,6 +124,43 @@ function summarizeUpstreamErrorBody(body: Buffer, status: number): string {
   return text;
 }
 
+function normalizeGatewayErrorPayload(status: number, payload: unknown): Record<string, unknown> {
+  if (payload && typeof payload === 'object' && !Array.isArray(payload)) {
+    const obj = payload as Record<string, unknown>;
+    if (obj.error && typeof obj.error === 'object' && !Array.isArray(obj.error)) {
+      const nested = obj.error as Record<string, unknown>;
+      if (typeof nested.message === 'string' && nested.message.trim()) {
+        return obj;
+      }
+    }
+    const code = typeof obj.error === 'string' ? obj.error : 'gateway_error';
+    const message =
+      typeof obj.message === 'string' && obj.message.trim()
+        ? obj.message
+        : typeof obj.error === 'string'
+          ? obj.error
+          : `HTTP ${status}`;
+    const out: Record<string, unknown> = {
+      error: {
+        message,
+        type: 'agentsociety_gateway_error',
+        code,
+      },
+    };
+    if (typeof obj.hint === 'string' && obj.hint.trim()) {
+      (out.error as Record<string, unknown>).hint = obj.hint;
+    }
+    return out;
+  }
+  return {
+    error: {
+      message: typeof payload === 'string' && payload.trim() ? payload : `HTTP ${status}`,
+      type: 'agentsociety_gateway_error',
+      code: 'gateway_error',
+    },
+  };
+}
+
 function inferUsageApp(urlPath: string, model: string): 'claude' | 'codex' {
   if (urlPath.includes('/responses') || urlPath.includes('/chat/completions')) {
     return 'codex';
@@ -180,7 +226,8 @@ function isAnthropicMessagesPath(urlPath: string): boolean {
 function applyAnthropicRequestMapping(
   upstream: AiCliGatewayUpstream,
   urlPath: string,
-  body: Buffer
+  body: Buffer,
+  rectifier: GatewayRectifierSettings = DEFAULT_GATEWAY_RECTIFIER_SETTINGS
 ): { body: Buffer; model: string } {
   if (!isAnthropicMessagesPath(urlPath) || body.length === 0) {
     return { body, model: '' };
@@ -192,10 +239,11 @@ function applyAnthropicRequestMapping(
       mapped.mappedModel ??
       mapped.originalModel ??
       extractModelFromRequest(parsed);
-    if (!mapped.mappedModel) {
+    const rectified = applyPreflightRectifiers(mapped.body, rectifier, model);
+    if (!mapped.mappedModel && rectified === mapped.body) {
       return { body, model };
     }
-    return { body: Buffer.from(JSON.stringify(mapped.body), 'utf-8'), model };
+    return { body: Buffer.from(JSON.stringify(rectified), 'utf-8'), model };
   } catch {
     return { body, model: '' };
   }
@@ -321,6 +369,9 @@ export class AiCliGateway {
   private usageListener: UsageListener | null = null;
   private failoverListener: AiCliGatewayFailoverListener | null = null;
   private readonly statsTracker = new GatewayRuntimeStatsTracker();
+  private outboundProxy: OutboundProxyConfig | null = null;
+  private rectifier: GatewayRectifierSettings = { ...DEFAULT_GATEWAY_RECTIFIER_SETTINGS };
+  private readonly rectifierRetried = new WeakSet<IncomingMessage>();
 
   onLog(listener: AiCliGatewayLogListener | null): void {
     this.logListener = listener;
@@ -332,6 +383,25 @@ export class AiCliGateway {
 
   onFailover(listener: AiCliGatewayFailoverListener | null): void {
     this.failoverListener = listener;
+  }
+
+  configureOutboundProxy(proxy: OutboundProxyConfig | null): void {
+    this.outboundProxy = proxy?.url.trim() ? proxy : null;
+  }
+
+  configureRectifier(settings: Partial<GatewayRectifierSettings> | null): void {
+    this.rectifier = {
+      ...DEFAULT_GATEWAY_RECTIFIER_SETTINGS,
+      ...(settings ?? {}),
+    };
+  }
+
+  getRectifierSettings(): GatewayRectifierSettings {
+    return { ...this.rectifier };
+  }
+
+  private outboundAgent() {
+    return createOutboundProxyAgent(this.outboundProxy);
   }
 
   private normalizeCodexUpstream(upstream: AiCliGatewayUpstream): AiCliGatewayUpstream {
@@ -371,9 +441,7 @@ export class AiCliGateway {
     if (this.upstreams.length > 0) {
       this.upstream = this.upstreams[0];
     }
-    if (this.openaiUpstreams.length > 0) {
-      this.openaiUpstream = this.openaiUpstreams[0];
-    }
+    this.openaiUpstream = this.openaiUpstreams[0] ?? null;
   }
 
   private isFailoverActiveForPath(urlPath: string): boolean {
@@ -662,6 +730,15 @@ export class AiCliGateway {
 
       const modelsPath = urlPath.split('?')[0];
       if (method === 'GET' && (modelsPath.endsWith('/models') || modelsPath.endsWith('/v1/models'))) {
+        const hasAnthropicHeaders =
+          Boolean(clientReq.headers['anthropic-version']) ||
+          Boolean(clientReq.headers['x-api-key']);
+        if (this.openaiUpstream && !hasAnthropicHeaders) {
+          const catalog = readCodexModelCatalogDocument();
+          this.writeJson(clientRes, 200, catalog ?? { models: [] });
+          success = true;
+          return;
+        }
         if (!this.pathNeedsOpenAiUpstream(urlPath)) {
           const synthesized = buildAnthropicGatewayModelsResponse(primaryUpstream);
           if (synthesized) {
@@ -672,11 +749,17 @@ export class AiCliGateway {
         }
       }
 
+      const resolvedCodexFormat =
+        primaryUpstream.codexApiFormat ??
+        (primaryUpstream.apiKind === 'openai'
+          ? inferOpenAiApiFormat(primaryUpstream.baseUrl)
+          : primaryUpstream.apiKind === 'anthropic'
+            ? undefined
+            : inferOpenAiApiFormat(primaryUpstream.baseUrl));
       const usesCodexChatBridge =
         method === 'POST' &&
         isCodexResponsesPath(urlPath) &&
-        (primaryUpstream.codexApiFormat ?? inferOpenAiApiFormat(primaryUpstream.baseUrl)) ===
-        'openai_chat';
+        resolvedCodexFormat === 'openai_chat';
 
       const usesClaudeOpenAiChatBridge =
         method === 'POST' &&
@@ -685,7 +768,8 @@ export class AiCliGateway {
       const usesCodexAnthropicBridge =
         method === 'POST' &&
         isCodexResponsesPath(urlPath) &&
-        !primaryUpstream.codexApiFormat;
+        !usesCodexChatBridge &&
+        primaryUpstream.apiKind === 'anthropic';
 
       if (usesCodexChatBridge || usesClaudeOpenAiChatBridge || usesCodexAnthropicBridge) {
         const candidates = this.isFailoverActiveForPath(urlPath)
@@ -734,7 +818,7 @@ export class AiCliGateway {
                   body,
                   upstream
                 );
-            lastStatus = result.status;
+            lastStatus = result.status > 0 ? result.status : 502;
             lastFailDetail = result.detail ?? this.lastError;
             if (result.ok) {
               recordUpstreamSuccess(this.circuit, upstream.baseUrl);
@@ -745,27 +829,44 @@ export class AiCliGateway {
               return;
             }
             recordUpstreamFailure(this.circuit, upstream.baseUrl);
-            if (!this.isFailoverActiveForPath(urlPath) || !result.canRetry || clientRes.headersSent) {
+            if (clientRes.headersSent) {
               return;
             }
+            if (this.isFailoverActiveForPath(urlPath) && result.canRetry) {
+              continue;
+            }
+            this.writeJson(clientRes, lastStatus, {
+              error: 'upstream_error',
+              message: lastFailDetail ?? `Upstream request failed with HTTP ${lastStatus}`,
+              hint: usesClaudeOpenAiChatBridge
+                ? 'Claude Code OpenAI-compatible routes translate Anthropic Messages to Chat Completions. Set the provider model explicitly if the upstream rejects Claude model aliases.'
+                : usesCodexChatBridge
+                  ? `Codex /v1/responses was translated to Chat Completions at ${resolveChatCompletionsTargetUrl(upstream.baseUrl)}. Check provider key/model/quota.`
+                  : 'Codex /v1/responses was translated to Anthropic Messages for this provider.',
+            });
+            return;
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             this.lastError = message;
             lastFailDetail = message;
             recordUpstreamFailure(this.circuit, upstream.baseUrl);
-            if (!this.isFailoverActiveForPath(urlPath) || clientRes.headersSent) {
-              this.writeJson(clientRes, 500, { error: 'gateway_error', message });
+            if (clientRes.headersSent) {
               return;
             }
+            if (this.isFailoverActiveForPath(urlPath)) {
+              continue;
+            }
+            this.writeJson(clientRes, 500, { error: 'gateway_error', message });
+            return;
           }
         }
         if (!clientRes.headersSent) {
-          this.writeJson(clientRes, lastStatus, {
+          this.writeJson(clientRes, lastStatus > 0 ? lastStatus : 502, {
             error: 'failover_exhausted',
             message: lastFailDetail ?? 'All configured upstream providers failed',
             hint: usesClaudeOpenAiChatBridge
               ? 'Claude Code OpenAI-compatible routes translate Anthropic Messages to Chat Completions. Set the provider model explicitly if the upstream rejects Claude model aliases.'
-              : 'Third-party Codex routes map gpt-* requests to the provider model (e.g. glm-4.7). Set the model in the provider card or pick a built-in preset.',
+              : 'Third-party Codex routes map gpt-* requests to the provider model (e.g. glm-5.2). Set the model in the provider card or pick a built-in preset.',
           });
         }
         return;
@@ -829,23 +930,34 @@ export class AiCliGateway {
           }
 
           recordUpstreamFailure(this.circuit, upstream.baseUrl);
-
-          if (!this.isFailoverActiveForPath(urlPath) || !result.canRetry || clientRes.headersSent) {
+          if (clientRes.headersSent) {
             return;
           }
+          if (this.isFailoverActiveForPath(urlPath) && result.canRetry) {
+            continue;
+          }
+          this.writeJson(clientRes, result.status > 0 ? result.status : 502, {
+            error: 'upstream_error',
+            message: result.detail ?? this.lastError ?? `Upstream request failed with HTTP ${result.status || 502}`,
+          });
+          return;
         } catch (err) {
           const message = err instanceof Error ? err.message : String(err);
           this.lastError = message;
           recordUpstreamFailure(this.circuit, upstream.baseUrl);
-          if (!this.isFailoverActiveForPath(urlPath) || clientRes.headersSent) {
-            this.writeJson(clientRes, 500, { error: 'gateway_error', message });
+          if (clientRes.headersSent) {
             return;
           }
+          if (this.isFailoverActiveForPath(urlPath)) {
+            continue;
+          }
+          this.writeJson(clientRes, 500, { error: 'gateway_error', message });
+          return;
         }
       }
 
       if (!clientRes.headersSent) {
-        this.writeJson(clientRes, lastStatus, {
+        this.writeJson(clientRes, lastStatus > 0 ? lastStatus : 502, {
           error: 'failover_exhausted',
           message: 'All configured upstream providers failed',
         });
@@ -870,7 +982,7 @@ export class AiCliGateway {
     const headers = filterForwardHeaders(clientReq.headers, parsed.host);
     headers['x-upstream-base'] = upstream.baseUrl;
     applyUpstreamAuth(headers, upstream.apiKey, upstream.baseUrl);
-    const mappedRequest = applyAnthropicRequestMapping(upstream, urlPath, body);
+    const mappedRequest = applyAnthropicRequestMapping(upstream, urlPath, body, this.rectifier);
     const forwardedBody = mappedRequest.body;
     if (forwardedBody.length > 0) {
       headers['content-length'] = String(forwardedBody.length);
@@ -889,7 +1001,7 @@ export class AiCliGateway {
     let fullResponse = '';
 
     return new Promise<ProxyAttemptResult>((resolve) => {
-      const proxyReq = transport.request(parsed, { method, headers }, (proxyRes) => {
+      const proxyReq = transport.request(parsed, { method, headers, agent: this.outboundAgent() }, (proxyRes) => {
         const status = proxyRes.statusCode ?? 502;
         const canRetry = shouldFailoverHttpStatus(status) && !clientRes.headersSent;
 
@@ -978,7 +1090,7 @@ export class AiCliGateway {
     const headers = filterForwardHeaders(clientReq.headers, parsed.host);
     headers['x-upstream-base'] = upstream.baseUrl;
     applyUpstreamAuth(headers, upstream.apiKey, upstream.baseUrl);
-    const mappedRequest = applyAnthropicRequestMapping(upstream, urlPath, body);
+    const mappedRequest = applyAnthropicRequestMapping(upstream, urlPath, body, this.rectifier);
     const forwardedBody = mappedRequest.body;
     if (forwardedBody.length > 0) {
       headers['content-length'] = String(forwardedBody.length);
@@ -996,7 +1108,7 @@ export class AiCliGateway {
     const transport = parsed.protocol === 'https:' ? https : http;
 
     return new Promise<ProxyAttemptResult>((resolve) => {
-      const proxyReq = transport.request(parsed, { method, headers }, (proxyRes) => {
+      const proxyReq = transport.request(parsed, { method, headers, agent: this.outboundAgent() }, (proxyRes) => {
         const status = proxyRes.statusCode ?? 502;
         const respHeaders = { ...proxyRes.headers } as Record<string, string | string[]>;
         const canRetry = shouldFailoverHttpStatus(status) && !clientRes.headersSent;
@@ -1004,6 +1116,56 @@ export class AiCliGateway {
         if (canRetry) {
           proxyRes.resume();
           resolve({ ok: false, status, canRetry: true });
+          return;
+        }
+
+        if (
+          !clientRes.headersSent &&
+          status >= 400 &&
+          status < 500 &&
+          isAnthropicMessagesPath(urlPath) &&
+          !this.rectifierRetried.has(clientReq)
+        ) {
+          const errChunks: Buffer[] = [];
+          proxyRes.on('data', (chunk: Buffer) => errChunks.push(chunk));
+          proxyRes.on('end', () => {
+            const errBody = Buffer.concat(errChunks);
+            const kind = classifyRectifierRetry(status, errBody.toString('utf-8'), this.rectifier);
+            if (!kind) {
+              delete respHeaders['transfer-encoding'];
+              respHeaders['content-length'] = String(errBody.length);
+              clientRes.writeHead(status, respHeaders);
+              clientRes.end(errBody);
+              resolve({ ok: false, status, canRetry: false, detail: summarizeUpstreamErrorBody(errBody, status) });
+              return;
+            }
+            try {
+              const original = JSON.parse(forwardedBody.toString('utf-8')) as Record<string, unknown>;
+              const fixed = Buffer.from(JSON.stringify(applyRectifierRetryFix(original, kind)), 'utf-8');
+              this.rectifierRetried.add(clientReq);
+              void this.proxyBuffered(
+                upstream,
+                clientReq,
+                clientRes,
+                method,
+                parsed,
+                targetUrl,
+                urlPath,
+                startTime,
+                captureUsage,
+                fixed
+              ).then(resolve);
+            } catch {
+              delete respHeaders['transfer-encoding'];
+              respHeaders['content-length'] = String(errBody.length);
+              clientRes.writeHead(status, respHeaders);
+              clientRes.end(errBody);
+              resolve({ ok: false, status, canRetry: false, detail: summarizeUpstreamErrorBody(errBody, status) });
+            }
+          });
+          proxyRes.on('error', () => {
+            resolve({ ok: false, status, canRetry: false });
+          });
           return;
         }
 
@@ -1314,7 +1476,11 @@ export class AiCliGateway {
     }
 
     const chatModel = resolveCodexChatModel(responsesRequest.model, upstream);
-    const chatRequest = translateResponsesRequestToChat(responsesRequest, chatModel);
+    const chatRequest = translateResponsesRequestToChat(
+      responsesRequest,
+      chatModel,
+      upstream.baseUrl
+    );
     const targetUrl = resolveChatCompletionsTargetUrl(upstream.baseUrl);
     const parsed = new URL(targetUrl);
     const isStreaming = chatRequest.stream !== false;
@@ -1330,20 +1496,20 @@ export class AiCliGateway {
     const transport = parsed.protocol === 'https:' ? https : http;
 
     return new Promise<ProxyAttemptResult>((resolve) => {
-      const proxyReq = transport.request(parsed, { method, headers }, (proxyRes) => {
+      const proxyReq = transport.request(parsed, { method, headers, agent: this.outboundAgent() }, (proxyRes) => {
         const status = proxyRes.statusCode ?? 502;
         if (status < 200 || status >= 300) {
           const canRetry = shouldFailoverHttpStatus(status) && !clientRes.headersSent;
           const chunks: Buffer[] = [];
           proxyRes.on('data', (chunk: Buffer) => chunks.push(chunk));
           proxyRes.on('end', () => {
-            if (canRetry) {
-              resolve({ ok: false, status, canRetry: true });
-              return;
-            }
             const respBody = Buffer.concat(chunks);
             const detail = summarizeUpstreamErrorBody(respBody, status);
             this.lastError = detail;
+            if (canRetry) {
+              resolve({ ok: false, status, canRetry: true, detail });
+              return;
+            }
             clientRes.writeHead(status, {
               'content-type': proxyRes.headers['content-type'] ?? 'application/json',
               'content-length': String(respBody.length),
@@ -1514,7 +1680,8 @@ export class AiCliGateway {
 
     const mapped = applyAnthropicModelMapping(anthropicRequest, upstream);
     const chatModel = String(mapped.body.model ?? mapped.mappedModel ?? mapped.originalModel ?? upstream.model ?? 'gpt-4o');
-    const chatRequest = translateAnthropicMessagesToOpenAiChat(mapped.body, chatModel);
+    const rectified = applyPreflightRectifiers(mapped.body, this.rectifier, chatModel);
+    const chatRequest = translateAnthropicMessagesToOpenAiChat(rectified, chatModel);
     const targetUrl = resolveChatCompletionsTargetUrl(upstream.baseUrl);
     const parsed = new URL(targetUrl);
     const isStreaming = chatRequest.stream !== false;
@@ -1530,7 +1697,7 @@ export class AiCliGateway {
     const transport = parsed.protocol === 'https:' ? https : http;
 
     return new Promise<ProxyAttemptResult>((resolve) => {
-      const proxyReq = transport.request(parsed, { method, headers }, (proxyRes) => {
+      const proxyReq = transport.request(parsed, { method, headers, agent: this.outboundAgent() }, (proxyRes) => {
         const status = proxyRes.statusCode ?? 502;
         if (status < 200 || status >= 300) {
           const canRetry = shouldFailoverHttpStatus(status) && !clientRes.headersSent;
@@ -1751,7 +1918,7 @@ export class AiCliGateway {
     const transport = parsed.protocol === 'https:' ? https : http;
 
     return new Promise<ProxyAttemptResult>((resolve) => {
-      const proxyReq = transport.request(parsed, { method, headers }, (proxyRes) => {
+      const proxyReq = transport.request(parsed, { method, headers, agent: this.outboundAgent() }, (proxyRes) => {
         const status = proxyRes.statusCode ?? 502;
         if (status < 200 || status >= 300) {
           const canRetry = shouldFailoverHttpStatus(status) && !clientRes.headersSent;
@@ -1920,8 +2087,8 @@ export class AiCliGateway {
   }
 
   private writeJson(res: ServerResponse, status: number, payload: unknown): void {
-    // Strip stack traces from error payloads before sending
-    const sanitized = this.sanitizeErrorPayload(payload);
+    const shaped = status >= 400 ? normalizeGatewayErrorPayload(status, payload) : payload;
+    const sanitized = this.sanitizeErrorPayload(shaped);
     const body = JSON.stringify(sanitized);
     res.writeHead(status, {
       'Content-Type': 'application/json',

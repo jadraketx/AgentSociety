@@ -16,6 +16,7 @@ import {
   CheckCircleOutlined,
   CloseCircleOutlined,
   DeleteOutlined,
+  QuestionCircleOutlined,
   ReloadOutlined,
   SaveOutlined,
 } from '@ant-design/icons';
@@ -27,13 +28,14 @@ import {
   isOfficialAnthropicBaseUrl,
   isOfficialOpenAiBaseUrl,
   type AiCliApiKind,
-} from './officialEndpoints';
+} from '../../aiCli/officialEndpoints';
 import { ClaudeModelSelect } from './ClaudeModelSelect';
 import type { AiCliProviderRecord } from './aiCliProviderTypes';
 import { autoMapClaudeRoleModels } from './aiCliProviderTypes';
 import { inferProviderAuthMode } from './providerAuth';
 import { supportsProviderUsageQuery } from './providerUsageSupport';
 import { normalizeProviderBaseUrl } from './providerBaseUrl';
+import { shouldShowProviderModelConfiguration } from '../../services/manualConfigSync';
 
 const { Text } = Typography;
 
@@ -114,7 +116,6 @@ type ProviderEditorProps = {
   onCheckAvailability: (baseUrl: string, apiKey: string, apiKind?: AiCliApiKind) => void;
   isProviderChecking?: (baseUrl: string) => boolean;
   onFetchModels: (baseUrl: string, apiKey: string, apiKind?: AiCliApiKind) => void;
-  onRestartCodex?: () => void;
 };
 
 export function ProviderEditor({
@@ -135,17 +136,14 @@ export function ProviderEditor({
   onCheckAvailability,
   isProviderChecking,
   onFetchModels,
-  onRestartCodex,
 }: ProviderEditorProps) {
   const [draft, setDraft] = React.useState(provider);
   const providerIdRef = React.useRef(provider.id);
-  const autoMappedRef = React.useRef(false);
   const autoFetchFingerprintRef = React.useRef('');
 
   React.useEffect(() => {
     if (providerIdRef.current !== provider.id) {
       providerIdRef.current = provider.id;
-      autoMappedRef.current = false;
       autoFetchFingerprintRef.current = '';
       setDraft(provider);
       return;
@@ -183,13 +181,13 @@ export function ProviderEditor({
 
   const layoutApiKind = draft.apiKind ?? effectiveAvailability?.apiKind;
   const isOpenAiProvider = layoutApiKind === 'openai';
+  // Do not force both Claude/Codex panels open for a blank "new" draft.
   const servesClaude =
-    layoutApiKind !== 'openai' ||
+    (layoutApiKind != null && layoutApiKind !== 'openai') ||
     draft.activeClaude ||
-    draft.failoverClaude ||
-    Boolean(isNew);
+    draft.failoverClaude;
   const servesCodex =
-    isOpenAiProvider || draft.activeCodex || draft.failoverCodex || Boolean(isNew);
+    isOpenAiProvider || draft.activeCodex || draft.failoverCodex;
   const authMode = inferProviderAuthMode({ ...draft, apiKind: layoutApiKind });
   const isSubscription = authMode === 'subscription';
   const canUseApi = isSubscription || Boolean(draft.apiKey.trim());
@@ -203,8 +201,11 @@ export function ProviderEditor({
     if (models.length > 0) {
       return models;
     }
-    const kind = layoutApiKind ?? 'anthropic';
-    return mergeModelOptions([], draft.baseUrl, kind);
+    // Only surface preset hints as dropdown options — never invent official Claude/OpenAI catalogs for blank drafts.
+    if (!draft.baseUrl.trim() || !layoutApiKind) {
+      return [];
+    }
+    return mergeModelOptions([], draft.baseUrl, layoutApiKind);
   }, [models, draft.baseUrl, layoutApiKind]);
 
   const presetOptions = [
@@ -243,17 +244,8 @@ export function ProviderEditor({
     return () => window.clearTimeout(timer);
   }, [canProbe, draft.baseUrl, draft.apiKey, layoutApiKind, onFetchModels]);
 
-  React.useEffect(() => {
-    if (models.length === 0 || autoMappedRef.current) {
-      return;
-    }
-    setDraft((prev) => {
-      autoMappedRef.current = true;
-      const roleMapped = autoMapClaudeRoleModels(models, prev);
-      const merged = { ...prev, ...roleMapped };
-      return merged;
-    });
-  }, [models]);
+  // Intentionally no auto-fill of role/default models after fetch.
+  // Blank fields stay blank until the user picks models or clicks「智能填充」.
 
   const protocolTag = () => {
     if (!layoutApiKind) {
@@ -357,7 +349,6 @@ export function ProviderEditor({
 
   const handlePresetChange = (id: string) => {
     autoFetchFingerprintRef.current = '';
-    autoMappedRef.current = false;
     if (id === CUSTOM_PRESET) {
       patch({
         name: draft.name.trim() ? draft.name : '',
@@ -446,10 +437,12 @@ export function ProviderEditor({
       </div>
 
       <div>
-        <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.providerConnectionSection')}</Text>
-        <Text type="secondary" style={{ display: 'block', fontSize: 11, margin: '2px 0 8px' }}>
-          {t('claudeCodeConfig.providerConnectionHint')}
-        </Text>
+        <Space size={6} style={{ marginBottom: 8 }}>
+          <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.providerConnectionSection')}</Text>
+          <Tooltip title={t('claudeCodeConfig.providerConnectionHint')}>
+            <QuestionCircleOutlined style={{ opacity: 0.65, cursor: 'help' }} />
+          </Tooltip>
+        </Space>
         <Space direction="vertical" style={{ width: '100%' }} size={8}>
           <Input
             size="small"
@@ -542,10 +535,12 @@ export function ProviderEditor({
       </div>
 
       <div style={sectionStyle(palette)}>
-        <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.providerUsageSection')}</Text>
-        <Text type="secondary" style={{ display: 'block', fontSize: 11, margin: '2px 0 8px' }}>
-          {t('claudeCodeConfig.providerUsageHint')}
-        </Text>
+        <Space size={6} style={{ marginBottom: 8 }}>
+          <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.providerUsageSection')}</Text>
+          <Tooltip title={t('claudeCodeConfig.providerUsageHint')}>
+            <QuestionCircleOutlined style={{ opacity: 0.65, cursor: 'help' }} />
+          </Tooltip>
+        </Space>
         <Space direction="vertical" style={{ width: '100%' }} size={6}>
           <Checkbox
             checked={selectedForClaude}
@@ -564,6 +559,7 @@ export function ProviderEditor({
         </Space>
       </div>
 
+      {shouldShowProviderModelConfiguration(Boolean(isNew)) ? (
       <div style={sectionStyle(palette)}>
         <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.modelMapping')}</Text>
         <Text type="secondary" style={{ display: 'block', fontSize: 11, margin: '2px 0 8px' }}>
@@ -573,11 +569,6 @@ export function ProviderEditor({
           <Button size="small" icon={<ReloadOutlined />} disabled={selectableModels.length === 0} onClick={handleAutoMap}>
             {t('claudeCodeConfig.autoMapModels')}
           </Button>
-          {onRestartCodex ? (
-            <Button size="small" icon={<ReloadOutlined />} onClick={onRestartCodex}>
-              {t('claudeCodeConfig.restartCodex')}
-            </Button>
-          ) : null}
           {modelsError ? (
             <Tag color="error" style={{ margin: 0 }}>{modelsError}</Tag>
           ) : models.length > 0 ? (
@@ -591,7 +582,7 @@ export function ProviderEditor({
             <div>
               <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.claudeModelMappingSection')}</Text>
               <Text type="secondary" style={{ display: 'block', fontSize: 11, margin: '4px 0 8px' }}>
-                {t('claudeCodeConfig.modelMappingTableHint')}
+                {t('claudeCodeConfig.modelHotSwitchClaudeHint')}
               </Text>
               <Table
                 size="small"
@@ -653,6 +644,9 @@ export function ProviderEditor({
           {servesCodex ? (
             <div>
               <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.codexModelSection')}</Text>
+              <Text type="secondary" style={{ display: 'block', fontSize: 11, margin: '4px 0 8px' }}>
+                {t('claudeCodeConfig.modelHotSwitchCodexHint')}
+              </Text>
               <Text type="secondary" style={labelStyle}>{t('claudeCodeConfig.defaultModel')}</Text>
               <ClaudeModelSelect
                 models={selectableModels}
@@ -692,7 +686,9 @@ export function ProviderEditor({
           ) : null}
         </Space>
       </div>
+      ) : null}
 
+      {!isNew ? (
       <div style={sectionStyle(palette)}>
         <Text type="secondary" style={labelStyle}>{t('claudeCodeConfig.permissionMode')}</Text>
         <Select
@@ -708,6 +704,7 @@ export function ProviderEditor({
           ]}
         />
       </div>
+      ) : null}
 
       <Space wrap>
         <Button

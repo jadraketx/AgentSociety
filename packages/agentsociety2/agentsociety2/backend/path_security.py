@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import re
+import shutil
 import zipfile
 from pathlib import Path
 
@@ -10,50 +12,26 @@ _SAFE_SEGMENT_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_-]*$")
 _ARTIFACT_NAME_RE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]*\.md$")
 
 
-def _validated_user_path(path_str: str, *, field: str) -> Path:
-    if not path_str or "\0" in path_str:
-        raise HTTPException(status_code=400, detail=f"Invalid {field}")
-    stripped = path_str.strip()
-    if not stripped or "\0" in stripped:
-        raise HTTPException(status_code=400, detail=f"Invalid {field}")
-    candidate = Path(stripped).resolve()
-    if "~" in stripped or ".." in candidate.parts:
-        raise HTTPException(status_code=400, detail=f"Invalid {field}")
-    # Block symlink-based traversal: the resolved path must not escape
-    # an expected boundary.  For root-relative paths, verify that no
-    # intermediate component is a symlink pointing outside the chain.
-    _check_symlink_chain(candidate)
-    return candidate
-
-
-def _check_symlink_chain(candidate: Path) -> None:
-    """Verify that every existing parent of *candidate* that is a symlink
-    resolves within the same directory tree as *candidate* itself.
-
-    This catches ``/workspace/link -> /etc/passwd`` style attacks where a
-    user-placed symlink redirects a resolved path to an unexpected location.
-    """
-    # If nothing exists yet, walk up to the first existing parent.
-    resolved = candidate
-    for parent in [candidate] + list(candidate.parents):
-        if parent.exists():
-            resolved = parent
-            break
-    if resolved.is_symlink():
-        real = resolved.resolve(strict=False)
-        # If the symlink target lives outside the directory that contains
-        # the symlink, reject it.
-        if real.parent != resolved.parent and resolved.parent not in real.parents:
-            raise HTTPException(status_code=400, detail="Symlink target escapes parent directory")
+def _configured_workspace_root() -> str:
+    workspace_path = os.getenv("WORKSPACE_PATH", "").strip()
+    if not workspace_path or "\0" in workspace_path:
+        raise HTTPException(status_code=500, detail="WORKSPACE_PATH is not configured")
+    return os.path.realpath(os.path.expanduser(workspace_path))
 
 
 def resolve_workspace_root(workspace_path: str) -> Path:
-    root = _validated_user_path(workspace_path, field="workspace_path")
-    if not root.is_dir():
+    requested = workspace_path.strip()
+    if not requested or "\0" in requested:
+        raise HTTPException(status_code=400, detail="Invalid workspace_path")
+    allowed_root = _configured_workspace_root()
+    requested_root = os.path.realpath(os.path.expanduser(requested))
+    if requested_root != allowed_root:
+        raise HTTPException(status_code=403, detail="Workspace path is not allowed")
+    if not os.path.isdir(allowed_root):
         raise HTTPException(
             status_code=404, detail=f"Workspace not found: {workspace_path}"
         )
-    return root
+    return Path(allowed_root)
 
 
 def require_safe_segment(value: str, *, field: str) -> str:
@@ -63,21 +41,27 @@ def require_safe_segment(value: str, *, field: str) -> str:
 
 
 def resolve_under_root(root: Path, *parts: str) -> Path:
-    # Reject null bytes in any part (null-byte injection attack)
-    for p in parts:
-        if "\0" in p:
+    for part in parts:
+        if "\0" in part:
             raise HTTPException(status_code=400, detail="Invalid path component")
-    target = root.joinpath(*parts).resolve()
-    if target != root and root not in target.parents:
+    base = os.path.realpath(os.fspath(root))
+    target = os.path.realpath(os.path.join(base, *parts))
+    normalized_base = os.path.normcase(base)
+    normalized_target = os.path.normcase(target)
+    base_prefix = (
+        normalized_base
+        if normalized_base.endswith(os.sep)
+        else normalized_base + os.sep
+    )
+    if normalized_target != normalized_base and not normalized_target.startswith(
+        base_prefix
+    ):
         raise HTTPException(status_code=400, detail="Path escapes workspace root")
-    return target
+    return Path(target)
 
 
 def resolve_workspace_relative(root: Path, relative: str) -> Path:
-    rel = Path(relative)
-    if rel.is_absolute() or ".." in rel.parts:
-        raise HTTPException(status_code=400, detail="Invalid relative path")
-    return resolve_under_root(root, *rel.parts)
+    return resolve_under_root(root, relative)
 
 
 def resolve_experiment_dir(
@@ -121,10 +105,14 @@ def resolve_experiment_replay_dir(
         "replay",
     )
     if not replay_dir.is_dir():
-        raise HTTPException(status_code=404, detail=f"Replay directory not found: {replay_dir}")
+        raise HTTPException(
+            status_code=404, detail=f"Replay directory not found: {replay_dir}"
+        )
     schema_path = replay_dir / "_schema.json"
     if not schema_path.is_file():
-        raise HTTPException(status_code=404, detail=f"Replay schema not found: {schema_path}")
+        raise HTTPException(
+            status_code=404, detail=f"Replay schema not found: {schema_path}"
+        )
     return replay_dir
 
 
@@ -155,7 +143,9 @@ def require_safe_skill_name(name: str) -> str:
 
 
 def resolve_existing_directory(path_str: str) -> Path:
-    target = _validated_user_path(path_str, field="path")
+    target = resolve_path_under_directory(
+        resolve_workspace_root(os.getenv("WORKSPACE_PATH", "")), path_str
+    )
     if not target.is_dir():
         raise HTTPException(status_code=400, detail=f"Directory not found: {path_str}")
     return target
@@ -178,25 +168,51 @@ def resolve_skill_relative(skill_dir: Path, relative: str) -> Path:
 
 
 def resolve_path_under_directory(root: Path, path_str: str) -> Path:
-    target = _validated_user_path(path_str, field="path")
-    if target != root and root not in target.parents:
+    if not path_str or "\0" in path_str:
+        raise HTTPException(status_code=400, detail="Invalid path")
+    base = os.path.realpath(os.fspath(root))
+    target = os.path.realpath(os.path.expanduser(path_str.strip()))
+    normalized_base = os.path.normcase(base)
+    normalized_target = os.path.normcase(target)
+    base_prefix = (
+        normalized_base
+        if normalized_base.endswith(os.sep)
+        else normalized_base + os.sep
+    )
+    if normalized_target != normalized_base and not normalized_target.startswith(
+        base_prefix
+    ):
         raise HTTPException(status_code=400, detail="Path escapes allowed directory")
-    return target
+    return Path(target)
+
+
+def require_disjoint_copy_paths(source: Path, destination: Path) -> None:
+    source_path = os.path.normcase(os.path.realpath(os.fspath(source)))
+    destination_path = os.path.normcase(os.path.realpath(os.fspath(destination)))
+    source_prefix = (
+        source_path if source_path.endswith(os.sep) else source_path + os.sep
+    )
+    destination_prefix = (
+        destination_path
+        if destination_path.endswith(os.sep)
+        else destination_path + os.sep
+    )
+    if (
+        source_path == destination_path
+        or destination_path.startswith(source_prefix)
+        or source_path.startswith(destination_prefix)
+    ):
+        raise HTTPException(status_code=400, detail="Source and destination overlap")
 
 
 def extract_zip_under(dest_dir: Path, zf: zipfile.ZipFile) -> None:
-    dest_root = dest_dir.resolve()
+    dest_root = Path(os.path.realpath(os.fspath(dest_dir)))
     dest_root.mkdir(parents=True, exist_ok=True)
-    for member in zf.namelist():
-        if member.startswith("/") or member.startswith("\\"):
-            raise HTTPException(status_code=400, detail="Unsafe zip entry path")
-        member_path = Path(member)
-        if ".." in member_path.parts:
-            raise HTTPException(status_code=400, detail="Unsafe zip entry path")
-        target = (dest_root / member).resolve()
-        if target != dest_root and dest_root not in target.parents:
-            raise HTTPException(status_code=400, detail="Unsafe zip entry path")
-        # Extract member by member rather than calling extractall() so that
-        # each path is independently validated and extraction order is
-        # deterministic.
-        zf.extract(member, dest_root)
+    for member in zf.infolist():
+        target = resolve_under_root(dest_root, member.filename)
+        if member.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with zf.open(member, "r") as source, target.open("wb") as destination:
+            shutil.copyfileobj(source, destination)

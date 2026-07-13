@@ -9,6 +9,7 @@ export interface ClaudeCodeConfigValues {
   model: string;
   sonnetModel: string;
   opusModel: string;
+  fableModel: string;
   haikuModel: string;
   permissionMode: string;
 }
@@ -30,6 +31,19 @@ export interface AiCliGatewayStatus {
   routeCodex?: boolean;
   claudeProxyAvailable?: boolean;
   codexProxyAvailable?: boolean;
+  /** Whether ~/.codex/auth.json currently has official login tokens. */
+  codexOfficialLoginPresent?: boolean;
+  /** Absolute path of the auth.json we inspect. */
+  codexAuthPath?: string;
+  /** Outbound HTTP/SOCKS proxy used by the local gateway (and optionally Codex CLI). */
+  outboundProxyUrl?: string;
+  rectifier?: {
+    enabled: boolean;
+    thinkingSignature: boolean;
+    thinkingBudget: boolean;
+    unsupportedImageDowngrade: boolean;
+    heuristicTextOnlyModels: boolean;
+  };
   stats?: {
     startedAt: string;
     uptimeMs: number;

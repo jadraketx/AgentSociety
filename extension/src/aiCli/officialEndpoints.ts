@@ -7,36 +7,53 @@ function normalizeBaseUrl(baseUrl: string): string {
   return baseUrl.trim().replace(/\/+$/, '');
 }
 
+const OPENAI_COMPATIBLE_DOMAINS = [
+  'xiaomimimo.com',
+  'longcat.chat',
+  'siliconflow.cn',
+  'dashscope.aliyuncs.com',
+  'groq.com',
+  'stepfun.com',
+];
+
+function parseBaseUrl(baseUrl: string): URL | null {
+  try {
+    return new URL(baseUrl.trim());
+  } catch {
+    return null;
+  }
+}
+
+function isDomainOrSubdomain(hostname: string, domain: string): boolean {
+  return hostname === domain || hostname.endsWith(`.${domain}`);
+}
+
 export function inferApiKindFromBaseUrl(baseUrl: string): AiCliApiKind {
-  const trimmed = baseUrl.trim().toLowerCase();
-  if (/\/anthropic(\/|$)/.test(trimmed)) {
+  const parsed = parseBaseUrl(baseUrl);
+  if (!parsed) {
+    return 'anthropic';
+  }
+  const hostname = parsed.hostname.toLowerCase();
+  const pathname = parsed.pathname.toLowerCase();
+  if (/\/anthropic(\/|$)/.test(pathname)) {
     return 'anthropic';
   }
   if (
-    /\/openai(\/|$)/.test(trimmed) ||
-    trimmed.includes('compatible-mode') ||
-    trimmed.includes('xiaomimimo.com') ||
-    trimmed.includes('longcat.chat') ||
-    trimmed.includes('siliconflow.cn') ||
-    trimmed.includes('dashscope.aliyuncs.com') ||
-    trimmed.includes('groq.com') ||
-    trimmed.includes('stepfun.com') ||
-    trimmed.includes('/coding/v1') ||
-    trimmed.includes('/coding/paas/')
+    /\/openai(\/|$)/.test(pathname) ||
+    /\/compatible-mode(\/|$)/.test(pathname) ||
+    /\/coding\/v1(\/|$)/.test(pathname) ||
+    /\/coding\/paas(\/|$)/.test(pathname) ||
+    OPENAI_COMPATIBLE_DOMAINS.some((domain) =>
+      isDomainOrSubdomain(hostname, domain)
+    )
   ) {
     return 'openai';
   }
-  let host: string;
-  try {
-    host = new URL(baseUrl.trim()).hostname.toLowerCase();
-  } catch {
-    host = trimmed;
-  }
   if (
-    host === 'api.openai.com' ||
-    host.endsWith('.api.openai.com') ||
-    host === 'openai.com' ||
-    host.endsWith('.openai.com')
+    hostname === 'api.openai.com' ||
+    hostname.endsWith('.api.openai.com') ||
+    hostname === 'openai.com' ||
+    hostname.endsWith('.openai.com')
   ) {
     return 'openai';
   }
@@ -55,13 +72,7 @@ export function isOfficialAnthropicBaseUrl(baseUrl: string): boolean {
 }
 
 export function isOfficialOpenAiBaseUrl(baseUrl: string): boolean {
-  let host: string;
-  try {
-    host = new URL(baseUrl).hostname.toLowerCase();
-  } catch {
-    host = baseUrl.trim().toLowerCase();
-  }
-  return host === 'api.openai.com';
+  return parseBaseUrl(baseUrl)?.hostname.toLowerCase() === 'api.openai.com';
 }
 
 export function resolveProviderBaseUrl(baseUrl: string, apiKind: AiCliApiKind): string {

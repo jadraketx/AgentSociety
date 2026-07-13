@@ -85,6 +85,7 @@ const DEFAULT_CLAUDE_VALUES: ClaudeCodeConfigValues = {
   model: '',
   sonnetModel: '',
   opusModel: '',
+  fableModel: '',
   haikuModel: '',
   permissionMode: '',
 };
@@ -873,6 +874,30 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
 
   const handleRestartCodex = React.useCallback(() => {
     vscode.postMessage({ command: 'restartCodexCli' });
+  }, [vscode]);
+
+  const handleRestartClaude = React.useCallback(() => {
+    vscode.postMessage({ command: 'restartClaudeCli' });
+  }, [vscode]);
+
+  const handleSyncClaudeConfig = React.useCallback(() => {
+    vscode.postMessage({ command: 'syncClaudeConfigFiles' });
+  }, [vscode]);
+
+  const handleSyncCodexConfig = React.useCallback(() => {
+    vscode.postMessage({ command: 'syncCodexConfigFiles' });
+  }, [vscode]);
+
+  const handleSaveOutboundProxy = React.useCallback((url: string) => {
+    vscode.postMessage({ command: 'gatewaySetOutboundProxy', url });
+  }, [vscode]);
+
+  const handleRectifierChange = React.useCallback((settings: Record<string, boolean>) => {
+    vscode.postMessage({ command: 'gatewaySetRectifier', settings });
+  }, [vscode]);
+
+  const handleRefreshCodexOfficialLogin = React.useCallback(() => {
+    vscode.postMessage({ command: 'refreshCodexOfficialLogin' });
   }, [vscode]);
 
   const _handleAutoMapClaudeModels = React.useCallback(() => {
@@ -1672,7 +1697,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                 </div>
               </div>
               {!wizardMode ? (
-                <Space wrap align="center">
+                <Space wrap={false} align="center" size={8}>
                   {webImportPanel('header')}
                   <Tooltip title={saveDisabledReason || ''}>
                     <Button
@@ -1847,6 +1872,12 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                   providerUsage={providerUsage}
                   onQueryProviderUsage={handleQueryProviderUsage}
                   onRestartCodex={handleRestartCodex}
+                  onRestartClaude={handleRestartClaude}
+                  onSyncClaudeConfig={handleSyncClaudeConfig}
+                  onSyncCodexConfig={handleSyncCodexConfig}
+                  onSaveOutboundProxy={handleSaveOutboundProxy}
+                  onRectifierChange={handleRectifierChange}
+                  onRefreshCodexOfficialLogin={handleRefreshCodexOfficialLogin}
                   easyPaperForm={easyPaperForm}
                   onSaveEasyPaper={saveEasyPaperConfig}
                 />
@@ -2002,6 +2033,12 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                                     providerUsage={providerUsage}
                                     onQueryProviderUsage={handleQueryProviderUsage}
                                     onRestartCodex={handleRestartCodex}
+                                    onRestartClaude={handleRestartClaude}
+                                    onSyncClaudeConfig={handleSyncClaudeConfig}
+                                    onSyncCodexConfig={handleSyncCodexConfig}
+                                    onSaveOutboundProxy={handleSaveOutboundProxy}
+                                    onRectifierChange={handleRectifierChange}
+                                    onRefreshCodexOfficialLogin={handleRefreshCodexOfficialLogin}
                                   />
                                 </div>
                               ),
@@ -2147,6 +2184,12 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                             providerUsage={providerUsage}
                             onQueryProviderUsage={handleQueryProviderUsage}
                             onRestartCodex={handleRestartCodex}
+                            onRestartClaude={handleRestartClaude}
+                            onSyncClaudeConfig={handleSyncClaudeConfig}
+                            onSyncCodexConfig={handleSyncCodexConfig}
+                            onSaveOutboundProxy={handleSaveOutboundProxy}
+                            onRectifierChange={handleRectifierChange}
+                            onRefreshCodexOfficialLogin={handleRefreshCodexOfficialLogin}
                           />
                         </div>
                       ),

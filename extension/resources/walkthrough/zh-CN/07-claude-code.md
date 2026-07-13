@@ -11,11 +11,13 @@
 初始化项目后，插件会把内置开发技能同步到工作区：
 
 ```text
-your-project/
+workspace-root/
 ├── .claude/skills/      # Claude Code 使用的开发技能
 ├── CLAUDE.md            # 面向 Claude Code 的项目说明
 └── AGENTS.md            # 面向通用编码助手的项目说明
 ```
+
+> 💡 `workspace-root/` 是你打开的工作区根目录。
 
 这些文件是项目级配置，适合随项目一起维护。涉及个人密钥的配置建议放在用户目录或本地忽略文件中。
 

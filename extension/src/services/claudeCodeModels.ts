@@ -278,29 +278,37 @@ export async function fetchClaudeCompatibleModels(
 
 export function suggestClaudeModelByRole(
   models: ClaudeModelOption[],
-  role: 'sonnet' | 'opus' | 'haiku'
+  role: 'sonnet' | 'opus' | 'fable' | 'haiku'
 ): string | undefined {
   const pattern =
-    role === 'sonnet' ? /sonnet/i : role === 'opus' ? /opus/i : /haiku/i;
+    role === 'sonnet'
+      ? /sonnet/i
+      : role === 'opus'
+        ? /opus/i
+        : role === 'fable'
+          ? /fable/i
+          : /haiku/i;
   const match = models.find((m) => pattern.test(m.id) || (m.label && pattern.test(m.label)));
   return match?.id;
 }
 
 export function suggestClaudeModelMappings(
   models: ClaudeModelOption[]
-): Partial<Record<'model' | 'sonnetModel' | 'opusModel' | 'haikuModel', string>> {
+): Partial<Record<'model' | 'sonnetModel' | 'opusModel' | 'fableModel' | 'haikuModel', string>> {
   const ids = models.map((m) => m.id);
   if (ids.length === 0) {
     return {};
   }
   const sonnet = suggestClaudeModelByRole(models, 'sonnet');
   const opus = suggestClaudeModelByRole(models, 'opus');
+  const fable = suggestClaudeModelByRole(models, 'fable');
   const haiku = suggestClaudeModelByRole(models, 'haiku');
   const fallback = sonnet ?? opus ?? ids[0];
   return {
     model: fallback,
     sonnetModel: sonnet,
     opusModel: opus,
+    fableModel: fable,
     haikuModel: haiku,
   };
 }

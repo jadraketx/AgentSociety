@@ -16,6 +16,7 @@ Git 发版标签：`agentsociety2-v{major}.{minor}.{patch}`（见 `CONTRIBUTING.
 
 ### Fixed
 
+- **extension**：规范化打包与文档（`check` / `package:check`、CHANGELOG 入口、收紧 `.vscodeignore`）；修正 walkthrough NLS 相关历史描述中的 `package.nls.en.json` 笔误。
 - **extension** `1.6.3`：walkthrough 标题/描述改为直接写入 `package.json`（code-server 不解析 `%nls%`）。
 - **agentsociety2**：`agent.runner` 延迟导入 ray，修复 Windows CI（ray 未安装于 win32）。
 
@@ -26,7 +27,7 @@ Git 发版标签：`agentsociety2-v{major}.{minor}.{patch}`（见 `CONTRIBUTING.
 ### Fixed
 
 - **extension** `1.6.2`：walkthrough `media.markdown` 改为直接相对路径，不再使用 `%walkthrough.media.*%` 占位符（code-server / VS Code 对该字段的 NLS 替换不可靠）。
-- **extension**：修复 walkthrough 无法打开（`%walkthrough.media.*%` 占位符未解析）；将 `package.nls.json` / `package.nls.en.json` 纳入版本库并打包进 VSIX。
+- **extension**：修复 walkthrough 无法打开（`%walkthrough.media.*%` 占位符未解析）；将 `package.nls.json` / `package.nls.zh-cn.json` 纳入版本库并打包进 VSIX。
 
 ## [2.8.0] - 2026-07-12
 

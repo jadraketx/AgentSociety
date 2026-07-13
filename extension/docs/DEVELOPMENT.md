@@ -24,7 +24,7 @@
 
 ```bash
 cd extension
-npm install
+npm ci
 ```
 
 ### 编译项目
@@ -49,7 +49,8 @@ npm run clean:dry-run # 仅预览，不删除
 
 ```bash
 npm run lint              # ESLint 检查
-npm run test:codex-bridge # Codex 响应桥接单测
+npm run test:gateway      # 网关 / Codex 配置与格式转换单测
+npm run check             # lint + test:gateway + build
 ```
 
 ### 调试
@@ -87,8 +88,8 @@ extension/
 │   ├── aiChatInvoker.ts              # AI Chat 调用器
 │   ├── portUtils.ts                  # 动态端口分配
 │   ├── workspaceManager.ts           # 工作区管理
-│   ├── aiCli/                        # CLI 供应商共享常量（webview 通过符号链接复用）
-│   │   ├── officialEndpoints.ts      # 官方端点常量与 apiKind 推断
+│   ├── aiCli/                        # CLI 供应商共享逻辑（extension 与 webview 共用）
+│   │   ├── officialEndpoints.ts      # 官方端点常量与 apiKind 推断（唯一实现）
 │   │   ├── providerAuth.ts           # 供应商鉴权模式推断
 │   │   └── providerPresets.ts        # 供应商预设与模型合并
 │   ├── services/                     # 服务模块
@@ -158,6 +159,11 @@ extension/
 │   ├── pdf/                          # PDF 文档处理
 │   ├── pptx/                         # PPT 文档处理
 │   └── xlsx/                         # Excel 文档处理
+├── docs/                             # 开发文档
+│   └── DEVELOPMENT.md                # 开发指南
+├── test/                             # 单测（node:test）
+│   └── gateway-enhancements.test.js  # 网关 / Codex 配置单测
+├── CHANGELOG.md                      # 变更入口（指向仓库根 CHANGELOG）
 ├── README.md                         # 项目说明
 ├── package.json                      # 插件配置
 ├── tsconfig.json                     # TypeScript 配置
@@ -191,29 +197,30 @@ extension/
 
 统一配置页（单页 Webview），配置写入工作区 `.env`；Claude Code 写入 `~/.claude/settings.json`：
 
-| 区域                 | 说明                                                                                                |
-| -------------------- | --------------------------------------------------------------------------------------------------- |
-| **概览卡片**         | 后端状态、高级配置验证汇总（悬停显示各项圆点状态）、Claude Code 状态；点击可跳转并触发验证          |
-| **默认 LLM**         | 必填：API Key / Base / Model                                                                        |
-| **高级配置**（折叠） | 四层 Tab：专用模型（Coder / Nano / Analysis / Embedding）、Python、学术文献检索（MCP）、Claude Code |
-| **底部操作**         | 恢复默认、保存、保存并启动后端                                                                      |
+| 区域             | 说明                                                                                   |
+| ---------------- | -------------------------------------------------------------------------------------- |
+| **配置向导**     | 仿真 LLM → 保存 `.env` → 启动后端 →（可选）文献 MCP / CLI 网关；可随时切到「全部设置」 |
+| **全部设置 Tab** | 专用模型、Python、文献 MCP、Claude / Codex 供应商与网关路由                            |
+| **概览卡片**     | 后端状态、配置验证汇总、Claude / Codex 状态；点击可跳转并触发验证                      |
+| **底部操作**     | 恢复默认、保存、保存并启动后端、同步 Codex 配置                                        |
 
 Webview 主要组件：
 
 ```
 webview/configPage/
-├── ConfigPageApp.tsx           # 主页面
-├── AdvancedConfigSection.tsx   # 高级配置 Tab
-├── ClaudeCodeConfigSection.tsx # Claude Code 表单（嵌入高级 Tab）
+├── ConfigPageApp.tsx           # 主页面与向导步骤
+├── AiCliConfigSection.tsx      # Claude / Codex 供应商与网关
+├── AdvancedConfigSection.tsx   # 专用模型 / Python / 文献 MCP
+├── WebConfigImportPanel.tsx    # Web 配置导入确认
 ├── ValidationAction.tsx        # 验证按钮
 ├── advancedValidation.ts       # 指纹与状态色
 ├── claudeCodeTypes.ts          # Claude 配置类型
 └── ConfigPageErrorBoundary.tsx # 运行时错误边界
 ```
 
-**验证策略**：修改某项高级配置约 1.5 秒后自动验证该项；概览「高级配置」卡片点击可验证全部；已验证且配置未变则不重复请求 API。
+**验证策略**：修改配置约 1.5 秒后自动验证该项；概览卡片点击可验证全部；已验证且配置未变则不重复请求 API。
 
-**Claude Code 入口**：命令 `aiSocialScientist.openClaudeCodeConfig` 打开本页并定位到 Claude Tab（不再使用独立 Webview）。
+**Claude Code 入口**：命令 `aiSocialScientist.openClaudeCodeConfig` 打开本页并定位到 Claude / Codex 区域。
 
 ### 3. 帮助页面 (HelpPageViewProvider)
 
@@ -237,6 +244,7 @@ webview/configPage/
 - 进程 PID 管理
 - 状态栏显示 Backend 端口、Gateway 路由与 LLM 验证状态
 - 日志输出到 ``AI Social Scientist Backend`` 输出通道（主通道 ``AI Social Scientist`` 承载其余子系统日志）
+- **激活阶段**使用 `loadConfig({ fast: true })`，避免在 `activate()` 中同步执行 `uv`/Python 全量探测（Coder 大工作区下会卡住扩展激活）；完整探测在 `start()` 前执行
 
 #### 端口与状态检测逻辑
 
@@ -459,27 +467,35 @@ const { isDark, palette, themeConfig } = useVscodeTheme();
 
 ## 打包发布
 
-### 安装 vsce
+### 本地检查与打包
 
 ```bash
-npm install -g @vscode/vsce
+npm ci
+npm run check            # lint + test:gateway + build
+npm run package          # 产出 ai-social-scientist.vsix
+# 或一步完成：
+npm run package:check
 ```
 
-### 打包插件
+本地安装：
 
 ```bash
-npm run package
-# 或
-vsce package
+code --install-extension ai-social-scientist.vsix
+# 或在 Cursor / 远程窗口中：Extensions → Install from VSIX…
 ```
 
-生成 `.vsix` 文件，可在 VSCode 中安装。
+仓库根目录也可用：`make package-extension`（等同 `npm run package:check`）。
 
-### 发布到市场
+许可证与归属文件 `LICENSE`、`NOTICE`、`README.md` 会随 VSIX 一并打包；`docs/`、`test/`、`scripts/`、`.nvmrc` 等不会进入包。
 
-```bash
-vsce publish
-```
+### 正式发版（GitHub Release）
+
+扩展**不单独**走 `vsce publish` 上架 Marketplace。正式发布与 Python SDK 共用标签流程（见仓库根 [CONTRIBUTING.md](../../CONTRIBUTING.md)）：
+
+1.  bump `extension/package.json` 的 `version`
+2. 在根 [CHANGELOG.md](../../CHANGELOG.md) 追加 `**extension**` 条目（本目录 [CHANGELOG.md](../CHANGELOG.md) 仅为入口说明）
+3. 打标签 `agentsociety2-vX.Y.Z` 并推送
+4. `agentsociety2-publish` workflow 构建 VSIX 并挂到 GitHub Release
 
 ## 代码规范
 
@@ -531,4 +547,4 @@ npm run lint
 - [Ant Design Documentation](https://ant.design/)
 - [Ant Design X Documentation](https://x.ant.design/)
 - [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [AgentSociety2 Documentation](../packages/agentsociety2/README.md)
+- [AgentSociety2 Documentation](../../packages/agentsociety2/README.md)

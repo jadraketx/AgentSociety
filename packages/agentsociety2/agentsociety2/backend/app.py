@@ -1,4 +1,3 @@
-
 """
 FastAPI backend service for AI Social Scientist VSCode extension
 

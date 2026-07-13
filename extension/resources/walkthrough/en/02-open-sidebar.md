@@ -38,7 +38,7 @@ The sidebar displays your research project as a tree:
 ![AI Social Scientist project structure sidebar](../images/project-structure-sidebar.png)
 
 ```
-📂 your-project/
+📂 workspace-root/
 ├── 📄 TOPIC.md           → Research topic (click to preview, right-click to edit)
 ├── 📂 papers/            → Literature
 │   ├── 📂 pdf/           → PDF papers
@@ -50,6 +50,8 @@ The sidebar displays your research project as a tree:
 ├── 📂 custom/skills/     → Installed skills
 └── 📂 .agentsociety/     → Analysis harness state (auto-maintained)
 ```
+
+> 💡 `workspace-root/` is the workspace folder you opened, not a fixed path.
 
 > 💡 Click files to open dedicated viewers: JSON/YAML with collapsible tree, CSV with sort & search, Markdown preview, HTML reports. Right-click for more actions.
 

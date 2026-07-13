@@ -33,6 +33,7 @@ import {
   resolveAgentsocietyPython,
   pythonHasAgentsociety2,
   discoverPythonEnvironments,
+  venvPythonIn,
   type PythonEnvironmentCandidate,
 } from './agentsocietyPythonResolver';
 
@@ -78,7 +79,7 @@ export class BackendManager {
       100
     );
     this.statusBarItem.command = 'aiSocialScientist.backendStatusMenu';
-    this.config = this.loadConfig();
+    this.config = this.loadConfig({ fast: true });
 
     // 注意：不再监听 .env 文件变化来自动重启后端
     // 这是因为写入端口到 .env 会触发变化，导致死循环重启
@@ -301,7 +302,7 @@ export class BackendManager {
    *
    * 仅从 .env 文件加载配置
    */
-  private loadConfig(): BackendConfig {
+  private loadConfig(options?: { fast?: boolean }): BackendConfig {
     const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
       // 没有工作区时返回一个默认配置，不抛出错误
@@ -319,21 +320,29 @@ export class BackendManager {
     const envManager = new EnvManager();
     const envConfig = envManager.readEnv();
 
-    const resolvedPython = resolveAgentsocietyPython({
-      configuredPath: envConfig.pythonPath,
-      workspacePath: workingDirectory,
-      extensionPath: this.context.extensionPath,
-    });
     const configuredPython = envConfig.pythonPath?.trim();
-    let pythonPath = configuredPython || resolvedPython || this.detectPythonPath();
-    if (configuredPython && !pythonHasAgentsociety2(configuredPython) && resolvedPython) {
-      this.log(
-        `Configured PYTHON_PATH is incompatible (${configuredPython}); falling back to ${resolvedPython}`,
-        'warn'
-      );
-      pythonPath = resolvedPython;
-    } else if (configuredPython && !pythonHasAgentsociety2(configuredPython)) {
-      pythonPath = configuredPython;
+    let pythonPath: string;
+    if (options?.fast) {
+      pythonPath =
+        configuredPython ||
+        venvPythonIn(workingDirectory) ||
+        this.detectPythonPath();
+    } else {
+      const resolvedPython = resolveAgentsocietyPython({
+        configuredPath: envConfig.pythonPath,
+        workspacePath: workingDirectory,
+        extensionPath: this.context.extensionPath,
+      });
+      pythonPath = configuredPython || resolvedPython || this.detectPythonPath();
+      if (configuredPython && !pythonHasAgentsociety2(configuredPython) && resolvedPython) {
+        this.log(
+          `Configured PYTHON_PATH is incompatible (${configuredPython}); falling back to ${resolvedPython}`,
+          'warn'
+        );
+        pythonPath = resolvedPython;
+      } else if (configuredPython && !pythonHasAgentsociety2(configuredPython)) {
+        pythonPath = configuredPython;
+      }
     }
 
     // 映射环境变量

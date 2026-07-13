@@ -9,6 +9,7 @@ variables:
   UV_INDEX_URL: "https://pypi.tuna.tsinghua.edu.cn/simple"
   MEM0_TELEMETRY: "False"
   ANONYMIZED_TELEMETRY: "False"
+  DOCKER_BUILDKIT: "1"
 
 # CI scope: AgentSociety2 + extension + frontend only.
 # Legacy packages (agentsociety v1, community, benchmark) are excluded.
@@ -51,7 +52,8 @@ lint-extension:
   script:
     - npm run lint
     - npm run build
-    - npm audit --audit-level=high
+    # npmmirror does not implement the audit API; query the official registry only for audit.
+    - npm audit --audit-level=high --registry=https://registry.npmjs.org
 
 lint-frontend:
   stage: lint
@@ -70,7 +72,7 @@ lint-frontend:
   script:
     - npm run lint
     - npm run build
-    - npm audit --audit-level=high
+    - npm audit --audit-level=high --registry=https://registry.npmjs.org
 
 test:
   stage: test
@@ -113,25 +115,35 @@ build-docker-image:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
         - Dockerfile
+        - .dockerignore
         - packages/agentsociety2/**/*
         - extension/**/*
-        - frontend/**/*
+        - pyproject.toml
+        - uv.lock
     - if: $CI_COMMIT_BRANCH == "main"
       changes:
         - Dockerfile
+        - .dockerignore
         - packages/agentsociety2/**/*
         - extension/**/*
-        - frontend/**/*
+        - pyproject.toml
+        - uv.lock
   script:
     - export TIME=$(date +%s)
+    - docker pull ${CI_REGISTRY_IMAGE}:v2 || true
     - |
       if [[ "$CI_PIPELINE_SOURCE" == "merge_request_event" ]]; then
         echo "MR pipeline - build only for validation"
-        docker build -t ${CI_REGISTRY_IMAGE}:mr-${CI_MERGE_REQUEST_IID} .
+        docker build \
+          --cache-from ${CI_REGISTRY_IMAGE}:v2 \
+          -t ${CI_REGISTRY_IMAGE}:mr-${CI_MERGE_REQUEST_IID} .
       else
         echo "Main branch - build and push"
         docker login -u ${CI_REGISTRY_USER} -p ${CI_REGISTRY_PASSWORD} ${CI_REGISTRY}
-        docker build -t ${CI_REGISTRY_IMAGE}:v2-${CI_COMMIT_SHORT_SHA}-${TIME} -t ${CI_REGISTRY_IMAGE}:v2 .
+        docker build \
+          --cache-from ${CI_REGISTRY_IMAGE}:v2 \
+          -t ${CI_REGISTRY_IMAGE}:v2-${CI_COMMIT_SHORT_SHA}-${TIME} \
+          -t ${CI_REGISTRY_IMAGE}:v2 .
         docker push ${CI_REGISTRY_IMAGE}:v2-${CI_COMMIT_SHORT_SHA}-${TIME}
         docker push ${CI_REGISTRY_IMAGE}:v2
       fi

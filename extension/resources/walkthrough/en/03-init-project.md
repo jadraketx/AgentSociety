@@ -4,36 +4,36 @@ Before you start, you need a research project directory.
 
 ---
 
-### Option 1: Initialize a New Project
+### Option 1: Initialize a new project
 
-Run **Initialize Research Project** in an empty workspace to auto-create the directory structure:
+With a workspace folder already open, run **Initialize Research Project**. The extension creates the base layout and writes `TOPIC.md`, a `.env` template, and the literature index (you need an LLM API key in `.env` first):
 
 ![Initialize workspace example](../images/gif/initialize-workspace.gif)
 
-```
-your-project/
-├── custom/skills/          # Agent runtime skills (installed from marketplace)
-├── .claude/skills/         # Claude Code skills
+```text
+workspace-root/
+├── TOPIC.md                # Research topic
+├── .env                    # Workspace LLM / backend settings
 ├── papers/                 # Literature
-│   ├── pdf/               # PDF papers
-│   └── md/                # Markdown notes
-├── paper/                  # Paper workspace (auto-created when using paper-toolkit)
-│   ├── sections/          # Paper sections
-│   ├── reviews/           # Reviews (right-click for structured review viewer)
-│   └── compile_runs/      # Compile outputs
-├── experiment/             # Experiment configs & results
-├── output/                 # Output files
-├── .agentsociety/          # Analysis harness state (auto-created when using analysis skills)
-├── TOPIC.md               # Research topic description
-└── init/
-    └── init_config.json   # Project initialization config
+│   └── literature_index.json
+├── datasets/               # Datasets
+├── user_data/              # User data
+├── custom/                 # Custom agents, env modules, and agent skills
+├── .claude/skills/         # Claude Code dev skills (synced during init)
+├── .agentsociety/          # Analysis harness state (created on demand)
+├── hypothesis_<id>/        # Research hypotheses (created by later workflows)
+│   └── experiment_<id>/   # Experiments and replay data
+├── paper/                  # Paper workspace (created when using paper-toolkit)
+└── analysis/               # Analysis workspace (created when using analysis skills)
 ```
 
-### Option 2: Open an Existing Project
+> 💡 `workspace-root/` means the workspace folder you opened in VS Code, not a fixed directory name.
 
-Simply open an existing research workspace folder in VS Code. The plugin will automatically detect the directory structure.
+### Option 2: Open an existing project
 
-If you do not have a project folder yet, create an empty folder first and then open it in VS Code:
+Open an existing research workspace folder in VS Code. The extension recognizes the layout automatically.
+
+If you do not have a project yet, create an empty folder first, then open it in VS Code:
 
 ![Create project folder example](../images/gif/create-project-folder.gif)
 
@@ -41,12 +41,12 @@ If you do not have a project folder yet, create an empty folder first and then o
 
 ### 🔧 What is the Command Palette?
 
-The VS Code **Command Palette** is the quick-access hub for all actions:
+The VS Code **Command Palette** is the quick entry point for extension actions:
 
-- Press `Ctrl+Shift+P` (Mac: `Cmd+Shift+P`) to open it
-- Type `AI Social Scientist` to see all plugin commands
-- Common commands are also accessible via sidebar buttons or the status bar
+- Press `Ctrl+Shift+P` (Mac: `Cmd+Shift+P`)
+- Type `AI Social Scientist` to list extension commands
+- Many actions are also available from sidebar buttons or the status bar
 
-> 💡 We recommend memorizing this shortcut — many operations start from here.
+> 💡 It is worth remembering this shortcut; many workflows start here.
 
 [Initialize Project](command:aiSocialScientist.initProject)

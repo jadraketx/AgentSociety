@@ -4,7 +4,7 @@ import { BarChartOutlined, EditOutlined, PlusOutlined, QuestionCircleOutlined, R
 import type { TFunction } from 'i18next';
 import type { VscodeThemePalette } from '../theme';
 import type { ClaudeModelOption, ProviderUsageQueryResult, ProviderAvailabilityResult } from './claudeCodeTypes';
-import type { AiCliApiKind } from './officialEndpoints';
+import type { AiCliApiKind } from '../../aiCli/officialEndpoints';
 import type { AiCliProviderRecord } from './aiCliProviderTypes';
 import { EMPTY_PROVIDER_DRAFT } from './aiCliProviderTypes';
 import { ProviderEditor } from './AiCliProviderEditor';
@@ -36,7 +36,6 @@ export type AiCliProviderGroupProps = {
   modelsLoadingByProvider: Record<string, boolean>;
   modelsErrorByProvider: Record<string, string | null>;
   onFetchModels: (providerId: string, baseUrl: string, apiKey: string, apiKind?: AiCliApiKind) => void;
-  onRestartCodex?: () => void;
 };
 
 export function AiCliProviderGroup({
@@ -58,7 +57,6 @@ export function AiCliProviderGroup({
   modelsLoadingByProvider,
   modelsErrorByProvider,
   onFetchModels,
-  onRestartCodex,
 }: AiCliProviderGroupProps) {
   const NEW_ID = `__new__`;
   const [showNew, setShowNew] = React.useState(false);
@@ -219,14 +217,12 @@ export function AiCliProviderGroup({
         <Tooltip title={t('claudeCodeConfig.providerCenterHint')}>
           <QuestionCircleOutlined style={{ opacity: 0.65, cursor: 'help' }} />
         </Tooltip>
+        <Tooltip title={t('claudeCodeConfig.providerConversionHint')}>
+          <Tag style={{ margin: 0, fontSize: 10, cursor: 'help' }}>
+            {t('claudeCodeConfig.providerConversionTitle')}
+          </Tag>
+        </Tooltip>
       </Space>
-      <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 10 }}>
-        {t('claudeCodeConfig.providerListHint')}
-      </Text>
-      <div style={{ fontSize: 11, color: palette.descriptionForeground, marginBottom: 10, lineHeight: 1.5 }}>
-        <Text strong style={{ fontSize: 11 }}>{t('claudeCodeConfig.providerConversionTitle')}</Text>
-        <span style={{ marginLeft: 6 }}>{t('claudeCodeConfig.providerConversionHint')}</span>
-      </div>
       <Space direction="vertical" style={{ width: '100%' }} size={10}>
         {providers.map((p) => {
           const editing = editingIds.has(p.id);
@@ -305,7 +301,6 @@ export function AiCliProviderGroup({
                   onFetchModels={(baseUrl, apiKey, kind) =>
                     onFetchModels(p.id, baseUrl, apiKey, kind)
                   }
-                  onRestartCodex={onRestartCodex}
                 />
               )}
             </Card>
@@ -315,10 +310,18 @@ export function AiCliProviderGroup({
           <Text type="secondary" style={{ fontSize: 11 }}>{t('claudeCodeConfig.providerEmpty')}</Text>
         ) : null}
         {showNew ? (
-          <Card size="small" title={t('claudeCodeConfig.providerAddTitle')} style={{ borderRadius: 8 }}>
-            <Text type="secondary" style={{ display: 'block', fontSize: 11, marginBottom: 8 }}>
-              {t('claudeCodeConfig.providerAddHint')}
-            </Text>
+          <Card
+            size="small"
+            title={
+              <Space size={6}>
+                {t('claudeCodeConfig.providerAddTitle')}
+                <Tooltip title={t('claudeCodeConfig.providerAddHint')}>
+                  <QuestionCircleOutlined style={{ opacity: 0.65, cursor: 'help' }} />
+                </Tooltip>
+              </Space>
+            }
+            style={{ borderRadius: 8 }}
+          >
             <ProviderEditor
               t={t}
               palette={palette}
@@ -363,7 +366,6 @@ export function AiCliProviderGroup({
               onFetchModels={(baseUrl, apiKey, kind) =>
                 onFetchModels(NEW_ID, baseUrl, apiKey, kind)
               }
-              onRestartCodex={onRestartCodex}
             />
             <Button size="small" type="link" onClick={() => setShowNew(false)} style={{ marginTop: 4, padding: 0 }}>
               {t('claudeCodeConfig.providerCancelAdd')}

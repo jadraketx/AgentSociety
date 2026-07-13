@@ -61,6 +61,19 @@ let backendManager: BackendManager | null = null;
 let aiCliGatewayManager: AiCliGatewayManager | null = null;
 
 export function activate(context: vscode.ExtensionContext) {
+  try {
+    activateExtension(context);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('AI Social Scientist activation failed:', error);
+    void vscode.window.showErrorMessage(
+      `AI Social Scientist failed to activate: ${message}. Check Output → Log (Extension Host).`
+    );
+    throw error;
+  }
+}
+
+function activateExtension(context: vscode.ExtensionContext) {
   console.log(localize('extension.activate'));
 
   const migratedLegacyKeys = migrateLegacySettingsToEnv();

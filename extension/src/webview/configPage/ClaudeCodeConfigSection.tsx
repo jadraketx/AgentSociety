@@ -44,7 +44,6 @@ export type ProviderSectionCommonProps = {
   ) => void;
   providerUsage: Record<string, ProviderUsageQueryResult & { loading?: boolean }>;
   onQueryProviderUsage: (id: string) => void;
-  onRestartCodex?: () => void;
 };
 
 export interface ClaudeCodeConfigSectionProps extends ProviderSectionCommonProps {
@@ -70,7 +69,6 @@ export function ClaudeCodeConfigSection({
   onFetchProviderModels,
   providerUsage,
   onQueryProviderUsage,
-  onRestartCodex,
   isProviderChecking,
 }: ClaudeCodeConfigSectionProps) {
   const providerGroupProps = {
@@ -91,7 +89,6 @@ export function ClaudeCodeConfigSection({
     modelsLoadingByProvider,
     modelsErrorByProvider,
     onFetchModels: onFetchProviderModels,
-    onRestartCodex,
   };
 
   return (
