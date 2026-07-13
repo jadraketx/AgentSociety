@@ -66,3 +66,20 @@ node_modules/**
 !node_modules/write-file-atomic/**
 !node_modules/signal-exit/
 !node_modules/signal-exit/**
+# gatewayOutboundProxy → https-proxy-agent / socks-proxy-agent（及传递依赖）
+!node_modules/https-proxy-agent/
+!node_modules/https-proxy-agent/**
+!node_modules/socks-proxy-agent/
+!node_modules/socks-proxy-agent/**
+!node_modules/agent-base/
+!node_modules/agent-base/**
+!node_modules/debug/
+!node_modules/debug/**
+!node_modules/ms/
+!node_modules/ms/**
+!node_modules/socks/
+!node_modules/socks/**
+!node_modules/smart-buffer/
+!node_modules/smart-buffer/**
+!node_modules/ip-address/
+!node_modules/ip-address/**

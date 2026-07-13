@@ -1,7 +1,5 @@
 import type { Agent as HttpAgent } from 'http';
 import type { Agent as HttpsAgent } from 'https';
-import { HttpsProxyAgent } from 'https-proxy-agent';
-import { SocksProxyAgent } from 'socks-proxy-agent';
 
 export type OutboundProxyConfig = {
   /** http://127.0.0.1:7890 or socks5://127.0.0.1:1080 */
@@ -41,7 +39,9 @@ export function createOutboundProxyAgent(
     return undefined;
   }
   if (proxyUrl.startsWith('socks')) {
+    const { SocksProxyAgent } = require('socks-proxy-agent') as typeof import('socks-proxy-agent');
     return new SocksProxyAgent(proxyUrl) as unknown as HttpAgent;
   }
+  const { HttpsProxyAgent } = require('https-proxy-agent') as typeof import('https-proxy-agent');
   return new HttpsProxyAgent(proxyUrl) as unknown as HttpsAgent;
 }
