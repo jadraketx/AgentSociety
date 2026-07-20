@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+const http = require('node:http');
 const os = require('node:os');
 const path = require('node:path');
 const { parse: parseToml } = require('smol-toml');
@@ -20,6 +21,9 @@ const {
   inferApiKindFromBaseUrl,
 } = require('../out/aiCli/officialEndpoints');
 const {
+  fetchProviderModels,
+} = require('../out/services/claudeCodeModels');
+const {
   formatGatewayClaudeModels,
   isFiblabLlmBase,
 } = require('../out/services/webConfigGatewayImport');
@@ -37,11 +41,48 @@ test('URL classification only inspects parsed host and path components', () => {
     'openai'
   );
   assert.equal(
+    inferApiKindFromBaseUrl('https://llmapi.fiblab.net/v1'),
+    'openai'
+  );
+  assert.equal(
     inferApiKindFromBaseUrl('https://gateway.example/compatible-mode/v1'),
     'openai'
   );
   assert.equal(isFiblabLlmBase('not-a-url-llmapi.fiblab.net'), false);
   assert.equal(isFiblabLlmBase('https://llmapi.fiblab.net/v1'), true);
+});
+
+test('provider model fetch falls back to Node HTTP when extension-host fetch fails', async () => {
+  const server = http.createServer((request, response) => {
+    assert.equal(request.url, '/v1/models');
+    assert.equal(request.headers.authorization, 'Bearer test-key');
+    response.writeHead(200, { 'Content-Type': 'application/json' });
+    response.end(JSON.stringify({ data: [{ id: 'test-model' }] }));
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new TypeError('fetch failed');
+  };
+
+  try {
+    const result = await fetchProviderModels(
+      `http://127.0.0.1:${address.port}/v1`,
+      'test-key',
+      'openai'
+    );
+    assert.equal(result.ok, true);
+    assert.deepEqual(result.models, [{ id: 'test-model' }]);
+    assert.equal(result.apiKind, 'openai');
+  } finally {
+    globalThis.fetch = originalFetch;
+    await new Promise((resolve, reject) => {
+      server.close((error) => error ? reject(error) : resolve());
+    });
+  }
 });
 
 test('gateway import summary formats Claude role models', () => {

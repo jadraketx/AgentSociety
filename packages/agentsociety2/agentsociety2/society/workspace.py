@@ -19,6 +19,9 @@ from pathlib import Path
 import aiohttp
 
 
+BEIJING_MAP_URL = "https://cloud.tsinghua.edu.cn/f/f5c777485d2748fa8535/?dl=1"
+
+
 def get_custom_template_path() -> Path:
     """获取自定义模块模板路径"""
     # 从 agentsociety2.custom 包中获取路径
@@ -286,7 +289,6 @@ async def download_map_file(target_dir: Path, timeout: int = 300) -> dict:
     """
     result = {"success": False, "message": "", "file_path": "", "errors": []}
 
-    map_url = "https://tsinghua-agentsociety.oss-cn-beijing.aliyuncs.com/data/map/beijing_map.pb"
     data_dir = target_dir / ".agentsociety" / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     map_file_path = data_dir / "beijing_map.pb"
@@ -294,7 +296,7 @@ async def download_map_file(target_dir: Path, timeout: int = 300) -> dict:
     try:
         async with aiohttp.ClientSession() as session:
             async with session.get(
-                map_url, timeout=aiohttp.ClientTimeout(total=timeout)
+                BEIJING_MAP_URL, timeout=aiohttp.ClientTimeout(total=timeout)
             ) as response:
                 response.raise_for_status()
 
@@ -631,65 +633,38 @@ async def init_workspace(
             progress_file = target_dir / ".agentsociety" / "progress.json"
             if not progress_file.exists():
                 progress_data = {
-                    "version": "1.0",
+                    "version": "1.3",
                     "workspace": {
                         "topic": topic or "",
                         "created_at": datetime.now(timezone.utc).isoformat(),
                         "current_stage": "literature_search",
                         "current_hypothesis_id": None,
                         "current_experiment_id": None,
+                        "revision_round": 0,
+                        "active_reroute": None,
                     },
                     "stages": {
-                        "literature_search": {
+                        stage: {
                             "status": "not_started",
                             "started_at": None,
                             "completed_at": None,
                             "attempts": 0,
                             "error": None,
                             "metadata": {},
-                        },
-                        "hypothesis": {
-                            "status": "not_started",
-                            "started_at": None,
-                            "completed_at": None,
-                            "attempts": 0,
-                            "error": None,
-                            "metadata": {},
-                        },
-                        "experiment_config": {
-                            "status": "not_started",
-                            "started_at": None,
-                            "completed_at": None,
-                            "attempts": 0,
-                            "error": None,
-                            "metadata": {},
-                        },
-                        "run_experiment": {
-                            "status": "not_started",
-                            "started_at": None,
-                            "completed_at": None,
-                            "attempts": 0,
-                            "error": None,
-                            "metadata": {},
-                        },
-                        "analysis": {
-                            "status": "not_started",
-                            "started_at": None,
-                            "completed_at": None,
-                            "attempts": 0,
-                            "error": None,
-                            "metadata": {},
-                        },
-                        "generate_paper": {
-                            "status": "not_started",
-                            "started_at": None,
-                            "completed_at": None,
-                            "attempts": 0,
-                            "error": None,
-                            "metadata": {},
-                        },
+                            "verification_status": "not_started",
+                            "revision_round": 0,
+                        }
+                        for stage in (
+                            "literature_search",
+                            "hypothesis",
+                            "experiment_config",
+                            "run_experiment",
+                            "analysis",
+                            "generate_paper",
+                        )
                     },
                     "hypotheses": {},
+                    "transitions": [],
                 }
                 progress_file.write_text(
                     json.dumps(progress_data, indent=2, ensure_ascii=False),

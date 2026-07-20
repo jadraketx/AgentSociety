@@ -3,6 +3,7 @@
 
 import argparse
 import dataclasses
+import inspect
 import json
 import os
 import re
@@ -10,7 +11,7 @@ import sqlite3
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -86,11 +87,17 @@ class _ArgumentParseError(Exception):
     pass
 
 
+class _ArgumentParseExit(Exception):
+    pass
+
+
 class _JsonArgumentParser(argparse.ArgumentParser):
     def error(self, message: str) -> None:
         raise _ArgumentParseError(message)
 
     def exit(self, status: int = 0, message: str | None = None) -> None:
+        if status == 0 and not message:
+            raise _ArgumentParseExit
         if message:
             raise _ArgumentParseError(message.strip())
         raise _ArgumentParseError(f"argument parsing exited with status {status}")
@@ -122,264 +129,119 @@ def _ok(**payload: Any) -> int:
     return 0
 
 
-def _error(message: str) -> int:
-    _emit({"success": False, "error": message})
+def _error(message: str, **payload: Any) -> int:
+    _emit({"success": False, "error": message, **payload})
     return 1
 
 
-def _build_parser() -> argparse.ArgumentParser:
+def _blocked_result(message: str, **payload: Any) -> dict[str, Any]:
+    return {"status": "BLOCKED", "error": message, **payload}
+
+
+def _failed_result(message: str, **payload: Any) -> dict[str, Any]:
+    return {"status": "FAILED", "error": message, **payload}
+
+
+def _emit_local_result(result: dict[str, Any]) -> int:
+    error = result.get("error")
+    if error:
+        return _error(
+            str(error),
+            **{key: value for key, value in result.items() if key != "error"},
+        )
+    return _ok(**result)
+
+
+def _eda_profile_choices() -> list[str]:
+    try:
+        from agentsociety2.skills.analysis.harness.capabilities import (
+            EDA_PROFILE_MODULES,
+        )
+
+        return list(EDA_PROFILE_MODULES)
+    except ImportError:
+        return [
+            "quick-stats",
+            "ydata",
+            "sweetviz",
+            "missingno",
+            "correlation",
+            "pygwalker",
+            "datatable",
+            "plotly-profile",
+            "eda-hub",
+            "bundle",
+        ]
+
+
+def _add_contract_input(
+    container: Any,
+    input_spec: Any,
+    *,
+    workspace_default: str,
+    in_group: bool = False,
+) -> None:
+    kwargs: dict[str, Any] = {"dest": input_spec.name}
+    if input_spec.action:
+        kwargs["action"] = input_spec.action
+    elif not in_group:
+        kwargs["required"] = input_spec.cli_required
+    if input_spec.default_source == "workspace":
+        kwargs["default"] = workspace_default
+    elif input_spec.default is not None:
+        kwargs["default"] = input_spec.default
+    if input_spec.choices:
+        kwargs["choices"] = list(input_spec.choices)
+    if input_spec.help:
+        kwargs["help"] = input_spec.help
+    container.add_argument(*input_spec.flags, **kwargs)
+
+
+def _build_parser_from_registry() -> argparse.ArgumentParser:
+    from agentsociety2.skills.analysis.harness.operations import operation_registry
+
     parser = _JsonArgumentParser(description="Analysis CLI tool layer")
     subparsers = parser.add_subparsers(dest="command", required=True)
     workspace_default = str(_default_workspace())
 
-    load_context_parser = subparsers.add_parser("load-context")
-    load_context_parser.add_argument("--workspace", default=workspace_default)
-    load_context_parser.add_argument("--hypothesis-id", required=True)
-    load_context_parser.add_argument("--experiment-id", required=True)
-
-    def _add_data_path_argument(parser: argparse.ArgumentParser) -> None:
-        parser.add_argument(
-            "--data-path",
-            "--db-path",
-            dest="data_path",
-            required=True,
-            help="Replay directory path; --db-path is accepted for legacy sqlite.db workflows",
+    for operation in operation_registry().values():
+        command_parser = subparsers.add_parser(
+            operation.id,
+            help=operation.summary,
+            description=operation.summary,
         )
-
-    list_tables_parser = subparsers.add_parser("list-tables")
-    _add_data_path_argument(list_tables_parser)
-
-    data_summary_parser = subparsers.add_parser("data-summary")
-    _add_data_path_argument(data_summary_parser)
-
-    query_data_parser = subparsers.add_parser("query-data")
-    _add_data_path_argument(query_data_parser)
-    query_data_parser.add_argument("--sql", required=True)
-
-    run_eda_parser = subparsers.add_parser("run-eda")
-    _add_data_path_argument(run_eda_parser)
-    run_eda_parser.add_argument("--output-dir", required=True)
-    run_eda_parser.add_argument(
-        "--type",
-        required=True,
-        choices=["ydata", "sweetviz", "missingno", "correlation", "quick-stats"],
-    )
-    run_eda_parser.add_argument("--tables")
-    run_eda_parser.add_argument("--workspace", default=workspace_default)
-    run_eda_parser.add_argument("--hypothesis-id")
-
-    collect_assets_parser = subparsers.add_parser("collect-assets")
-    collect_assets_parser.add_argument("--workspace", default=workspace_default)
-    collect_assets_parser.add_argument("--hypothesis-id", required=True)
-    collect_assets_parser.add_argument("--experiment-id", required=True)
-    collect_assets_parser.add_argument("--output-dir", required=True)
-    collect_assets_parser.add_argument("--charts-dir")
-    collect_assets_parser.add_argument("--filter")
-
-    compose_figure_parser = subparsers.add_parser("compose-figure")
-    compose_figure_parser.add_argument("--spec", required=True)
-
-    def _add_harness_workspace(parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--workspace", default=workspace_default)
-
-    intake_parser = subparsers.add_parser("intake")
-    _add_harness_workspace(intake_parser)
-    intake_parser.add_argument("--hypothesis-id", required=True)
-    intake_parser.add_argument("--experiment-id", required=True)
-
-    write_plan_parser = subparsers.add_parser("write-plan")
-    _add_harness_workspace(write_plan_parser)
-    write_plan_parser.add_argument("--hypothesis-id", required=True)
-    write_plan_parser.add_argument(
-        "--payload", required=True, help="JSON object or path to JSON file"
-    )
-
-    validate_plan_parser = subparsers.add_parser("validate-plan")
-    _add_harness_workspace(validate_plan_parser)
-    validate_plan_parser.add_argument("--hypothesis-id", required=True)
-
-    validate_explore_parser = subparsers.add_parser("validate-explore")
-    _add_harness_workspace(validate_explore_parser)
-    validate_explore_parser.add_argument("--hypothesis-id", required=True)
-    validate_explore_parser.add_argument("--experiment-id", required=True)
-
-    record_claim_parser = subparsers.add_parser("record-claim")
-    _add_harness_workspace(record_claim_parser)
-    record_claim_parser.add_argument("--hypothesis-id", required=True)
-    record_claim_parser.add_argument("--payload", required=True)
-
-    validate_claims_parser = subparsers.add_parser("validate-claims")
-    _add_harness_workspace(validate_claims_parser)
-    validate_claims_parser.add_argument("--hypothesis-id", required=True)
-
-    record_contract_parser = subparsers.add_parser("record-contract")
-    _add_harness_workspace(record_contract_parser)
-    record_contract_parser.add_argument("--hypothesis-id", required=True)
-    record_contract_parser.add_argument("--payload", required=True)
-
-    validate_chart_parser = subparsers.add_parser("validate-chart")
-    _add_harness_workspace(validate_chart_parser)
-    validate_chart_parser.add_argument("--hypothesis-id", required=True)
-    validate_chart_parser.add_argument("--chart-path")
-    validate_chart_parser.add_argument("--code")
-
-    validate_refine_parser = subparsers.add_parser(
-        "validate-refine",
-        help="Holistic refine gate (contracts + chart files on disk)",
-    )
-    _add_harness_workspace(validate_refine_parser)
-    validate_refine_parser.add_argument("--hypothesis-id", required=True)
-
-    sync_assets_parser = subparsers.add_parser(
-        "sync-report-assets",
-        help="Copy report-referenced images from charts/ into assets/",
-    )
-    _add_harness_workspace(sync_assets_parser)
-    sync_assets_parser.add_argument("--hypothesis-id", required=True)
-    sync_assets_parser.add_argument("--experiment-id", required=True)
-
-    validate_release_parser = subparsers.add_parser("validate-release")
-    _add_harness_workspace(validate_release_parser)
-    validate_release_parser.add_argument("--hypothesis-id", required=True)
-    validate_release_parser.add_argument("--experiment-id", required=True)
-
-    validate_rq_parser = subparsers.add_parser(
-        "validate-report-quality",
-        help="Mechanical narrative quality checks (no independent review file)",
-    )
-    _add_harness_workspace(validate_rq_parser)
-    validate_rq_parser.add_argument("--hypothesis-id", required=True)
-    validate_rq_parser.add_argument("--experiment-id", required=True)
-
-    record_rr_parser = subparsers.add_parser(
-        "record-report-review",
-        help="Store independent LLM review (report_review.json)",
-    )
-    _add_harness_workspace(record_rr_parser)
-    record_rr_parser.add_argument("--hypothesis-id", required=True)
-    record_rr_parser.add_argument("--experiment-id", required=True)
-    record_rr_parser.add_argument("--payload", required=True)
-
-    record_sr_parser = subparsers.add_parser(
-        "record-synthesis-review",
-        help="Store independent synthesis review (synthesis_review.json)",
-    )
-    _add_harness_workspace(record_sr_parser)
-    record_sr_parser.add_argument("--payload", required=True)
-
-    validate_synthesis_parser = subparsers.add_parser("validate-synthesis")
-    _add_harness_workspace(validate_synthesis_parser)
-
-    validate_parser = subparsers.add_parser("validate")
-    _add_harness_workspace(validate_parser)
-    validate_parser.add_argument("--hypothesis-id", required=True)
-    validate_parser.add_argument("--experiment-id", required=True)
-
-    advance_parser = subparsers.add_parser("advance")
-    _add_harness_workspace(advance_parser)
-    advance_parser.add_argument("--hypothesis-id", required=True)
-    advance_parser.add_argument("--experiment-id", required=True)
-    advance_parser.add_argument("--phase", required=True)
-
-    status_parser = subparsers.add_parser("status")
-    _add_harness_workspace(status_parser)
-    status_parser.add_argument("--hypothesis-id")
-
-    run_loop_parser = subparsers.add_parser("run-loop")
-    _add_harness_workspace(run_loop_parser)
-    run_loop_parser.add_argument("--hypothesis-id", required=True)
-    run_loop_parser.add_argument("--experiment-id", required=True)
-
-    record_att_parser = subparsers.add_parser("record-attestation")
-    _add_harness_workspace(record_att_parser)
-    record_att_parser.add_argument("--hypothesis-id")
-    record_att_parser.add_argument("--payload", required=True)
-
-    build_ctx_parser = subparsers.add_parser(
-        "build-report-context",
-        help="Aggregate EDA/charts/claims into data/evidence_index.json and report_context.md",
-    )
-    _add_harness_workspace(build_ctx_parser)
-    build_ctx_parser.add_argument("--hypothesis-id", required=True)
-
-    record_art_parser = subparsers.add_parser("record-phase-artifacts")
-    _add_harness_workspace(record_art_parser)
-    record_art_parser.add_argument("--hypothesis-id", required=True)
-    record_art_parser.add_argument("--phase", required=True)
-    record_art_parser.add_argument(
-        "--artifacts", required=True, help="JSON array of file paths"
-    )
-
-    gate_status_parser = subparsers.add_parser("gate-status")
-    _add_harness_workspace(gate_status_parser)
-    gate_status_parser.add_argument("--hypothesis-id")
-
-    draft_reflection_parser = subparsers.add_parser(
-        "draft-reflection",
-        help="Create a reviewable post-run learning draft from harness state",
-    )
-    _add_harness_workspace(draft_reflection_parser)
-    draft_reflection_parser.add_argument("--hypothesis-id", required=True)
-    draft_reflection_parser.add_argument("--experiment-id", required=True)
-
-    record_reflection_parser = subparsers.add_parser(
-        "record-reflection",
-        help="Store a reviewed reflection report before promotion",
-    )
-    _add_harness_workspace(record_reflection_parser)
-    record_reflection_parser.add_argument("--hypothesis-id")
-    record_reflection_parser.add_argument("--payload", required=True)
-
-    record_feedback_parser = subparsers.add_parser(
-        "record-feedback",
-        help="Store user post-analysis feedback for reflection and memory promotion",
-    )
-    _add_harness_workspace(record_feedback_parser)
-    record_feedback_parser.add_argument("--hypothesis-id")
-    record_feedback_parser.add_argument("--payload", required=True)
-
-    review_reflection_parser = subparsers.add_parser(
-        "review-reflection",
-        help="Run pre-promotion review over reflection and feedback records",
-    )
-    _add_harness_workspace(review_reflection_parser)
-    review_reflection_parser.add_argument("--hypothesis-id")
-    review_reflection_parser.add_argument(
-        "--include-preferences",
-        action="store_true",
-        help="Check whether preference promotion has explicit feedback evidence",
-    )
-
-    promote_reflection_parser = subparsers.add_parser(
-        "promote-reflection",
-        help="Promote reviewed lessons/recipes/preferences into workspace memory",
-    )
-    _add_harness_workspace(promote_reflection_parser)
-    promote_reflection_parser.add_argument("--hypothesis-id")
-    promote_reflection_parser.add_argument(
-        "--include-preferences",
-        action="store_true",
-        help="Promote preference candidates only after explicit user confirmation",
-    )
-    promote_reflection_parser.add_argument(
-        "--skip-recipes",
-        action="store_true",
-        help="Do not write method recipe markdown files",
-    )
-    promote_reflection_parser.add_argument(
-        "--skip-lessons",
-        action="store_true",
-        help="Do not append project lessons JSONL records",
-    )
-
-    memory_context_parser = subparsers.add_parser(
-        "memory-context",
-        help="Show active experience memory injected into analysis orchestration",
-    )
-    _add_harness_workspace(memory_context_parser)
-    memory_context_parser.add_argument("--hypothesis-id")
-
+        input_by_name = {input_spec.name: input_spec for input_spec in operation.inputs}
+        grouped_inputs: set[str] = set()
+        for input_group in operation.input_groups:
+            argument_group = command_parser.add_mutually_exclusive_group(
+                required=input_group.required
+            )
+            for member in input_group.members:
+                _add_contract_input(
+                    argument_group,
+                    input_by_name[member],
+                    workspace_default=workspace_default,
+                    in_group=True,
+                )
+                grouped_inputs.add(member)
+        for input_spec in operation.inputs:
+            if input_spec.name in grouped_inputs:
+                continue
+            _add_contract_input(
+                command_parser,
+                input_spec,
+                workspace_default=workspace_default,
+            )
+        command_parser.add_argument(
+            "--dry-run",
+            action="store_true",
+            help="Evaluate operation availability without executing the handler",
+        )
     return parser
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    return _build_parser_from_registry()
 
 
 def _parse_csv_list(raw_value: str | None) -> list[str] | None:
@@ -469,9 +331,7 @@ def _validate_plotting_conventions(code: str) -> None:
         missing.append('`svg.fonttype = "none"`')
 
     if missing:
-        raise ValueError(
-            "Plotting script must include: " + "; ".join(missing)
-        )
+        raise ValueError("Plotting script must include: " + "; ".join(missing))
 
 
 def _filter_assets_with_companions(
@@ -769,22 +629,48 @@ def _compose_figure(spec_path: Path) -> dict[str, Any]:
     }
 
 
+def _experiment_data_paths(
+    workspace: Path,
+    hypothesis_id: str,
+    experiment_id: str,
+) -> dict[str, Path]:
+    run_dir = (
+        workspace
+        / f"hypothesis_{hypothesis_id}"
+        / f"experiment_{experiment_id}"
+        / "run"
+    )
+    replay_path = run_dir / "replay"
+    sqlite_path = run_dir / "sqlite.db"
+    if (replay_path / "_schema.json").is_file():
+        data_path = replay_path
+    elif sqlite_path.is_file():
+        data_path = sqlite_path
+    elif replay_path.is_dir():
+        data_path = replay_path
+    else:
+        data_path = replay_path
+    return {
+        "data_path": data_path,
+        "db_path": data_path,
+        "replay_path": replay_path,
+        "sqlite_path": sqlite_path,
+    }
+
+
 def _run_load_context(args: argparse.Namespace) -> int:
     _ensure_analysis_dependencies()
     workspace = Path(args.workspace)
     context = ContextLoader(workspace).load_context(
         args.hypothesis_id, args.experiment_id
     )
-    data_path = (
-        workspace
-        / f"hypothesis_{context.hypothesis_id}"
-        / f"experiment_{context.experiment_id}"
-        / "run"
-        / "replay"
-    )
     return _ok(
         context=context,
-        paths={"data_path": data_path, "db_path": data_path},
+        paths=_experiment_data_paths(
+            workspace,
+            str(context.hypothesis_id),
+            str(context.experiment_id),
+        ),
     )
 
 
@@ -841,8 +727,20 @@ def _run_query_data(args: argparse.Namespace) -> int:
     return _ok(columns=columns, rows=rows, count=len(rows))
 
 
-def _run_eda(args: argparse.Namespace) -> int:
+def _execute_eda(args: argparse.Namespace) -> dict[str, Any]:
     _ensure_analysis_dependencies()
+    from agentsociety2.skills.analysis.harness.capabilities import (
+        get_eda_capability_status,
+    )
+
+    capability = get_eda_capability_status(args.type)
+    capability_data = capability.model_dump(mode="json")
+    if capability.state != "available":
+        return _blocked_result(
+            f"run-eda --type {args.type} is {capability.state}: {capability.detail}",
+            capability=capability_data,
+        )
+
     db_path = Path(args.data_path)
     output_dir = Path(args.output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -858,7 +756,7 @@ def _run_eda(args: argparse.Namespace) -> int:
 
     if requested_tables and not selected_tables:
         requested = ", ".join(requested_tables)
-        return _error(
+        return _blocked_result(
             f"run-eda: none of the requested tables are available: {requested}"
         )
 
@@ -868,31 +766,90 @@ def _run_eda(args: argparse.Namespace) -> int:
         quick_stats_path.write_text(content or "", encoding="utf-8")
         files = [str(quick_stats_path)]
         _maybe_record_eda_artifacts(args, files)
-        return _ok(
-            type=args.type,
-            files=files,
-            content=content or "",
-            requested_tables=requested_tables,
-            selected_tables=selected_tables,
-            invalid_tables=invalid_tables,
+        return {
+            "type": args.type,
+            "files": files,
+            "content": content or "",
+            "capability": capability_data,
+            "requested_tables": requested_tables,
+            "selected_tables": selected_tables,
+            "invalid_tables": invalid_tables,
+        }
+
+    if args.type == "eda-hub":
+        output_path = generator.generate_eda_hub(output_dir)
+        files = [str(output_path)]
+        _maybe_record_eda_artifacts(args, files)
+        return {
+            "type": args.type,
+            "files": files,
+            "capability": capability_data,
+            "requested_tables": requested_tables,
+            "selected_tables": selected_tables,
+            "invalid_tables": invalid_tables,
+        }
+
+    if args.type == "bundle":
+        profiles = _parse_csv_list(args.profiles)
+        unknown_profiles = sorted(set(profiles or []) - set(_eda_profile_choices()))
+        if unknown_profiles:
+            return _blocked_result(
+                "run-eda --profiles contains unknown profile(s): "
+                + ", ".join(unknown_profiles),
+                capability=capability_data,
+            )
+        files, hub = generator.generate_eda_bundle(
+            db_path,
+            output_dir,
+            profiles=profiles,
+            tables=selected_tables,
         )
+        if not files:
+            return _failed_result(
+                "run-eda --type bundle did not produce any artifacts",
+                capability={**capability_data, "state": "unhealthy"},
+            )
+        _maybe_record_eda_artifacts(args, files)
+        return {
+            "type": args.type,
+            "files": files,
+            "hub": str(hub) if hub else None,
+            "profiles": profiles,
+            "capability": capability_data,
+            "requested_tables": requested_tables,
+            "selected_tables": selected_tables,
+            "invalid_tables": invalid_tables,
+        }
 
     method_map = {
         "ydata": generator.generate_ydata_profile,
         "sweetviz": generator.generate_sweetviz_profile,
         "missingno": generator.generate_missingno_report,
         "correlation": generator.generate_correlation_report,
+        "pygwalker": generator.generate_pygwalker_profile,
+        "datatable": generator.generate_datatable_profile,
+        "plotly-profile": generator.generate_plotly_profile,
     }
     output_path = method_map[args.type](db_path, output_dir, tables=selected_tables)
+    if output_path is None:
+        return _failed_result(
+            f"run-eda --type {args.type} did not produce an artifact",
+            capability={**capability_data, "state": "unhealthy"},
+        )
     files = [str(output_path)] if output_path else []
     _maybe_record_eda_artifacts(args, files)
-    return _ok(
-        type=args.type,
-        files=files,
-        requested_tables=requested_tables,
-        selected_tables=selected_tables,
-        invalid_tables=invalid_tables,
-    )
+    return {
+        "type": args.type,
+        "files": files,
+        "capability": capability_data,
+        "requested_tables": requested_tables,
+        "selected_tables": selected_tables,
+        "invalid_tables": invalid_tables,
+    }
+
+
+def _run_eda(args: argparse.Namespace) -> int:
+    return _emit_local_result(_execute_eda(args))
 
 
 def _maybe_record_eda_artifacts(args: argparse.Namespace, files: list[str]) -> None:
@@ -906,13 +863,15 @@ def _maybe_record_eda_artifacts(args: argparse.Namespace, files: list[str]) -> N
         args.hypothesis_id,
         "explore",
         files,
+        merge=True,
     )
 
 
-def _run_collect_assets(args: argparse.Namespace) -> int:
+def _execute_collect_assets(args: argparse.Namespace) -> dict[str, Any]:
     _ensure_analysis_dependencies()
-    output_dir = Path(args.output_dir)
-    output_dir.mkdir(parents=True, exist_ok=True)
+    requested_output_dir = Path(args.output_dir)
+    report_dir, assets_dir = _collect_assets_output_dirs(requested_output_dir)
+    report_dir.mkdir(parents=True, exist_ok=True)
 
     asset_manager = AssetManager(Path(args.workspace))
     assets = asset_manager.discover_assets(args.experiment_id, args.hypothesis_id)
@@ -941,14 +900,36 @@ def _run_collect_assets(args: argparse.Namespace) -> int:
     if selected_names:
         assets = _filter_assets_with_companions(assets, selected_names)
 
-    processed = asset_manager.process_assets(assets, output_dir)
-    return _ok(assets=processed)
+    include_embedded_data = bool(getattr(args, "include_embedded_data", False))
+    processed = asset_manager.process_assets(
+        assets,
+        report_dir,
+        include_embedded_data=include_embedded_data,
+    )
+    return {
+        "assets": processed,
+        "asset_count": len(processed),
+        "assets_dir": str(assets_dir.resolve()),
+        "embedded_data_included": include_embedded_data,
+    }
+
+
+def _collect_assets_output_dirs(output_dir: Path) -> tuple[Path, Path]:
+    report_dir = output_dir.parent if output_dir.name == "assets" else output_dir
+    return report_dir, report_dir / "assets"
+
+
+def _run_collect_assets(args: argparse.Namespace) -> int:
+    return _emit_local_result(_execute_collect_assets(args))
+
+
+def _execute_compose_figure(args: argparse.Namespace) -> dict[str, Any]:
+    spec_path = Path(args.spec).resolve()
+    return _compose_figure(spec_path)
 
 
 def _run_compose_figure(args: argparse.Namespace) -> int:
-    spec_path = Path(args.spec).resolve()
-    result = _compose_figure(spec_path)
-    return _ok(**result)
+    return _emit_local_result(_execute_compose_figure(args))
 
 
 def _load_json_payload(raw: str) -> dict[str, Any]:
@@ -957,248 +938,292 @@ def _load_json_payload(raw: str) -> dict[str, Any]:
     return load_dict_payload(raw)
 
 
-def _dispatch_harness(args: argparse.Namespace) -> int:
-    from agentsociety2.skills.analysis.harness import cli as harness_cli
+def _operation_preflight(args: argparse.Namespace):
+    from agentsociety2.skills.analysis.harness import state as harness_state
+    from agentsociety2.skills.analysis.harness.capabilities import capability_payload
+    from agentsociety2.skills.analysis.harness.models import ReleaseStatus
+    from agentsociety2.skills.analysis.harness.operations import get_operation_spec
+    from agentsociety2.skills.analysis.harness.preflight import (
+        evaluate_operation_availability,
+    )
 
-    workspace = Path(args.workspace)
-    cmd = args.command
-    if cmd == "intake":
-        return _ok(
-            **harness_cli.cmd_intake(workspace, args.hypothesis_id, args.experiment_id)
+    operation = get_operation_spec(args.command)
+    values = vars(args)
+    phase = None
+    current_gate_pass = False
+    passed_gates: set[str] = set()
+    workspace_value = values.get("workspace")
+    hypothesis_id = values.get("hypothesis_id")
+    if workspace_value and hypothesis_id:
+        workspace = Path(workspace_value)
+        state = harness_state.load_hypothesis_state(workspace, hypothesis_id)
+        phase = state.current_phase.value
+        passed_gates = {
+            checkpoint_phase
+            for checkpoint_phase, checkpoint in state.phase_checkpoints.items()
+            if checkpoint.gate_pass
+        }
+        checkpoint = state.phase_checkpoints.get(phase)
+        current_gate_pass = bool(checkpoint and checkpoint.gate_pass)
+        if (
+            state.hypothesis_release == ReleaseStatus.ready
+            and "synthesis" in operation.phases
+        ):
+            phase = "synthesis"
+    elif workspace_value and "synthesis" in operation.phases:
+        workspace = Path(workspace_value)
+        synthesis_state = harness_state.load_synthesis_state(workspace)
+        scope = synthesis_state.synthesis_scope_hypothesis_ids
+        if scope and all(
+            harness_state.load_hypothesis_state(
+                workspace, hypothesis_id
+            ).hypothesis_release
+            == ReleaseStatus.ready
+            for hypothesis_id in scope
+        ):
+            passed_gates.add("produce")
+        phase = "synthesis"
+
+    capability_states = {item["id"]: item["state"] for item in capability_payload()}
+    return evaluate_operation_availability(
+        operation,
+        phase=phase,
+        passed_gates=passed_gates,
+        current_gate_pass=current_gate_pass,
+        capability_states=capability_states,
+        values=values,
+    )
+
+
+def _load_json_array(raw: str) -> list[Any]:
+    from agentsociety2.skills.analysis.harness.json_io import (
+        loads_json_file,
+        loads_json_text,
+    )
+
+    stripped = raw.lstrip()
+    if stripped.startswith("["):
+        value = loads_json_text(raw)
+    else:
+        path = Path(raw)
+        try:
+            is_file = path.is_file()
+        except OSError:
+            is_file = False
+        value = loads_json_file(path) if is_file else loads_json_text(raw)
+    if not isinstance(value, list):
+        raise ValueError("payload must be a JSON array")
+    return value
+
+
+def _handler_argument(
+    parameter_name: str,
+    args: argparse.Namespace,
+) -> Any:
+    source_name = "phase" if parameter_name == "target" else parameter_name
+    if parameter_name == "include_recipes":
+        return not args.skip_recipes
+    if parameter_name == "include_lessons":
+        return not args.skip_lessons
+    value = getattr(args, source_name)
+    if parameter_name == "workspace":
+        return Path(value)
+    if parameter_name == "payload":
+        return _load_json_payload(value)
+    if parameter_name == "artifacts":
+        return _load_json_array(value)
+    if parameter_name == "code" and value:
+        path = Path(value)
+        try:
+            is_file = path.is_file()
+        except OSError:
+            is_file = False
+        if is_file:
+            return path.read_text(encoding="utf-8")
+    return value
+
+
+def _invoke_harness_from_registry(args: argparse.Namespace) -> dict[str, Any]:
+    from agentsociety2.skills.analysis.harness import cli as harness_cli
+    from agentsociety2.skills.analysis.harness.operations import get_operation_spec
+
+    operation = get_operation_spec(args.command)
+    handler_name = f"cmd_{operation.handler.replace('-', '_')}"
+    handler = getattr(harness_cli, handler_name, None)
+    if handler is None:
+        raise RuntimeError(f"analysis handler is not registered: {operation.handler}")
+    call_args: dict[str, Any] = {}
+    for parameter in inspect.signature(handler).parameters.values():
+        if parameter.kind in {
+            inspect.Parameter.VAR_POSITIONAL,
+            inspect.Parameter.VAR_KEYWORD,
+        }:
+            continue
+        source_name = "phase" if parameter.name == "target" else parameter.name
+        if parameter.name in {"include_recipes", "include_lessons"}:
+            call_args[parameter.name] = _handler_argument(parameter.name, args)
+            continue
+        if not hasattr(args, source_name):
+            if parameter.default is inspect.Parameter.empty:
+                raise RuntimeError(
+                    f"handler {handler_name} requires unmapped input: {parameter.name}"
+                )
+            continue
+        call_args[parameter.name] = _handler_argument(parameter.name, args)
+    return handler(**call_args)
+
+
+def _invoke_local_mutating_from_registry(
+    args: argparse.Namespace,
+) -> dict[str, Any]:
+    from agentsociety2.skills.analysis.harness.operations import get_operation_spec
+
+    operation = get_operation_spec(args.command)
+    handlers = {
+        "eda": _execute_eda,
+        "collect-assets": _execute_collect_assets,
+        "compose-figure": _execute_compose_figure,
+    }
+    handler = handlers.get(operation.handler)
+    if handler is None:
+        raise RuntimeError(
+            f"local mutating handler is not registered: {operation.handler}"
         )
-    if cmd == "write-plan":
-        return _ok(
-            **harness_cli.cmd_write_plan(
-                workspace, args.hypothesis_id, _load_json_payload(args.payload)
-            )
-        )
-    if cmd == "validate-plan":
-        return _ok(**harness_cli.cmd_validate_plan(workspace, args.hypothesis_id))
-    if cmd == "validate-explore":
-        return _ok(
-            **harness_cli.cmd_validate_explore(
-                workspace, args.hypothesis_id, args.experiment_id
-            )
-        )
-    if cmd == "record-claim":
-        return _ok(
-            **harness_cli.cmd_record_claim(
-                workspace, args.hypothesis_id, _load_json_payload(args.payload)
-            )
-        )
-    if cmd == "validate-claims":
-        return _ok(**harness_cli.cmd_validate_claims(workspace, args.hypothesis_id))
-    if cmd == "record-contract":
-        return _ok(
-            **harness_cli.cmd_record_contract(
-                workspace, args.hypothesis_id, _load_json_payload(args.payload)
-            )
-        )
-    if cmd == "validate-chart":
-        return _ok(
-            **harness_cli.cmd_validate_chart(
-                workspace,
-                args.hypothesis_id,
-                chart_path=args.chart_path,
-                code=(
-                    Path(args.code).read_text(encoding="utf-8")
-                    if args.code and Path(args.code).exists()
-                    else args.code
-                ),
-            )
-        )
-    if cmd == "validate-refine":
-        return _ok(**harness_cli.cmd_validate_refine(workspace, args.hypothesis_id))
-    if cmd == "build-report-context":
-        return _ok(
-            **harness_cli.cmd_build_report_context(workspace, args.hypothesis_id)
-        )
-    if cmd == "validate-report-quality":
-        return _ok(
-            **harness_cli.cmd_validate_report_quality(
-                workspace, args.hypothesis_id, args.experiment_id
-            )
-        )
-    if cmd == "record-report-review":
-        return _ok(
-            **harness_cli.cmd_record_report_review(
-                workspace,
-                args.hypothesis_id,
-                args.experiment_id,
-                _load_json_payload(args.payload),
-            )
-        )
-    if cmd == "record-synthesis-review":
-        return _ok(
-            **harness_cli.cmd_record_synthesis_review(
-                workspace,
-                _load_json_payload(args.payload),
-            )
-        )
-    if cmd == "sync-report-assets":
-        return _ok(
-            **harness_cli.cmd_sync_report_assets(
-                workspace, args.hypothesis_id, args.experiment_id
-            )
-        )
-    if cmd == "validate-release":
-        return _ok(
-            **harness_cli.cmd_validate_release(
-                workspace, args.hypothesis_id, args.experiment_id
-            )
-        )
-    if cmd == "validate-synthesis":
-        return _ok(**harness_cli.cmd_validate_synthesis(workspace))
-    if cmd == "validate":
-        return _ok(
-            **harness_cli.cmd_validate(
-                workspace, args.hypothesis_id, args.experiment_id
-            )
-        )
-    if cmd == "advance":
-        result = harness_cli.cmd_advance(
-            workspace, args.hypothesis_id, args.experiment_id, args.phase
-        )
-        if result.get("error"):
-            return _error(result["error"])
-        return _ok(**result)
-    if cmd == "status":
-        return _ok(
-            **harness_cli.cmd_status(workspace, getattr(args, "hypothesis_id", None))
-        )
-    if cmd == "run-loop":
-        return _ok(
-            **harness_cli.cmd_run_loop(
-                workspace, args.hypothesis_id, args.experiment_id
-            )
-        )
-    if cmd == "record-attestation":
-        return _ok(
-            **harness_cli.cmd_record_attestation(
-                workspace,
-                getattr(args, "hypothesis_id", None),
-                _load_json_payload(args.payload),
-            )
-        )
-    if cmd == "record-phase-artifacts":
-        artifacts = _load_json_payload(args.artifacts)
-        if not isinstance(artifacts, list):
-            return _error("artifacts must be a JSON array of paths")
-        return _ok(
-            **harness_cli.cmd_record_phase_artifacts(
-                workspace, args.hypothesis_id, args.phase, artifacts
-            )
-        )
-    if cmd == "gate-status":
-        return _ok(
-            **harness_cli.cmd_gate_status(
-                workspace, getattr(args, "hypothesis_id", None)
-            )
-        )
-    if cmd == "draft-reflection":
-        return _ok(
-            **harness_cli.cmd_draft_reflection(
-                workspace, args.hypothesis_id, args.experiment_id
-            )
-        )
-    if cmd == "record-reflection":
-        return _ok(
-            **harness_cli.cmd_record_reflection(
-                workspace,
-                getattr(args, "hypothesis_id", None),
-                _load_json_payload(args.payload),
-            )
-        )
-    if cmd == "record-feedback":
-        return _ok(
-            **harness_cli.cmd_record_feedback(
-                workspace,
-                getattr(args, "hypothesis_id", None),
-                _load_json_payload(args.payload),
-            )
-        )
-    if cmd == "review-reflection":
-        return _ok(
-            **harness_cli.cmd_review_reflection(
-                workspace,
-                getattr(args, "hypothesis_id", None),
-                include_preferences=args.include_preferences,
-            )
-        )
-    if cmd == "promote-reflection":
-        return _ok(
-            **harness_cli.cmd_promote_reflection(
-                workspace,
-                getattr(args, "hypothesis_id", None),
-                include_preferences=args.include_preferences,
-                include_recipes=not args.skip_recipes,
-                include_lessons=not args.skip_lessons,
-            )
-        )
-    if cmd == "memory-context":
-        return _ok(
-            **harness_cli.cmd_memory_context(
-                workspace, getattr(args, "hypothesis_id", None)
-            )
-        )
-    return _error(f"unknown harness command: {cmd}")
+    return handler(args)
+
+
+def _emit_operation_outcome(outcome: Any) -> int:
+    payload = {
+        **outcome.result,
+        "success": outcome.success,
+        "outcome": outcome.model_dump(mode="json"),
+    }
+    if outcome.error is not None:
+        payload["error"] = outcome.error.message
+    _emit(payload)
+    return outcome.exit_code
+
+
+def _dispatch_operation(
+    args: argparse.Namespace,
+    *,
+    invoke: Callable[[], dict[str, Any]],
+    preflight: Any = None,
+    persist_receipt: bool = False,
+) -> int:
+    from agentsociety2.skills.analysis.harness.execution import execute_operation
+    from agentsociety2.skills.analysis.harness.operations import get_operation_spec
+
+    operation = get_operation_spec(args.command)
+    workspace_value = getattr(args, "workspace", None)
+    workspace = Path(workspace_value) if workspace_value else None
+    outcome = execute_operation(
+        operation,
+        workspace=workspace,
+        values=vars(args),
+        preflight=preflight,
+        invoke=invoke,
+        persist_receipt=persist_receipt,
+    )
+    return _emit_operation_outcome(outcome)
+
+
+def _dispatch_harness_from_registry(
+    args: argparse.Namespace,
+    *,
+    preflight: Any = None,
+    persist_receipt: bool = False,
+) -> int:
+    return _dispatch_operation(
+        args,
+        invoke=lambda: _invoke_harness_from_registry(args),
+        preflight=preflight,
+        persist_receipt=persist_receipt,
+    )
+
+
+def _dispatch_local_mutating_from_registry(
+    args: argparse.Namespace,
+    *,
+    preflight: Any = None,
+    persist_receipt: bool = False,
+) -> int:
+    return _dispatch_operation(
+        args,
+        invoke=lambda: _invoke_local_mutating_from_registry(args),
+        preflight=preflight,
+        persist_receipt=persist_receipt,
+    )
+
+
+def _dispatch_harness(args: argparse.Namespace) -> int:
+    return _dispatch_harness_from_registry(args)
 
 
 def main() -> int:
     try:
         parser = _build_parser()
         args = parser.parse_args()
+        from agentsociety2.skills.analysis.harness.operations import (
+            get_operation_spec,
+        )
 
-        if args.command == "load-context":
-            return _run_load_context(args)
-        if args.command == "list-tables":
-            return _run_list_tables(args)
-        if args.command == "data-summary":
-            return _run_data_summary(args)
-        if args.command == "query-data":
-            return _run_query_data(args)
-        if args.command == "run-eda":
-            return _run_eda(args)
-        if args.command == "collect-assets":
-            return _run_collect_assets(args)
-        if args.command == "compose-figure":
-            return _run_compose_figure(args)
-        harness_commands = {
-            "intake",
-            "write-plan",
-            "validate-plan",
-            "validate-explore",
-            "record-claim",
-            "validate-claims",
-            "record-contract",
-            "validate-chart",
-            "validate-refine",
-            "sync-report-assets",
-            "validate-release",
-            "validate-report-quality",
-            "record-report-review",
-            "record-synthesis-review",
-            "validate-synthesis",
-            "validate",
-            "advance",
-            "status",
-            "run-loop",
-            "record-attestation",
-            "record-phase-artifacts",
-            "build-report-context",
-            "gate-status",
-            "draft-reflection",
-            "record-reflection",
-            "promote-reflection",
-            "memory-context",
-            "record-feedback",
-            "review-reflection",
+        operation = get_operation_spec(args.command)
+        preflight = _operation_preflight(args)
+        preflight_payload = preflight.model_dump(mode="json")
+        if args.dry_run:
+            payload: dict[str, Any] = {
+                "operation": operation.model_dump(mode="json"),
+                "preflight": preflight_payload,
+            }
+            if preflight.available:
+                from agentsociety2.skills.analysis.harness import cli as harness_cli
+
+                handler = getattr(
+                    harness_cli,
+                    f"cmd_{operation.handler.replace('-', '_')}",
+                    None,
+                )
+                if (
+                    handler is not None
+                    and "dry_run" in inspect.signature(handler).parameters
+                ):
+                    payload["execution_plan"] = _invoke_harness_from_registry(args)
+            return _ok(**payload)
+        read_only_local_handlers = {
+            "load-context",
+            "list-tables",
+            "data-summary",
+            "query-data",
         }
-        if args.command in harness_commands:
-            return _dispatch_harness(args)
-        return _error(f"unknown command: {args.command}")
+        mutating_local_handlers = {
+            "eda",
+            "collect-assets",
+            "compose-figure",
+        }
+        if operation.handler in read_only_local_handlers:
+            if not preflight.available:
+                return _error(
+                    f"operation {operation.id} is not available: {preflight.status}",
+                    preflight=preflight_payload,
+                )
+            handler = globals()[f"_run_{operation.handler.replace('-', '_')}"]
+            return handler(args)
+        if operation.handler in mutating_local_handlers:
+            return _dispatch_local_mutating_from_registry(
+                args,
+                preflight=preflight,
+                persist_receipt=True,
+            )
+        return _dispatch_harness_from_registry(
+            args,
+            preflight=preflight,
+            persist_receipt=True,
+        )
     except _ArgumentParseError as exc:
         return _error(str(exc))
+    except _ArgumentParseExit:
+        return 0
     except FileNotFoundError as exc:
         return _error(str(exc))
     except sqlite3.Error as exc:

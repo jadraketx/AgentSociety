@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import List, Set
+from typing import List, Set, Type, TypeVar
+
+from pydantic import BaseModel
 
 from agentsociety2.skills.analysis.harness.json_io import load_model_from_file
 from agentsociety2.skills.analysis.harness.layout import list_presentation_layout_issues
 from agentsociety2.skills.analysis.harness.report_assets import (
     charts_path_refs_in_reports,
-    sync_report_assets_from_reports,
 )
 from agentsociety2.skills.analysis.harness.schemas import (
     REPORT_SECTION_IDS,
@@ -29,8 +30,12 @@ HTML_IMG_SRC_RE = re.compile(
     re.IGNORECASE,
 )
 
+ModelT = TypeVar("ModelT", bound=BaseModel)
 
-def _load_json_model(path: Path, model, label: str) -> tuple[object | None, List]:
+
+def _load_json_model(
+    path: Path, model: Type[ModelT], label: str
+) -> tuple[ModelT | None, List]:
     if not path.exists():
         return None, [
             issue(
@@ -61,7 +66,6 @@ def _load_json_model(path: Path, model, label: str) -> tuple[object | None, List
 
 def validate_release(presentation_dir: Path) -> ValidationResult:
     issues: List = []
-    sync_report_assets_from_reports(presentation_dir)
     for raw in charts_path_refs_in_reports(presentation_dir):
         issues.append(
             issue(

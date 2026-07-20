@@ -1,13 +1,40 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import tempfile
 from typing import Any, Type, TypeVar
 
 import json_repair
 from pydantic import BaseModel, ValidationError
 
 T = TypeVar("T", bound=BaseModel)
+
+
+def atomic_write_json(path: Path, payload: Any) -> None:
+    """Atomically replace a JSON file after flushing its temporary file."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    serialized = json.dumps(payload, ensure_ascii=False, indent=2, default=str)
+    temp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_file.write(serialized)
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+            temp_path = Path(temp_file.name)
+        os.replace(temp_path, path)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
 
 
 def loads_json_text(text: str) -> Any:

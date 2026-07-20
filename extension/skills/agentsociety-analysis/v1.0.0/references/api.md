@@ -163,7 +163,7 @@ Useful for scatter or dense distribution charts when full rendering adds clutter
 - chart script: `chart_{nn}_{description}.py`
 - composite spec: `figure_{nn}_{description}.json`
 
-Keep these aligned with `references/output-conventions.md`.
+Keep these aligned with `references/harness-contract.md`.
 
 ## Experience Memory Commands
 

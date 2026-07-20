@@ -7,8 +7,8 @@ Read `support/frontend-design/SKILL.md` (or `.claude/skills/agentsociety-analysi
 | Task                                | Skills                                                                                                     |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `report_zh.html` / `report_en.html` | **agentsociety-analysis** + **report-blocks** + **frontend-design** (this bridge)                          |
-| IDE metric exploration              | Cursor **canvas** skill — see `canvas-vs-disk-report.md`                                                   |
-| `presentation/.../data/eda_*.html`  | Already interactive (ydata/Sweetviz); embed via iframe per agentsociety-analysis `html-interactive-eda.md` |
+| IDE metric exploration              | Cursor **canvas** skill — see `references/reports.md` for the canvas-vs-disk boundary                      |
+| `presentation/.../data/eda_*.html`  | Already interactive (ydata/Sweetviz); embed via iframe per agentsociety-analysis `references/eda.md` |
 | Marketing site / dashboard          | frontend-design only                                                                                       |
 
 ## Non-negotiable analysis constraints (override frontend-design defaults)

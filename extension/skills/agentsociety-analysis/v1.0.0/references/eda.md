@@ -51,7 +51,7 @@ uv sync --extra analysis
 UV_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple uv pip install plotly pygwalker
 ```
 
-Missing optional deps → warning + skip profile; bundle continues.
+`intake`, `status`, and `run-loop` expose capability state as `available`, `missing_dependency`, `unhealthy`, or `disabled`. A direct unavailable profile fails explicitly; `bundle` reports and skips unavailable optional profiles while continuing with its available core.
 
 ## Embed in HTML reports (Stage 5)
 

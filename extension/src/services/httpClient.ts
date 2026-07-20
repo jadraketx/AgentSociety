@@ -6,6 +6,7 @@ export interface RequestJsonOptions {
   headers?: Record<string, string>;
   body?: unknown;
   timeoutMs?: number;
+  fallbackToNodeOnFetchError?: boolean;
 }
 
 export interface JsonResponse<T = unknown> {
@@ -235,7 +236,23 @@ export async function requestJson<T = unknown>(
 ): Promise<JsonResponse<T>> {
   const resolvedUrl = normalizeHttpUrl(url);
   if (typeof globalThis.fetch === 'function') {
-    return requestJsonWithFetch<T>(resolvedUrl, options);
+    try {
+      return await requestJsonWithFetch<T>(resolvedUrl, options);
+    } catch (fetchError) {
+      const isTimeout =
+        fetchError instanceof Error && fetchError.message.includes('请求超时');
+      if (!options.fallbackToNodeOnFetchError || isTimeout) {
+        throw fetchError;
+      }
+
+      try {
+        return await requestJsonWithNode<T>(resolvedUrl, options);
+      } catch (nodeError) {
+        const fetchDetail = fetchError instanceof Error ? fetchError.message : String(fetchError);
+        const nodeDetail = nodeError instanceof Error ? nodeError.message : String(nodeError);
+        throw new Error(`fetch 失败：${fetchDetail}；Node HTTP 回退失败：${nodeDetail}`);
+      }
+    }
   }
   return requestJsonWithNode<T>(resolvedUrl, options);
 }

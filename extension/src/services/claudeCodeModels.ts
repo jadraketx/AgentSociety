@@ -7,6 +7,7 @@ import {
 } from '../aiCli/officialEndpoints';
 import { OFFICIAL_ANTHROPIC_MODELS, OFFICIAL_OPENAI_MODELS } from './officialBuiltinModels';
 import { findPresetByUrl, mergeModelOptions } from '../aiCli/providerPresets';
+import { requestJson, type JsonResponse } from './httpClient';
 
 export type ClaudeModelOption = {
   id: string;
@@ -15,7 +16,7 @@ export type ClaudeModelOption = {
 
 export type FetchClaudeModelsResult =
   | { ok: true; models: ClaudeModelOption[]; apiKind: AiCliApiKind }
-  | { ok: false; error: string; status?: number };
+  | { ok: false; error: string; status?: number; detail?: string };
 
 type ModelRow = {
   id?: string;
@@ -101,14 +102,16 @@ function authHeaderSets(apiKey: string): Record<string, string>[] {
   ];
 }
 
-async function fetchOnce(url: string, headers: Record<string, string>): Promise<Response> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12_000);
-  try {
-    return await fetch(url, { method: 'GET', headers, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
-  }
+async function fetchOnce(
+  url: string,
+  headers: Record<string, string>
+): Promise<JsonResponse<unknown>> {
+  return requestJson(url, {
+    method: 'GET',
+    headers,
+    timeoutMs: 12_000,
+    fallbackToNodeOnFetchError: true,
+  });
 }
 
 export async function fetchProviderModels(
@@ -161,6 +164,7 @@ export async function fetchOpenAiCompatibleModels(
   const url = buildOpenAiModelsUrl(base);
   let lastStatus: number | undefined;
   let lastError = 'request_failed';
+  let lastDetail: string | undefined;
 
   for (const headers of [
     { Authorization: `Bearer ${key}`, Accept: 'application/json' },
@@ -199,14 +203,18 @@ export async function fetchOpenAiCompatibleModels(
         apiKind: 'openai',
       };
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        return { ok: false, error: 'timeout', status: lastStatus };
+      if (
+        err instanceof Error &&
+        (err.name === 'AbortError' || err.message.includes('请求超时'))
+      ) {
+        return { ok: false, error: 'timeout', status: lastStatus, detail: err.message };
       }
       lastError = 'network_error';
+      lastDetail = err instanceof Error ? err.message : String(err);
     }
   }
 
-  return { ok: false, error: lastError, status: lastStatus };
+  return { ok: false, error: lastError, status: lastStatus, detail: lastDetail };
 }
 
 export async function fetchClaudeCompatibleModels(
@@ -222,6 +230,7 @@ export async function fetchClaudeCompatibleModels(
   const url = buildClaudeModelsUrl(base);
   let lastStatus: number | undefined;
   let lastError = 'request_failed';
+  let lastDetail: string | undefined;
 
   for (const headers of authHeaderSets(key)) {
     try {
@@ -259,10 +268,14 @@ export async function fetchClaudeCompatibleModels(
         apiKind: 'anthropic',
       };
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        return { ok: false, error: 'timeout', status: lastStatus };
+      if (
+        err instanceof Error &&
+        (err.name === 'AbortError' || err.message.includes('请求超时'))
+      ) {
+        return { ok: false, error: 'timeout', status: lastStatus, detail: err.message };
       }
       lastError = 'network_error';
+      lastDetail = err instanceof Error ? err.message : String(err);
     }
   }
 
@@ -273,7 +286,7 @@ export async function fetchClaudeCompatibleModels(
     return { ok: true, models: [...OFFICIAL_ANTHROPIC_MODELS], apiKind: 'anthropic' };
   }
 
-  return { ok: false, error: lastError, status: lastStatus };
+  return { ok: false, error: lastError, status: lastStatus, detail: lastDetail };
 }
 
 export function suggestClaudeModelByRole(

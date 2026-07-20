@@ -1224,7 +1224,9 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
               : stMsg.result.error ?? t('claudeCodeConfig.providerUnavailable');
           notification.error({
             message: t('claudeCodeConfig.providerCheckFailed'),
-            description: errorText,
+            description: stMsg.result.detail
+              ? `${errorText}: ${stMsg.result.detail}`
+              : errorText,
             placement: 'top',
           });
         }
@@ -1398,6 +1400,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
           success?: boolean;
           models?: ClaudeModelOption[];
           error?: string;
+          detail?: string;
           providerId?: string;
           apiKind?: 'anthropic' | 'openai';
           baseUrl?: string;
@@ -1418,9 +1421,10 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
             }));
           }
         } else {
+          const errorText = resolveClaudeModelsFetchError(String(msg.error ?? 'unknown'));
           setModelsErrorByProvider((prev) => ({
             ...prev,
-            [pid]: resolveClaudeModelsFetchError(String(msg.error ?? 'unknown')),
+            [pid]: msg.detail ? `${errorText}: ${msg.detail}` : errorText,
           }));
         }
       } else if (message.command === 'pythonEnvironmentsResult') {

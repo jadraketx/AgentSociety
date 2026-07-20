@@ -171,6 +171,7 @@ profiles.json
 !extension/package-lock.json
 !extension/package.nls.json
 !extension/package.nls.*.json
+!extension/skills/*/manifest.json
 !frontend/package-lock.json
 *.jsonl
 

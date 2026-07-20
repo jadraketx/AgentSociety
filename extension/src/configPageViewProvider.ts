@@ -506,6 +506,7 @@ export class ConfigPageViewProvider {
       command: 'claudeModelsResult',
       success: false,
       error: result.error,
+      detail: result.detail,
       status: result.status,
       providerId,
     });
@@ -706,7 +707,7 @@ export class ConfigPageViewProvider {
     const result = await fetchProviderModels(normalized, apiKey, apiKind);
     const availability = result.ok
       ? { ok: true as const, models: result.models.length, apiKind: result.apiKind }
-      : { ok: false as const, models: 0, error: result.error };
+      : { ok: false as const, models: 0, error: result.error, detail: result.detail };
     this._panel.webview.postMessage({
       command: 'gatewayCheckProviderResult',
       baseUrl: normalized,

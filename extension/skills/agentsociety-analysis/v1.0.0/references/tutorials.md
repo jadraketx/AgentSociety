@@ -67,7 +67,7 @@ Open first:
 
 - `references/api.md`
 - `references/common-patterns.md`
-- `references/qa-contract.md`
+- `references/harness.md#qa-contract`
 
 ## Tutorial 3: Composite Figure Assembly
 
@@ -94,7 +94,9 @@ Steps:
 3. run:
 
 ```bash
-$PYTHON_PATH .agentsociety/bin/ags.py analysis compose-figure --spec $CHARTS_DIR/figure_01_summary.json
+$PYTHON_PATH .agentsociety/bin/ags.py analysis compose-figure \
+  --workspace . --hypothesis-id ID \
+  --spec $CHARTS_DIR/figure_01_summary.json
 ```
 
 4. reference `assets/figure_01_summary.png` in the report

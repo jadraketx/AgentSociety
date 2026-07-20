@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, Literal, Tuple
 
@@ -109,15 +111,58 @@ BRAND_TAGLINE_ZH = "多智能体社会仿真 · 分析报告"
 BRAND_TAGLINE_EN = "Multi-agent social simulation · Analysis report"
 
 
-def brand_icon_source_path() -> Path:
+def _brand_icon_candidates() -> Tuple[Path, ...]:
+    """Return supported source, installed-skill, and explicit icon locations."""
+
     here = Path(__file__).resolve()
-    for base in (here.parents[5], here.parents[4], here.parents[3]):
-        candidate = base / "static" / BRAND_ICON_NAME
+    roots: list[Path] = []
+
+    configured_skill_root = os.environ.get("AGENTSOCIETY_ANALYSIS_SKILL_ROOT")
+    if configured_skill_root:
+        roots.append(Path(configured_skill_root).expanduser())
+
+    roots.extend(
+        (
+            here.parent,
+            Path.cwd() / ".codex" / "skills" / "agentsociety-analysis",
+            Path.cwd() / ".claude" / "skills" / "agentsociety-analysis",
+        )
+    )
+
+    launcher = Path(sys.argv[0]).expanduser().resolve()
+    if launcher.parent.name == "bin" and launcher.parent.parent.name == ".agentsociety":
+        workspace = launcher.parents[2]
+        roots.extend(
+            (
+                workspace / ".codex" / "skills" / "agentsociety-analysis",
+                workspace / ".claude" / "skills" / "agentsociety-analysis",
+            )
+        )
+
+    candidates = [root / "assets" / BRAND_ICON_NAME for root in roots]
+    candidates.extend(
+        base / "static" / BRAND_ICON_NAME
+        for base in (here.parents[5], here.parents[4], here.parents[3])
+    )
+
+    deduplicated: list[Path] = []
+    seen: set[Path] = set()
+    for candidate in candidates:
+        resolved = candidate.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+        deduplicated.append(resolved)
+    return tuple(deduplicated)
+
+
+def brand_icon_source_path() -> Path:
+    candidates = _brand_icon_candidates()
+    for candidate in candidates:
         if candidate.is_file():
             return candidate
-    raise FileNotFoundError(
-        f"Official brand icon not found (expected static/{BRAND_ICON_NAME} under agentsociety repo)"
-    )
+    attempted = ", ".join(str(path) for path in candidates)
+    raise FileNotFoundError(f"Official brand icon not found. Checked: {attempted}")
 
 
 _PAGE_TINT_SVG_FILTER = """<defs>
