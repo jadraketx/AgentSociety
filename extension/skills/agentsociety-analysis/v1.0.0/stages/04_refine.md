@@ -8,8 +8,8 @@ Read `references/analysis-quality.md` (Refine section) before generating code.
 
 1. For each claim with `needs_chart: true`, draft a figure contract (`references/figure-contract.md`).
 2. Run `$PYTHON_PATH .agentsociety/bin/ags.py analysis record-contract --workspace $WORKSPACE --hypothesis-id $HYP_ID --payload '{...}'` per chart.
-3. Generate charts by writing Python scripts and executing them directly (max 5 unless user approves more). Use `references/api.md` and `references/chart-guide.md`.
-4. Optional: `$PYTHON_PATH .agentsociety/bin/ags.py analysis compose-figure --spec FILE` for multi-panel figures.
+3. Generate charts by writing Python scripts and executing them directly (max 5 unless user approves more). Use `references/api.md` and `references/charts.md`.
+4. Optional: `$PYTHON_PATH .agentsociety/bin/ags.py analysis compose-figure --workspace . --hypothesis-id ID --spec FILE` for multi-panel figures.
 5. Run `validate-chart` per new chart (code path or `--chart-path`).
 6. Run `$PYTHON_PATH .agentsociety/bin/ags.py analysis validate-refine --workspace $WORKSPACE --hypothesis-id $HYP_ID` (holistic refine gate).
 7. Run `record-attestation` with `phase: refine` only after step 6 structural PASS.

@@ -4,6 +4,10 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from agentsociety2.skills.analysis.harness.attestation import PHASE_RUBRIC_KEYS
+from agentsociety2.skills.analysis.harness.operations import (
+    operation_registry,
+    workflow_operations_by_phase,
+)
 
 
 GUIDANCE_TOPICS = (
@@ -317,30 +321,19 @@ def get_harness_guidance(topic: str = "workflow") -> Dict[str, Any]:
         "payload_templates": list_payload_templates(),
     }
     if topic == "workflow":
+        operations_by_phase = workflow_operations_by_phase()
         return {
             **common,
             "required_sequence": [
-                "intake",
-                "write-plan",
-                "validate-plan",
-                "record-attestation phase=frame",
-                "run-explore-eda",
-                "validate-explore",
-                "record-attestation phase=explore",
-                "record-claim",
-                "validate-claims",
-                "record-attestation phase=claims",
-                "record-contract",
-                "validate-chart",
-                "validate-refine",
-                "record-attestation phase=refine",
-                "prepare-produce",
-                "validate-report-quality",
-                "record-report-review",
-                "validate-release",
-                "record-attestation phase=produce",
-                "validate-synthesis",
+                f"{phase}:{operation_id}"
+                for phase, operation_ids in operations_by_phase.items()
+                for operation_id in operation_ids
             ],
+            "operations_by_phase": operations_by_phase,
+            "operation_contracts": {
+                operation_id: spec.model_dump(mode="json")
+                for operation_id, spec in operation_registry().items()
+            },
             "policies": [
                 "Structural PASS is necessary but not sufficient; attestation records LLM judgment.",
                 "Do not advance after editing phase artifacts until attestation is refreshed.",

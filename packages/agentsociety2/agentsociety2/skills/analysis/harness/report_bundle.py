@@ -15,6 +15,11 @@ from agentsociety2.skills.analysis.harness import state as harness_state
 
 _EXCERPT_MAX = 1200
 _TEXT_SUFFIXES = {".md", ".txt", ".json", ".sql", ".csv"}
+_GENERATED_CONTEXT_FILES = {
+    "evidence_index.json",
+    "report_context.md",
+    "interactive_eda_section.html",
+}
 
 
 def _rel(workspace: Path, path: Path) -> str:
@@ -121,7 +126,7 @@ def build_evidence_index(workspace: Path, hypothesis_id: str) -> EvidenceIndex:
     data_dir = pres / "data"
     if data_dir.is_dir():
         for p in sorted(data_dir.rglob("*")):
-            if p.is_file() and p.name != "evidence_index.json":
+            if p.is_file() and p.name not in _GENERATED_CONTEXT_FILES:
                 _add_source(sources, workspace, p, phase=AnalysisPhase.explore.value)
 
     charts_dir = pres / "charts"

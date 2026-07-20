@@ -34,8 +34,8 @@ When `--workspace` and `--hypothesis-id` are set on `run-eda`, explore artifacts
 ## References
 
 1. `references/figure-contract.md` (refine)
-2. `references/chart-guide.md`, `references/api.md`, `references/common-patterns.md`
-3. `references/analysis-methods.md`, `references/output-conventions.md`, `references/qa-contract.md`
+2. `references/charts.md`, `references/api.md`, `references/common-patterns.md`
+3. `references/analysis-methods.md`, `references/harness-contract.md`, `references/harness.md#qa-contract`
 
 ## Process
 

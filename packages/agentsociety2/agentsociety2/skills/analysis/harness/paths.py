@@ -33,8 +33,39 @@ def synthesis_state_path(workspace: Path) -> Path:
     return synthesis_harness_dir(workspace) / FILE_STATE
 
 
+def analysis_runs_dir(workspace: Path) -> Path:
+    return workspace.resolve() / ".agentsociety" / "analysis" / "runs"
+
+
+def analysis_locks_dir(workspace: Path) -> Path:
+    return workspace.resolve() / ".agentsociety" / "analysis" / "locks"
+
+
+def analysis_operation_lock_path(workspace: Path, execution_key: str) -> Path:
+    if len(execution_key) != 64 or any(
+        char not in "0123456789abcdef" for char in execution_key
+    ):
+        raise ValueError(f"invalid analysis execution key: {execution_key}")
+    return analysis_locks_dir(workspace) / f"{execution_key}.lock"
+
+
+def analysis_run_path(workspace: Path, run_id: str) -> Path:
+    if not run_id or any(
+        char not in "abcdefghijklmnopqrstuvwxyz0123456789_-" for char in run_id
+    ):
+        raise ValueError(f"invalid analysis run id: {run_id}")
+    return analysis_runs_dir(workspace) / f"{run_id}.json"
+
+
 def hypothesis_report_review_path(workspace: Path, hypothesis_id: str) -> Path:
     return hypothesis_harness_dir(workspace, hypothesis_id) / "report_review.json"
+
+
+def hypothesis_prepare_manifest_path(workspace: Path, hypothesis_id: str) -> Path:
+    return (
+        hypothesis_harness_dir(workspace, hypothesis_id)
+        / "prepare_produce_manifest.json"
+    )
 
 
 def synthesis_report_review_path(workspace: Path) -> Path:

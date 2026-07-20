@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import filecmp
 import re
 import shutil
 from pathlib import Path
@@ -61,12 +62,14 @@ def sync_report_assets_from_reports(presentation_dir: Path) -> dict:
 
     for name in sorted(referenced_asset_names(presentation_dir)):
         dest = assets_dir / name
-        if dest.is_file():
-            continue
         src = charts_dir / name
         if src.is_file():
-            shutil.copy2(src, dest)
-            copied.append(name)
+            if not dest.is_file() or not filecmp.cmp(src, dest, shallow=False):
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+                copied.append(name)
+            continue
+        if dest.is_file():
             continue
         missing.append(name)
 

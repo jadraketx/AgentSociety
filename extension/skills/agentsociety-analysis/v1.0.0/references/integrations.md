@@ -12,8 +12,8 @@ Skill paths assume workspace sync to `.claude/skills/` (VS Code extension preset
 |                 | `agentsociety-literature-search`                                   | Need prior work to frame the research question or success criteria                                 |
 |                 | `agentsociety-use-dataset`                                         | Plan includes external baseline / validation dataset — search, `readme`, `download`                |
 |                 | `agentsociety-hypothesis`                                          | Analysis should revise hypothesis — pause pipeline, update HYPOTHESIS.md, restart frame            |
-| **2 Explore**   | `analysis run-explore-eda`                                         | **Default** — reads `analysis_plan`, runs EDA, auto `record-phase-artifacts`                       |
-|                 | `analysis run-eda --type bundle`                                   | Low-level escape hatch when plan/harness context unavailable                                       |
+| **2 Explore**   | `analysis run-eda --type bundle`                                   | **Default** — runs capability-checked EDA and auto `record-phase-artifacts` with hypothesis id     |
+|                 | `analysis run-eda --type quick-stats`                              | Targeted fallback when only a compact static profile is needed                                     |
 |                 | `support/interactive-viz/SKILL.md`                                 | User wants PyGWalker / hub / multi-tab EDA — read before choosing `--type`                         |
 |                 | `agentsociety-use-dataset`                                         | Compare simulation tables to downloaded external data — register paths in `record-phase-artifacts` |
 |                 | `query-data` / `run-code`                                          | Targeted checks only; not bulk charting                                                            |
@@ -26,13 +26,13 @@ Skill paths assume workspace sync to `.claude/skills/` (VS Code extension preset
 |                 | `chart_export` (package)                                           | Optional Plotly/Altair sidecar per `references/eda.md`                                             |
 | **5 Produce**   | `analysis prepare-produce`                                         | **Default** — `build-report-context` + `sync-report-assets` before drafting                        |
 |                 | `analysis build-report-context`                                    | Use alone only if assets already synced                                                            |
-|                 | `subagent-prompts/report-producer.md` + `report-reviewer.md`       | **Required** independent review loop                                                               |
+|                 | `subagent-prompts/report-producer.md` + `subagent-prompts/report-reviewer.md` | **Required** independent review loop                                                    |
 |                 | `support/report-blocks/SKILL.md`                                   | Assembling HTML sections (KPI, TOC, Mermaid, EDA tabs)                                             |
 |                 | `support/frontend-design/SKILL.md`                                 | Typography/layout polish only — after content is correct                                           |
 |                 | `assets/report-shell.reference.html`                               | HTML skeleton                                                                                      |
 |                 | `analysis sync-report-assets` / `embed-interactive-eda`            | **Required** before `validate-release`                                                             |
 |                 | `pdf` / `docx` / `pptx` / `xlsx` skills                            | **On user request** — export/share deliverables (not gate artifacts)                               |
-| **6 Synthesis** | `subagent-prompts/synthesis-producer.md` + `synthesis-reviewer.md` | **Required**                                                                                       |
+| **6 Synthesis** | `subagent-prompts/synthesis-producer.md` + `subagent-prompts/synthesis-reviewer.md` | **Required**                                                                          |
 |                 | Experience epilogue (below)                                        | **After** pipeline complete — user debrief; **non-blocking**                                       |
 |                 | `paper-toolkit` plugin                                             | After analysis completed — compile manuscript from reports + literature                            |
 

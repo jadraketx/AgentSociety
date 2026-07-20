@@ -78,4 +78,5 @@ export type ProviderAvailabilityResult = {
   models: number;
   apiKind?: 'anthropic' | 'openai';
   error?: string;
+  detail?: string;
 };

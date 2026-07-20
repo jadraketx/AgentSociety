@@ -16,6 +16,9 @@ from agentsociety2.skills.analysis.chart_export import (
 EDA_INTERACTIVE_BEGIN = "<!-- EDA_INTERACTIVE_BEGIN -->"
 EDA_INTERACTIVE_END = "<!-- EDA_INTERACTIVE_END -->"
 
+_SECTION_TAG_RE = re.compile(r"<(/?)section\b[^>]*>", re.IGNORECASE)
+_DATA_ID_RE = re.compile(r"\bid\s*=\s*(['\"])data\1", re.IGNORECASE)
+
 _REPORT_TAB_META: Dict[str, Tuple[str, str, str, str]] = {
     "summary": ("数据摘要", "Summary", "static", ""),
     "hub": ("探索中心", "Exploration hub", "eda_hub.html", "featured"),
@@ -130,12 +133,12 @@ def build_interactive_eda_section(
             else "No interactive EDA yet. Run run-eda --type bundle."
         )
         return (
-            f'<section class="eda-interactive" id="data">'
-            f"<h2>{'数据与探索' if zh else 'Data exploration'}</h2>"
-            f'<p class="iframe-hint">{html.escape(msg)}</p></section>'
+            '<div class="eda-interactive eda-interactive--empty" '
+            'data-eda-interactive="empty">'
+            f'<p class="iframe-hint">{html.escape(msg)}</p></div>'
         )
 
-    title = "数据与探索" if zh else "Data exploration"
+    title = "交互式探索" if zh else "Interactive exploration"
     tab_buttons: List[str] = []
     tab_panels: List[str] = []
     has_hub = any(t[0] == "hub" for t in tabs)
@@ -215,14 +218,44 @@ def build_interactive_eda_section(
 
     styles = f"{html_font_links()}\n<style>{report_eda_section_css()}</style>"
     return (
-        f'{styles}\n<section class="eda-interactive" id="data">\n'
-        f'  <h2 class="eda-section-title">{title}</h2>\n'
+        f'{styles}\n<div class="eda-interactive" data-eda-interactive="tabs">\n'
+        f'  <h3 class="eda-section-title">{title}</h3>\n'
         f'  <div class="tab-root">\n'
         f'  <div class="tab-bar" role="tablist">{"".join(tab_buttons)}</div>\n'
         f'{"".join(tab_panels)}\n'
         f"  </div>\n"
-        f"</section>\n"
+        f"</div>\n"
         f"{html_tab_switcher_script()}"
+    )
+
+
+def _section_bounds_with_id(
+    report_html: str,
+    section_id_pattern: re.Pattern[str],
+) -> Tuple[int, int, int, int] | None:
+    """Return opening start/end and closing start/end for one balanced section."""
+
+    tags = list(_SECTION_TAG_RE.finditer(report_html))
+    for index, tag in enumerate(tags):
+        if tag.group(1) or not section_id_pattern.search(tag.group(0)):
+            continue
+        depth = 1
+        for nested in tags[index + 1 :]:
+            depth += -1 if nested.group(1) else 1
+            if depth == 0:
+                return tag.start(), tag.end(), nested.start(), nested.end()
+        return None
+    return None
+
+
+def _generated_data_wrapper(section_html: str) -> str:
+    zh = "暂无交互式" in section_html or "交互式探索" in section_html
+    title = "数据与探索" if zh else "Data exploration"
+    return (
+        '<section id="data" data-eda-generated-section="true">\n'
+        f"  <h2>{title}</h2>\n"
+        f"  {EDA_INTERACTIVE_BEGIN}\n{section_html}\n{EDA_INTERACTIVE_END}\n"
+        "</section>"
     )
 
 
@@ -232,20 +265,43 @@ def embed_interactive_eda_in_html(report_html: str, section_html: str) -> str:
             re.escape(EDA_INTERACTIVE_BEGIN) + r".*?" + re.escape(EDA_INTERACTIVE_END),
             re.DOTALL,
         )
+        data_section = _section_bounds_with_id(report_html, _DATA_ID_RE)
+        marker_start = report_html.index(EDA_INTERACTIVE_BEGIN)
+        marker_end = report_html.index(EDA_INTERACTIVE_END) + len(EDA_INTERACTIVE_END)
         replacement = f"{EDA_INTERACTIVE_BEGIN}\n{section_html}\n{EDA_INTERACTIVE_END}"
-        return pattern.sub(replacement, report_html, count=1)
-
-    section_match = re.search(
-        r'<section\s+class="eda-interactive"[^>]*id="data"[^>]*>.*?</section>',
-        report_html,
-        re.DOTALL | re.IGNORECASE,
-    )
-    if section_match:
-        return (
-            report_html[: section_match.start()]
-            + section_html
-            + report_html[section_match.end() :]
+        marker_contains_data_section = bool(
+            data_section
+            and marker_start <= data_section[0]
+            and data_section[3] <= marker_end
         )
+        if data_section is None or marker_contains_data_section:
+            replacement = _generated_data_wrapper(section_html)
+            return pattern.sub(replacement, report_html, count=1)
+        marker_is_inside_data = data_section[1] <= marker_start < data_section[2]
+        if marker_is_inside_data:
+            return pattern.sub(replacement, report_html, count=1)
+
+        without_top_level_marker = pattern.sub("", report_html, count=1)
+        relocated_data_section = _section_bounds_with_id(
+            without_top_level_marker,
+            _DATA_ID_RE,
+        )
+        if relocated_data_section is None:  # pragma: no cover - defensive
+            return without_top_level_marker
+        closing_start = relocated_data_section[2]
+        return (
+            without_top_level_marker[:closing_start]
+            + f"\n{replacement}\n"
+            + without_top_level_marker[closing_start:]
+        )
+
+    data_section = _section_bounds_with_id(report_html, _DATA_ID_RE)
+    if data_section:
+        closing_start = data_section[2]
+        marker_block = (
+            f"\n{EDA_INTERACTIVE_BEGIN}\n{section_html}\n{EDA_INTERACTIVE_END}\n"
+        )
+        return report_html[:closing_start] + marker_block + report_html[closing_start:]
 
     findings = re.search(
         r'<h2\s+id="findings"[^>]*>',
@@ -255,7 +311,7 @@ def embed_interactive_eda_in_html(report_html: str, section_html: str) -> str:
     if findings:
         return (
             report_html[: findings.start()]
-            + section_html
+            + _generated_data_wrapper(section_html)
             + "\n\n        "
             + report_html[findings.start() :]
         )

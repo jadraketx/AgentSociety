@@ -64,7 +64,9 @@ Rules:
 4. Run:
 
 ```bash
-$PYTHON_PATH .agentsociety/bin/ags.py analysis compose-figure --spec $CHARTS_DIR/figure_01_summary.json
+$PYTHON_PATH .agentsociety/bin/ags.py analysis compose-figure \
+  --workspace . --hypothesis-id ID \
+  --spec $CHARTS_DIR/figure_01_summary.json
 ```
 
 5. Use the generated `figure_01_summary.png` in the report and keep the JSON sidecar in `charts/`.

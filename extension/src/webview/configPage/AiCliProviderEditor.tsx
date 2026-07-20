@@ -271,7 +271,13 @@ export function ProviderEditor({
           ? t(errorKey)
           : effectiveAvailability.error ?? t('claudeCodeConfig.providerUnavailable');
       return (
-        <Tag color="error" style={{ margin: 0, fontSize: 11 }}>
+        <Tag
+          color="error"
+          style={{ margin: 0, fontSize: 11 }}
+          title={effectiveAvailability.detail
+            ? `${errorText}: ${effectiveAvailability.detail}`
+            : errorText}
+        >
           <CloseCircleOutlined /> {errorText}
         </Tag>
       );

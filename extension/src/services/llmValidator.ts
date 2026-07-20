@@ -97,6 +97,7 @@ export class LLMValidator {
         },
         body: requestBody,
         timeoutMs: CONFIG_PAGE_API_VALIDATE_TIMEOUT_MS,
+        fallbackToNodeOnFetchError: true,
       });
 
       this.log(`Response status: ${response.status}`);

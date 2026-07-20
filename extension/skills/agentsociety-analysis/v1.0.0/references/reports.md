@@ -8,25 +8,25 @@ Primary shell: `assets/report-shell.reference.html`. Independent review: `refere
 
 ```text
 refine gate_pass
-  → build-report-context
+  → prepare-produce (initial context)
   → report-producer subagent
+  → prepare-produce (final asset sync + interactive EDA embed)
   → report-reviewer subagent (independent)
   → record-report-review (PASS)
-  → sync-report-assets (charts→assets + embed-interactive-eda)
-  → validate-release
+  → validate-release (presentation-read-only; records gate state)
   → record-attestation (produce)
 ```
 
 Orchestrator only: user alignment, attestation wording, `advance`.
 
-## build-report-context
+## prepare-produce / build-report-context
 
 ```bash
-$PYTHON_PATH .agentsociety/bin/ags.py analysis build-report-context \
-  --workspace . --hypothesis-id $HYP_ID
+$PYTHON_PATH .agentsociety/bin/ags.py analysis prepare-produce \
+  --workspace . --hypothesis-id $HYP_ID --experiment-id $EXP_ID
 ```
 
-Outputs `data/evidence_index.json` + `data/report_context.md` from phase artifacts, `data/`, `charts/`, claims, contracts.
+`prepare-produce` runs the explicit write-side preparation: it builds `data/evidence_index.json` + `data/report_context.md`, syncs report-referenced chart assets, and embeds interactive EDA. The three steps are fingerprinted in `.agentsociety/analysis/hypothesis_{id}/prepare_produce_manifest.json`; unchanged steps are skipped, while missing or changed outputs are rebuilt. The manifest is written atomically only after the whole scheduled run succeeds. Use `prepare-produce ... --dry-run` to inspect the plan without writing, and use `build-report-context` alone only when assets and embeds do not need refresh.
 
 ## Section integration
 
@@ -98,8 +98,7 @@ Same `assets/` filenames, same figures/tables, translated prose only. `report_ou
 
 ## Pre-review checklist
 
-- [ ] `build-report-context` run
-- [ ] `sync-report-assets` after final chart list
+- [ ] `prepare-produce` run initially and after final report asset references
 - [ ] All `assets/` paths resolve
 - [ ] §数据 cites EDA from `evidence_index.json`
 - [ ] report-reviewer PASS recorded

@@ -8,11 +8,19 @@ from typing import Any, Dict, List, Optional
 
 from agentsociety2.skills.analysis.harness import state as harness_state
 from agentsociety2.skills.analysis.harness.attestation import PHASE_RUBRIC_KEYS
+from agentsociety2.skills.analysis.harness.capabilities import capability_payload
 from agentsociety2.skills.analysis.harness.gates import (
     evaluate_hypothesis_gate,
     evaluate_synthesis_gate,
     gate_status_hypothesis,
     prior_phase_gate_issues,
+)
+from agentsociety2.skills.analysis.harness.execution import (
+    OperationRunReceipt,
+    list_run_receipts,
+    load_run_receipt,
+    operation_execution_key,
+    unresolved_retryable_runs,
 )
 from agentsociety2.skills.analysis.harness.models import (
     HYPOTHESIS_PHASE_ORDER,
@@ -45,6 +53,20 @@ from agentsociety2.skills.analysis.harness.paths import (
     project_lessons_path,
     synthesis_harness_dir,
     synthesis_reflection_path,
+    hypothesis_prepare_manifest_path,
+)
+from agentsociety2.skills.analysis.harness.operations import operation_registry
+from agentsociety2.skills.analysis.harness.preflight import (
+    evaluate_operation_availability,
+)
+from agentsociety2.skills.analysis.harness.preparation import (
+    PREPARE_PRODUCE_SCHEMA_VERSION,
+    PreparationStepRecord,
+    build_prepare_produce_plan,
+    collect_output_fingerprints,
+    preparation_step_output_paths,
+    prepare_step_input_fingerprint,
+    save_prepare_produce_manifest,
 )
 from agentsociety2.skills.analysis.harness.review import (
     report_content_fingerprint,
@@ -368,6 +390,7 @@ def cmd_intake(
             "warning": "run/replay/_schema.json not found; complete run-experiment first",
             "memory_context": _experience_memory_context(workspace, hypothesis_id),
             "feedback_prompt": _feedback_prompt(workspace, hypothesis_id),
+            "capabilities": capability_payload(),
         }
     return {
         "state": st.model_dump(mode="json"),
@@ -379,6 +402,7 @@ def cmd_intake(
         "rubric_keys": PHASE_RUBRIC_KEYS.get("frame", []),
         "memory_context": _experience_memory_context(workspace, hypothesis_id),
         "feedback_prompt": _feedback_prompt(workspace, hypothesis_id),
+        "capabilities": capability_payload(),
     }
 
 
@@ -441,11 +465,18 @@ def cmd_record_phase_artifacts(
     hypothesis_id: str,
     phase: str,
     artifacts: List[str],
+    *,
+    merge: bool = False,
 ) -> Dict[str, Any]:
     st = harness_state.load_hypothesis_state(workspace, hypothesis_id)
-    st.phase_artifacts[phase] = list(artifacts)
+    if merge:
+        existing = st.phase_artifacts.get(phase, [])
+        recorded = list(dict.fromkeys([*existing, *artifacts]))
+    else:
+        recorded = list(artifacts)
+    st.phase_artifacts[phase] = recorded
     harness_state.save_hypothesis_state(workspace, hypothesis_id, st)
-    return {"phase": phase, "artifacts": artifacts}
+    return {"phase": phase, "artifacts": recorded, "merge": merge}
 
 
 def cmd_validate_plan(workspace: Path, hypothesis_id: str) -> Dict[str, Any]:
@@ -704,6 +735,122 @@ def cmd_sync_report_assets(
     return sync_report_assets_from_reports(pres.output_dir)
 
 
+def cmd_embed_interactive_eda(workspace: Path, hypothesis_id: str) -> Dict[str, Any]:
+    from agentsociety2.skills.analysis.harness.report_bundle import (
+        cmd_embed_interactive_eda as embed_interactive_eda,
+    )
+
+    return embed_interactive_eda(workspace, hypothesis_id)
+
+
+def cmd_prepare_produce(
+    workspace: Path,
+    hypothesis_id: str,
+    experiment_id: str,
+    dry_run: bool = False,
+) -> Dict[str, Any]:
+    st = harness_state.load_hypothesis_state(workspace, hypothesis_id)
+    prior = prior_phase_gate_issues(st, AnalysisPhase.produce)
+    if prior:
+        return {
+            "status": "BLOCKED",
+            "issues": [item.model_dump(mode="json") for item in prior],
+            "recommended_next_step": "Pass the refine gate before preparing reports.",
+            "capabilities": capability_payload(),
+            "plan": [
+                {
+                    "step_id": "prepare-produce",
+                    "action": "BLOCKED",
+                    "reason": "prior_phase_gate_blocked",
+                }
+            ],
+        }
+
+    manifest, plan = build_prepare_produce_plan(
+        workspace,
+        hypothesis_id,
+        experiment_id,
+    )
+    plan_payload = [item.model_dump(mode="json") for item in plan]
+    manifest_path = hypothesis_prepare_manifest_path(workspace, hypothesis_id)
+    if dry_run:
+        return {
+            "status": "PLANNED",
+            "plan": plan_payload,
+            "would_write": any(item.action == "RUN" for item in plan),
+            "manifest_path": str(manifest_path),
+            "capabilities": capability_payload(),
+        }
+
+    runners = {
+        "report_context": lambda: cmd_build_report_context(workspace, hypothesis_id),
+        "report_assets": lambda: cmd_sync_report_assets(
+            workspace, hypothesis_id, experiment_id
+        ),
+        "interactive_eda": lambda: cmd_embed_interactive_eda(workspace, hypothesis_id),
+    }
+    candidate = manifest.model_copy(deep=True)
+    candidate.schema_version = PREPARE_PRODUCE_SCHEMA_VERSION
+    candidate.hypothesis_id = hypothesis_id
+    candidate.experiment_id = experiment_id
+    step_results: Dict[str, Any] = {}
+    executed_steps: List[str] = []
+    skipped_steps: List[str] = []
+    for item in plan:
+        if item.action == "SKIP":
+            skipped_steps.append(item.step_id)
+            step_results[item.step_id] = {
+                "status": "SKIPPED",
+                "reason": item.reason,
+                "outputs": list(item.recorded_outputs),
+            }
+            continue
+        result = runners[item.step_id]()
+        if item.step_id == "report_assets" and result.get("missing"):
+            missing = ", ".join(result["missing"])
+            raise FileNotFoundError(
+                f"prepare-produce could not resolve report asset(s): {missing}"
+            )
+        output_paths = preparation_step_output_paths(
+            item.step_id,
+            workspace,
+            hypothesis_id,
+        )
+        candidate.steps[item.step_id] = PreparationStepRecord(
+            input_fingerprint=prepare_step_input_fingerprint(
+                item.step_id,
+                workspace,
+                hypothesis_id,
+                experiment_id,
+            ),
+            output_fingerprints=collect_output_fingerprints(
+                workspace,
+                output_paths,
+            ),
+        )
+        executed_steps.append(item.step_id)
+        step_results[item.step_id] = result
+
+    if executed_steps:
+        save_prepare_produce_manifest(workspace, hypothesis_id, candidate)
+
+    return {
+        "status": "PREPARED" if executed_steps else "UNCHANGED",
+        "plan": plan_payload,
+        "executed_steps": executed_steps,
+        "skipped_steps": skipped_steps,
+        "manifest_path": str(manifest_path),
+        "report_context": step_results["report_context"],
+        "report_assets": step_results["report_assets"],
+        "interactive_eda": step_results["interactive_eda"],
+        "capabilities": capability_payload(),
+        "recommended_next_step": (
+            "Draft bilingual reports, re-run prepare-produce after adding report asset "
+            "references, record an independent review, then run validate-release."
+        ),
+    }
+
+
 def cmd_validate_release(
     workspace: Path, hypothesis_id: str, experiment_id: str
 ) -> Dict[str, Any]:
@@ -834,7 +981,9 @@ def cmd_advance(
 
 
 def cmd_gate_status(
-    workspace: Path, hypothesis_id: Optional[str] = None
+    workspace: Path,
+    hypothesis_id: Optional[str] = None,
+    run_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     out: Dict[str, Any] = {"workspace": str(workspace.resolve())}
     if hypothesis_id:
@@ -848,11 +997,28 @@ def cmd_gate_status(
     out["synthesis"] = harness_state.load_synthesis_state(workspace).model_dump(
         mode="json"
     )
+    out["capabilities"] = capability_payload()
+    all_runs = list_run_receipts(
+        workspace,
+        hypothesis_id=hypothesis_id,
+        limit=None,
+    )
+    recent_runs = all_runs[:10]
+    out["recent_runs"] = [item.model_dump(mode="json") for item in recent_runs]
+    out["retryable_runs"] = [
+        item.model_dump(mode="json") for item in unresolved_retryable_runs(all_runs)
+    ]
+    if run_id:
+        out["run"] = load_run_receipt(workspace, run_id).model_dump(mode="json")
     return out
 
 
-def cmd_status(workspace: Path, hypothesis_id: Optional[str] = None) -> Dict[str, Any]:
-    return cmd_gate_status(workspace, hypothesis_id)
+def cmd_status(
+    workspace: Path,
+    hypothesis_id: Optional[str] = None,
+    run_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    return cmd_gate_status(workspace, hypothesis_id, run_id)
 
 
 def cmd_run_loop(
@@ -861,7 +1027,156 @@ def cmd_run_loop(
     st = harness_state.load_hypothesis_state(workspace, hypothesis_id)
     memory_context = _experience_memory_context(workspace, hypothesis_id)
     phase = st.current_phase.value
+    effective_phase = (
+        "synthesis" if st.hypothesis_release == ReleaseStatus.ready else phase
+    )
     cp = st.phase_checkpoints.get(phase, {})
+    passed_gates = {
+        checkpoint_phase
+        for checkpoint_phase, checkpoint in st.phase_checkpoints.items()
+        if checkpoint.gate_pass
+    }
+    current_gate_pass = bool(getattr(cp, "gate_pass", False))
+    all_runs = list_run_receipts(workspace, limit=None)
+    recent_runs = [item for item in all_runs if item.hypothesis_id == hypothesis_id][
+        :10
+    ]
+    capabilities = capability_payload()
+    capability_states = {item["id"]: item["state"] for item in capabilities}
+    phase_operations = sorted(
+        (
+            spec
+            for spec in operation_registry().values()
+            if effective_phase in spec.phases
+        ),
+        key=lambda spec: (
+            spec.workflow_order is None,
+            spec.workflow_order or 0,
+            spec.id,
+        ),
+    )
+    registry = operation_registry()
+    relevant_runs = [
+        item
+        for item in all_runs
+        if item.hypothesis_id == hypothesis_id
+        or (
+            item.operation_id in registry
+            and registry[item.operation_id].scope == "workspace"
+        )
+    ]
+    loop_inputs = {
+        "workspace": str(workspace),
+        "hypothesis_id": hypothesis_id,
+        "experiment_id": experiment_id,
+    }
+    runs_by_operation: Dict[str, list[OperationRunReceipt]] = {}
+    for spec in phase_operations:
+        operation_runs = [
+            item for item in relevant_runs if item.operation_id == spec.id
+        ]
+        required_names = {
+            name for raw_name in spec.required_inputs for name in raw_name.split("|")
+        }
+        if not spec.input_groups and required_names <= loop_inputs.keys():
+            identity_inputs = {}
+            for input_spec in spec.inputs:
+                if input_spec.name in loop_inputs:
+                    identity_inputs[input_spec.name] = loop_inputs[input_spec.name]
+                elif input_spec.action == "store_true":
+                    identity_inputs[input_spec.name] = False
+                else:
+                    identity_inputs[input_spec.name] = input_spec.default
+            expected_key = operation_execution_key(spec, identity_inputs)
+            operation_runs = [
+                item
+                for item in operation_runs
+                if not item.execution_key or item.execution_key == expected_key
+            ]
+        runs_by_operation[spec.id] = operation_runs
+    operation_availability = [
+        evaluate_operation_availability(
+            spec,
+            phase=effective_phase,
+            passed_gates=passed_gates,
+            current_gate_pass=current_gate_pass,
+            capability_states=capability_states,
+            check_inputs=False,
+        )
+        for spec in phase_operations
+    ]
+    availability_by_id = {
+        availability.operation_id: availability
+        for availability in operation_availability
+    }
+    available_operations: list[Dict[str, Any]] = []
+    blocked_operations: list[Dict[str, Any]] = []
+    for spec in phase_operations:
+        availability = availability_by_id[spec.id]
+        operation_runs = runs_by_operation[spec.id]
+        active_run = next(
+            (item for item in operation_runs if item.status == "RUNNING"),
+            None,
+        )
+        completed_run = next(
+            (item for item in operation_runs if item.status == "SUCCEEDED"),
+            None,
+        )
+        latest_run = operation_runs[0] if operation_runs else None
+        retry_run = latest_run if latest_run and latest_run.retryable else None
+        if active_run is not None:
+            blocked_operations.append(
+                {
+                    "operation_id": spec.id,
+                    "status": "ALREADY_RUNNING",
+                    "reasons": ["an equivalent operation is already running"],
+                    "active_run_id": active_run.run_id,
+                }
+            )
+            continue
+        if not spec.repeatable and completed_run is not None:
+            blocked_operations.append(
+                {
+                    "operation_id": spec.id,
+                    "status": "ALREADY_COMPLETED",
+                    "reasons": ["non-repeatable operation already succeeded"],
+                    "completed_run_id": completed_run.run_id,
+                }
+            )
+            continue
+        if not availability.available:
+            blocked_operations.append(availability.model_dump(mode="json"))
+            continue
+        available_operations.append(
+            {
+                **spec.model_dump(mode="json"),
+                "availability": availability.model_dump(mode="json"),
+                "execution_state": "RETRYABLE" if retry_run else "READY",
+                "retry_run_id": retry_run.run_id if retry_run else "",
+            }
+        )
+    completed_operations: list[Dict[str, Any]] = []
+    for spec in phase_operations:
+        completed = next(
+            (
+                item
+                for item in runs_by_operation[spec.id]
+                if item.status in {"SUCCEEDED", "SKIPPED", "UNCHANGED"}
+            ),
+            None,
+        )
+        if completed is None:
+            continue
+        completed_operations.append(
+            {
+                "operation_id": spec.id,
+                "run_id": completed.run_id,
+                "status": completed.status,
+                "attempt": completed.attempt,
+                "completed_at": completed.completed_at,
+            }
+        )
+    in_flight_runs = [item for item in relevant_runs if item.status == "RUNNING"]
     rubric = PHASE_RUBRIC_KEYS.get(phase, [])
     llm_focus = {
         "frame": "Co-design analysis_plan with user; interpret hypothesis and experiment design",
@@ -872,14 +1187,15 @@ def cmd_run_loop(
     }.get(phase, "")
     if phase == "produce":
         steps = [
-            "1. Mechanical: build-report-context",
+            "1. Mechanical: prepare-produce (initial report context)",
             "2. LLM: report-producer → bilingual reports + JSON metadata",
-            "3. LLM: report-reviewer (independent) → record-report-review PASS",
-            "4. Mechanical: validate-report-quality (optional pre-check)",
-            "5. Mechanical: validate-release (structure + quality + review)",
-            f"6. LLM: record-attestation --phase {phase} (rubric: {rubric})",
+            "3. Mechanical: prepare-produce (final asset sync + EDA embed)",
+            "4. LLM: report-reviewer (independent) → record-report-review PASS",
+            "5. Mechanical: validate-report-quality (optional pre-check)",
+            "6. Mechanical: validate-release (presentation-read-only gate)",
+            f"7. LLM: record-attestation --phase {phase} (rubric: {rubric})",
         ]
-        advance_n = "7"
+        advance_n = "8"
     else:
         steps = [
             f"1. LLM: {llm_focus}",
@@ -906,11 +1222,26 @@ def cmd_run_loop(
         )
     return {
         "current_phase": phase,
+        "effective_phase": effective_phase,
         "hypothesis_release": st.hypothesis_release.value,
         "recommended_next_step": " | ".join(steps),
+        "available_operations": available_operations,
+        "recommended_operations": available_operations,
+        "suggested_next_operation": (
+            available_operations[0]["id"] if available_operations else None
+        ),
+        "blocked_operations": blocked_operations,
+        "completed_operations": completed_operations,
+        "in_flight_runs": [item.model_dump(mode="json") for item in in_flight_runs],
+        "recent_runs": [item.model_dump(mode="json") for item in recent_runs],
+        "retryable_runs": [
+            item.model_dump(mode="json")
+            for item in unresolved_retryable_runs(relevant_runs)
+        ],
         "checkpoints": gate_status_hypothesis(st),
         "memory_context": memory_context,
         "feedback_prompt": _feedback_prompt(workspace, hypothesis_id),
+        "capabilities": capabilities,
     }
 
 
@@ -1367,6 +1698,24 @@ def cmd_build_report_context(workspace: Path, hypothesis_id: str) -> Dict[str, A
     from agentsociety2.skills.analysis.harness.report_bundle import write_report_bundle
 
     return write_report_bundle(workspace, hypothesis_id)
+
+
+def cmd_guidance(topic: str = "workflow") -> Dict[str, Any]:
+    from agentsociety2.skills.analysis.harness.guidance import get_harness_guidance
+
+    return {"guidance": get_harness_guidance(topic)}
+
+
+def cmd_payload_template(name: str) -> Dict[str, Any]:
+    from agentsociety2.skills.analysis.harness.guidance import get_payload_template
+
+    return {"name": name, "payload": get_payload_template(name)}
+
+
+def cmd_chart_scaffold() -> Dict[str, Any]:
+    from agentsociety2.skills.analysis.harness.guidance import get_chart_scaffold
+
+    return {"scaffold": get_chart_scaffold()}
 
 
 def cmd_validate(

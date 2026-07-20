@@ -84,7 +84,7 @@ When one finding needs 2–4 views or merging approved PNGs:
 
 1. Generate atomic charts → `charts/chart_*.png`
 2. Write JSON spec (`layout`: grid or manual; `panels` with labels a/b/c)
-3. `ags.py analysis compose-figure --spec FILE`
+3. `ags.py analysis compose-figure --workspace . --hypothesis-id ID --spec FILE`
 4. Report uses `figure_{nn}_{slug}.png`; keep JSON sidecar in `charts/`
 
 Layout wireframes: `assets/layout-atlas/atlas-0*.svg`.

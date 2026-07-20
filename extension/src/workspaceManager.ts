@@ -1343,12 +1343,15 @@ Use this routing model:
 - Use \`agentsociety-run-experiment\` only after configuration is ready and checked.
 - Use \`agentsociety-analysis\` once experiment outputs exist.
 - Use the external \`paper-toolkit\` plugin after analysis artifacts and reviewed claims are ready.
+- Use \`agentsociety-paper-review\` after a complete draft exists when the user requests an internal venue-calibrated review, score, or advice about which research stage to revisit. For PDF input, use the bundled \`pdf\` skill plus the paper-review PDF intake once, then give all agents the same frozen text, layout, and page renders; stop if the intake quality gate fails. For a normal result, launch three isolated reviewer subagents concurrently with the same frozen inputs, then launch a separate MetaReview subagent to verify evidence, report score dispersion, and consolidate reroute advice. It writes only the review bundle and must not revise research artifacts, run experiments, or update pipeline state.
+- After review, the user or controlling coding agent may accept one stage-valued reroute. Apply it with \`research-pipeline reroute STAGE --reason "..." --source-artifact PATH\`; never treat \`human_decision\` or \`none\` as stages. A reroute marks the target and completed downstream stages \`needs_revision\` and preserves an auditable revision round.
 - Use \`agentsociety-use-dataset\` or \`agentsociety-create-dataset\` only when data acquisition or publishing is part of the task.
 
 Preferred command examples:
 
 \`\`\`bash
 $PYTHON_PATH .agentsociety/bin/ags.py research-pipeline where-am-i --json
+$PYTHON_PATH .agentsociety/bin/ags.py research-pipeline reroute analysis --reason "MetaReview requires uncertainty estimates" --source-artifact paper/reviews/acl-arr-review-r1.md
 $PYTHON_PATH .agentsociety/bin/ags.py scan-modules list --short
 $PYTHON_PATH .agentsociety/bin/ags.py hypothesis list --json
 $PYTHON_PATH .agentsociety/bin/ags.py experiment-config validate --hypothesis-id 1 --experiment-id 1
@@ -1366,6 +1369,7 @@ Do:
 - Explain the current pipeline stage when it matters to the next action.
 - Prefer \`.agentsociety/bin/ags.py\` over ad hoc helper scripts for workflow operations.
 - Update pipeline state after completing a stage or resolving a meaningful blocker.
+- When an accepted review requires backward movement, use \`research-pipeline reroute\` and carry its reason and source artifact into the owning skill.
 - Read relevant state files before asking the user for information that may already exist in the workspace.
 - Resolve the simulation scale budget before configuration or custom module creation; if it is missing, ask clarifying questions and compare 2-3 approaches with trade-offs.
 - If external data is needed, search or inspect datasets before building new assumptions; guide dataset upload when the input should be shared or reused.
@@ -1376,6 +1380,8 @@ Do not:
 - Guess the current stage when \`research-pipeline where-am-i --json\` can tell you.
 - Use system Python by default when \`.env\` provides \`PYTHON_PATH\`.
 - Edit \`.agentsociety/*.json\` or \`.jsonl\` manually unless there is a clear reason not to use the CLI.
+- Move \`current_stage\` backward by editing JSON or by marking an earlier stage \`in_progress\`; use \`research-pipeline reroute\` so downstream work is invalidated consistently.
+- Let reviewer or analysis subagents mutate pipeline state; the controlling agent is the single writer of \`progress.json\`.
 - Start analysis before experiment outputs exist.
 - Start paper generation before analysis outputs and claim review are in place.
 - Skip git commits after making file changes — every modification must be tracked.
@@ -1409,6 +1415,17 @@ Do not:
       this.log(`Created: ${absolutePath}`);
     };
 
+    const emptyProgressStage = () => ({
+      status: 'not_started',
+      started_at: null,
+      completed_at: null,
+      attempts: 0,
+      error: null,
+      metadata: {},
+      verification_status: 'not_started',
+      revision_round: 0,
+    });
+
     fs.mkdirSync(path.join(agentsocietyDir, 'agent_classes'), { recursive: true });
     fs.mkdirSync(path.join(agentsocietyDir, 'env_modules'), { recursive: true });
     fs.mkdirSync(path.join(agentsocietyDir, 'data'), { recursive: true });
@@ -1423,23 +1440,26 @@ Do not:
     });
 
     writeJsonIfMissing('.agentsociety/progress.json', {
-      version: '1.0',
+      version: '1.3',
       workspace: {
         topic: topic || '',
         created_at: new Date().toISOString(),
         current_stage: 'literature_search',
         current_hypothesis_id: null,
         current_experiment_id: null,
+        revision_round: 0,
+        active_reroute: null,
       },
       stages: {
-        literature_search: { status: 'not_started', started_at: null, completed_at: null, attempts: 0, error: null, metadata: {} },
-        hypothesis: { status: 'not_started', started_at: null, completed_at: null, attempts: 0, error: null, metadata: {} },
-        experiment_config: { status: 'not_started', started_at: null, completed_at: null, attempts: 0, error: null, metadata: {} },
-        run_experiment: { status: 'not_started', started_at: null, completed_at: null, attempts: 0, error: null, metadata: {} },
-        analysis: { status: 'not_started', started_at: null, completed_at: null, attempts: 0, error: null, metadata: {} },
-        generate_paper: { status: 'not_started', started_at: null, completed_at: null, attempts: 0, error: null, metadata: {} },
+        literature_search: emptyProgressStage(),
+        hypothesis: emptyProgressStage(),
+        experiment_config: emptyProgressStage(),
+        run_experiment: emptyProgressStage(),
+        analysis: emptyProgressStage(),
+        generate_paper: emptyProgressStage(),
       },
       hypotheses: {},
+      transitions: [],
     });
 
     this.removeObsoleteWorkspaceStateFiles(workspacePath);

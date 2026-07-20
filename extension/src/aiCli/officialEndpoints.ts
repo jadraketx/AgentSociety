@@ -8,6 +8,7 @@ function normalizeBaseUrl(baseUrl: string): string {
 }
 
 const OPENAI_COMPATIBLE_DOMAINS = [
+  'llmapi.fiblab.net',
   'xiaomimimo.com',
   'longcat.chat',
   'siliconflow.cn',

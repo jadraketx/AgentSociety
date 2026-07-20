@@ -39,8 +39,8 @@ Return to the Quick Reference in `SKILL.md` and verify which command is needed:
 Check the references in this order:
 
 1. `references/figure-contract.md`
-2. `references/chart-guide.md`
-3. `references/chart-types.md`
+2. `references/charts.md`
+3. `references/chart-recipes.md`
 4. `references/common-patterns.md`
 
 ## Relation to Project Tests

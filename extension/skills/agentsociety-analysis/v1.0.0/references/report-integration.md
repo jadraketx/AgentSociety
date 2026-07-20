@@ -10,26 +10,35 @@ explore: run-eda → presentation/hypothesis_{id}/data/eda_*
 claims:  record-claim (evidence pointers)
 refine:  chart generation → charts/chart_*.png
          record-contract
-produce: build-report-context  ← aggregates everything
+produce: prepare-produce  ← builds context; syncs explicit write-side assets
          dispatch report-producer (or equivalent) reading data/report_context.md
          write report_zh.md / report_en.md (sections cite EDA + charts)
          write analysis_summary.json, report_outline.json, artifact_manifest.json
-         validate-release
+         prepare-produce  ← refresh after report references are final
+         validate-release  ← presentation-read-only gate; records harness state
 ```
 
-## Mechanical aggregation (`build-report-context`)
+## Mechanical preparation (`prepare-produce`)
 
 ```bash
-$PYTHON_PATH .agentsociety/bin/ags.py analysis build-report-context \
-  --workspace . --hypothesis-id $HYP_ID
+$PYTHON_PATH .agentsociety/bin/ags.py analysis prepare-produce \
+  --workspace . --hypothesis-id $HYP_ID --experiment-id $EXP_ID
 ```
 
 Writes:
 
-| File                       | Role                                                                                |
-| -------------------------- | ----------------------------------------------------------------------------------- |
-| `data/evidence_index.json` | Machine index: every source, `kind`, `phase`, target `report_section`               |
-| `data/report_context.md`   | LLM digest: excerpts grouped by overview / data / findings / conclusions / appendix |
+| File                                                              | Role                                                                                |
+| ----------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `data/evidence_index.json`                                        | Machine index: every source, `kind`, `phase`, target `report_section`               |
+| `data/report_context.md`                                          | LLM digest: excerpts grouped by overview / data / findings / conclusions / appendix |
+| `.agentsociety/analysis/hypothesis_{id}/prepare_produce_manifest.json` | Input/output fingerprints for idempotent preparation steps                          |
+
+`prepare-produce` plans three independently cached steps: `report_context`,
+`report_assets`, and `interactive_eda`. An unchanged rerun returns `UNCHANGED` and does
+not rewrite outputs or the manifest. Changed source evidence, report asset references,
+EDA inputs, missing outputs, or manually changed outputs invalidate only the affected
+steps. The manifest is atomically replaced only after every scheduled step succeeds.
+Use `prepare-produce ... --dry-run` to inspect the `RUN` / `SKIP` plan without writing.
 
 Sources pulled from:
 
@@ -52,11 +61,12 @@ Sources pulled from:
 
 1. **Do not** paste full EDA HTML into the report body — summarize in prose + tables; link full `data/eda_*.html` in appendix (see `report-embeddings.md`).
 2. **Do** register every explore output via `record-phase-artifacts` so it enters `evidence_index.json`.
-3. **Do** run `build-report-context` immediately before drafting reports.
-4. HTML (required): LLM-authored `report_zh.html` / `report_en.html` per `references/html-export.md` and `assets/report-shell.reference.html` — required for `validate-release` PASS.
+3. **Do** run `prepare-produce` before drafting and again after report references are final. `validate-release` never copies or rewrites presentation artifacts; it only records the resulting harness gate state.
+4. HTML (required): LLM-authored `report_zh.html` / `report_en.html` per `references/reports.md` and `assets/report-shell.reference.html` — required for `validate-release` PASS.
+5. Missing report-referenced assets make `prepare-produce` fail explicitly; fix the chart path instead of accepting a partial manifest.
 
 ## Synthesis (Stage 6)
 
 Run `build-report-context` per hypothesis first. In `synthesis_brief.json` list `source_artifacts` including each `data/report_context.md` or `report_zh.md`. Cross-hypothesis synthesis should **compare** integrated findings, not re-scatter raw EDA files.
 
-See `references/report-writing-inspiration.md` for borrowable external skill patterns.
+See `references/report-template-simulation.md` for the simulation-report structure.

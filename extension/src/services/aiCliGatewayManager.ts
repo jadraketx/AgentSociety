@@ -139,6 +139,7 @@ export type AiCliProviderAvailabilityResult = {
   models: number;
   apiKind?: AiCliApiKind;
   error?: string;
+  detail?: string;
 };
 
 export class AiCliGatewayManager {
@@ -762,7 +763,7 @@ export class AiCliGatewayManager {
     if (result.ok) {
       return { ok: true, models: result.models.length, apiKind: result.apiKind };
     }
-    return { ok: false, models: 0, error: result.error };
+    return { ok: false, models: 0, error: result.error, detail: result.detail };
   }
 
   getProviders(): AiCliProviderConfig[] {

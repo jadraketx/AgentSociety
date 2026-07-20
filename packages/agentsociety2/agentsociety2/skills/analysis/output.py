@@ -105,8 +105,10 @@ class AssetManager:
         self,
         assets: List[ReportAsset],
         output_dir: Path,
+        *,
+        include_embedded_data: bool = True,
     ) -> Dict[str, Any]:
-        """Copy assets into `assets/` and generate optional base64 payloads."""
+        """Copy assets into `assets/`; optionally generate base64 payloads."""
 
         assets_dir = output_dir / DIR_REPORT_ASSETS
         assets_dir.mkdir(exist_ok=True)
@@ -127,7 +129,10 @@ class AssetManager:
                 shutil.copy2(source_path, dest_path)
 
             embedded = None
-            if source_path.suffix.lower() in SUPPORTED_IMAGE_FORMATS:
+            if (
+                include_embedded_data
+                and source_path.suffix.lower() in SUPPORTED_IMAGE_FORMATS
+            ):
                 with open(source_path, "rb") as file_handle:
                     encoded = base64.b64encode(file_handle.read()).decode("utf-8")
                     mime = (

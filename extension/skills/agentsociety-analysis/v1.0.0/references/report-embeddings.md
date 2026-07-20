@@ -6,10 +6,10 @@ Applies to **Markdown** and **HTML** (both required). All paths are relative to 
 
 ```text
 run-eda  →  data/eda_* , charts/chart_*.png
-collect-assets or sync-report-assets → assets/ (report embed paths)
-build-report-context → data/report_context.md + evidence_index.json
+prepare-produce     → data/report_context.md + evidence_index.json
 report-producer     → narrative + embeds (assets/ only)
-validate-release    → auto sync charts→assets, blocks charts/ in body
+prepare-produce     → explicit charts→assets sync + interactive EDA embed
+validate-release    → presentation-read-only checks; records gate state and blocks unresolved assets
 ```
 
 Never embed from `charts/` in the final report body — use **`assets/`** after `sync-report-assets` or `collect-assets`.
@@ -53,7 +53,7 @@ Table rules:
 | Artifact                        | In §数据 (body)                                                   | Appendix                                                                                   |
 | ------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | `data/eda_quick_stats.md`       | 3–5 bullets + **one** summary table (rows, missing %, key ranges) | —                                                                                          |
-| `data/eda_profile.html` (ydata) | Summary table + bullets in tab **摘要**                           | Tab **交互式 EDA**: `<iframe src="data/eda_profile.html">` (see `html-interactive-eda.md`) |
+| `data/eda_profile.html` (ydata) | Summary table + bullets in tab **摘要**                           | Tab **交互式 EDA**: `<iframe src="data/eda_profile.html">` (see `references/eda.md`) |
 | `data/eda_sweetviz.html`        | Same                                                              | iframe `eda_sweetviz.html` when plan used Sweetviz                                         |
 | `data/*.csv` / query exports    | Summarize; small preview table (≤8 rows)                          | Full file link in appendix                                                                 |
 
