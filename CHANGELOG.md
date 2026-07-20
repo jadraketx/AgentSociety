@@ -14,11 +14,29 @@ Git 发版标签：`agentsociety2-v{major}.{minor}.{patch}`（见 `CONTRIBUTING.
 
 ## [Unreleased]
 
+<!-- 暂无待发布变更 -->
+
+## [2.8.3] - 2026-07-20
+
+- **agentsociety2** `2.8.3` · **extension** `1.6.5` · 标签 `agentsociety2-v2.8.3`
+
+### Added
+
+- **研究工作流**：新增面向主流学术会议的多评审者论文评审技能，并支持带修订轮次、来源与转换历史的可审计阶段回退。
+- **分析 Harness**：新增契约驱动的操作注册、统一 preflight、能力发现、执行回执、幂等准备与中断恢复机制。
+
+### Changed
+
+- **分析报告**：强化报告资产同步、交互式 EDA 嵌入、双语报告质量检查与发布门禁。
+- **extension** `1.6.5`：完善研究工作区路由、模型供应商连接回退与错误诊断，并将新建工作区进度结构升级至 `1.3`。
+
 ### Fixed
 
 - **extension**：规范化打包与文档（`check` / `package:check`、CHANGELOG 入口、收紧 `.vscodeignore`）；修正 walkthrough NLS 相关历史描述中的 `package.nls.en.json` 笔误。
 - **extension** `1.6.3`：walkthrough 标题/描述改为直接写入 `package.json`（code-server 不解析 `%nls%`）。
 - **agentsociety2**：`agent.runner` 延迟导入 ray，修复 Windows CI（ray 未安装于 win32）。
+- **agentsociety2**：修复跨平台工作区命令、后端路径校验与错误信息泄漏问题，并更新北京地图下载地址。
+- **extension**：修复 Codex 配置、Web 导入状态同步、Coder 代理打包。
 
 ## [2.8.1] - 2026-07-12
 

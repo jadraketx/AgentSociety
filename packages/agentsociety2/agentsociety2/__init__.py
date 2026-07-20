@@ -45,7 +45,7 @@
         # ... 其他抽象方法
 """
 
-__version__ = "2.8.1"
+__version__ = "2.8.3"
 
 # Import main components for easy access
 from .agent import AgentBase, PersonAgent
