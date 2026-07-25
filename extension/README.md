@@ -6,6 +6,33 @@
 
 VS Code / Cursor 扩展：面向社会科学研究的 LLM 工作台，对接 [AgentSociety2](https://github.com/tsinghua-fib-lab/agentsociety) 模拟框架，并统一管理 Claude Code / Codex 的本地路由与供应商。
 
+## AI Social Scientist 研究闭环
+
+AI Social Scientist 将社会科学研究组织成七个可检查、可回退的阶段：研究范围界定、假设生成、实验设计、仿真配置、运行执行、结果分析与论文草拟。
+
+![AI Social Scientist 七阶段研究工作流](resources/walkthrough/images/ai-social-scientist-workflow.png)
+
+图片未加载时可[单独查看七阶段架构图](resources/walkthrough/images/ai-social-scientist-workflow.png)。
+
+## 效果展示
+
+### 启动 AI Social Scientist
+
+从侧边栏进入 AI Chat，直接询问研究能力；AI Social Scientist 会说明文献检索、假设设计、实验配置与运行、分析和论文写作等可执行阶段，并继续围绕 `TOPIC.md` 与工作区产物推进任务。
+
+![启动 AI Social Scientist 对话](resources/readme/ai-social-scientist.gif)
+
+[单独打开主演示动图](resources/readme/ai-social-scientist.gif)
+
+### 更多演示
+
+为避免 Marketplace 首页同时加载多张 GIF，下面的辅助演示按需打开：
+
+| 场景 | 展示内容 | 动图 |
+|------|----------|------|
+| **创建可执行研究工作区** | 从新建目录生成研究主题、文献、数据、假设、实验与分析目录 | [查看工作区初始化演示](resources/readme/research-workspace.gif) |
+| **官方登录与第三方 Gateway** | 管理官方 Claude / Codex 登录、第三方 API 直连与本地 Gateway 路由 | [查看供应商路由演示](resources/readme/provider-routing.gif) |
+
 ## 功能概览
 
 - **研究工作区**：项目树、文献索引、假设与实验目录、技能市场
@@ -88,12 +115,13 @@ Claude / Codex 的供应商与 API Key 保存在扩展全局状态与 SecretStor
 
 配置页 **Claude / Codex** 区域：
 
-1. **添加供应商**：Base URL + API Key（或官方订阅），勾选 Claude / Codex 用途；检测后自动识别协议
-2. **开启本地代理**：API Key 供应商经网关做格式转换与用量统计；官方订阅保持 CLI 登录直连
-3. **同步 Codex 配置**：保存后点 **「刷新配置」**，重写 `~/.codex/config.toml` 与 `agentsociety-model-catalog.json`
-4. **重启 CLI**：Claude / Codex 配置变更后可用页内「重启」按钮刷新终端会话
+1. **选择连接方式**：官方账号、第三方 API 直连，或第三方 API 经本地 Gateway
+2. **添加供应商**：填写 Base URL + API Key，指定 Claude / Codex 用途；检测后自动识别协议
+3. **按需开启 Gateway**：用于协议转换、用量统计、故障转移与请求整流；官方模式保持本地路由关闭
+4. **同步 Codex 配置**：扩展只改写自己管理的 `config.toml` 路由字段和模型目录，不覆盖 `auth.json` 或系统凭据库中的官方登录
+5. **重启 CLI**：供应商、模型目录或出站代理变化后，用页内「重启」按钮刷新终端会话
 
-网关覆盖 Anthropic Messages、OpenAI Chat Completions、OpenAI Responses；详情见配置页「格式转换」提示。
+Gateway 关闭或扩展卸载时会恢复可用的直连配置；若路由状态仍为开启，下次扩展激活会自动启动 Gateway 并重新应用本地路由。网关覆盖 Anthropic Messages、OpenAI Chat Completions、OpenAI Responses；详情见配置页「格式转换」提示。
 
 ## 开发命令
 
@@ -109,7 +137,7 @@ Claude / Codex 的供应商与 API Key 保存在扩展全局状态与 SecretStor
 | Lint                 | `npm run lint`          |
 | 网关 / Codex 单测    | `npm run test:gateway`  |
 
-更完整的模块说明见 [开发指南](docs/DEVELOPMENT.md)。发版与变更记录见 [CHANGELOG](CHANGELOG.md)（指向仓库根目录）。
+更完整的模块说明见 [开发指南](docs/DEVELOPMENT.md)。发版与变更记录见 [CHANGELOG](CHANGELOG.md)。
 
 ## 故障排除
 
@@ -127,7 +155,7 @@ Claude / Codex 的供应商与 API Key 保存在扩展全局状态与 SecretStor
 - [问题反馈](https://github.com/tsinghua-fib-lab/agentsociety/issues)
 - [变更记录](CHANGELOG.md)
 - [开发指南](docs/DEVELOPMENT.md)
-- [贡献指南](../CONTRIBUTING.md)
+- [贡献指南](https://github.com/tsinghua-fib-lab/agentsociety/blob/main/CONTRIBUTING.md)
 - [用户文档（agentsociety2）](https://agentsociety2.readthedocs.io/)
 
 ## 许可证

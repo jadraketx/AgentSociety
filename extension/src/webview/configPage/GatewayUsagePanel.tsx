@@ -71,6 +71,8 @@ export interface GatewayUsagePanelProps {
   onRefreshPricing: () => void;
   onSavePricing: (pricing: ModelPricingMap) => void;
   onClearPricing: () => void;
+  /** Only show filters/cards for these apps. Empty hides Claude/Codex cards. */
+  enabledApps?: ReadonlyArray<'claude' | 'codex'>;
 }
 
 export function GatewayUsagePanel({
@@ -86,13 +88,27 @@ export function GatewayUsagePanel({
   onRefreshPricing,
   onSavePricing,
   onClearPricing,
+  enabledApps,
 }: GatewayUsagePanelProps) {
+  const visibleApps = React.useMemo(
+    (): ReadonlyArray<'claude' | 'codex'> => enabledApps ?? ['claude', 'codex'],
+    [enabledApps]
+  );
   const [pricingModalOpen, setPricingModalOpen] = React.useState(false);
   const [editingPricing, setEditingPricing] = React.useState<ModelPricingMap>({});
   const [trendMetric, setTrendMetric] = React.useState<UsageTrendMetric>('tokens');
   const [appFilter, setAppFilter] = React.useState<UsageAppFilter>('all');
   const [rangeFilter, setRangeFilter] = React.useState<UsageRangeFilter>('7d');
   const [detailView, setDetailView] = React.useState<'overview' | 'requests' | 'providers'>('overview');
+
+  React.useEffect(() => {
+    if (appFilter === 'all') {
+      return;
+    }
+    if (!visibleApps.includes(appFilter)) {
+      setAppFilter(visibleApps.length === 1 ? visibleApps[0] : 'all');
+    }
+  }, [appFilter, visibleApps]);
   const rangeRecords = React.useMemo(
     () => filterRecordsByRange(records, rangeFilter),
     [rangeFilter, records]
@@ -110,17 +126,25 @@ export function GatewayUsagePanel({
     Boolean(gatewayStatus?.running) &&
     gatewayStatus?.routeClaude === false &&
     (gatewayStatus?.claudeProxyAvailable ?? true);
+  const scopedRecords = React.useMemo(() => {
+    if (visibleApps.length === 0) {
+      return chatRangeRecords;
+    }
+    return chatRangeRecords.filter((record) => visibleApps.includes(inferRecordApp(record)));
+  }, [chatRangeRecords, visibleApps]);
   const totalAggregation = React.useMemo(
-    () => aggregateGatewayUsage(chatRangeRecords) ?? (hasAnyRecords ? emptyAggregation() : null),
-    [chatRangeRecords, hasAnyRecords]
+    () => aggregateGatewayUsage(scopedRecords) ?? (hasAnyRecords ? emptyAggregation() : null),
+    [scopedRecords, hasAnyRecords]
   );
-  const filteredRecords = React.useMemo(
-    () => filterRecordsByApp(chatRangeRecords, appFilter),
-    [appFilter, chatRangeRecords]
-  );
+  const filteredRecords = React.useMemo(() => {
+    if (appFilter === 'all' || visibleApps.length === 0) {
+      return scopedRecords;
+    }
+    return filterRecordsByApp(scopedRecords, appFilter);
+  }, [appFilter, scopedRecords, visibleApps.length]);
   const viewAggregation = React.useMemo(
-    () => (appFilter === 'all' ? totalAggregation : aggregateGatewayUsage(filteredRecords)),
-    [appFilter, filteredRecords, totalAggregation]
+    () => aggregateGatewayUsage(filteredRecords) ?? (filteredRecords.length > 0 ? emptyAggregation() : null),
+    [filteredRecords]
   );
 
   const detectedPricing = React.useMemo(() => {
@@ -477,69 +501,77 @@ export function GatewayUsagePanel({
           )}
         />
       ) : null}
-      <Segmented
-        size="small"
-        value={appFilter}
-        onChange={(value) => setAppFilter(value as UsageAppFilter)}
-        options={[
-          { label: t('claudeCodeConfig.usageFilterAll'), value: 'all' },
-          { label: 'Claude', value: 'claude' },
-          { label: 'Codex', value: 'codex' },
-        ]}
-        style={{ marginBottom: 10 }}
-      />
+      {visibleApps.length > 0 ? (
+        <>
+          <Segmented
+            size="small"
+            value={appFilter}
+            onChange={(value) => setAppFilter(value as UsageAppFilter)}
+            options={[
+              ...(visibleApps.length > 1
+                ? [{ label: t('claudeCodeConfig.usageFilterAll'), value: 'all' as const }]
+                : []),
+              ...visibleApps.map((app) => ({
+                label: app === 'claude' ? 'Claude' : 'Codex',
+                value: app,
+              })),
+            ]}
+            style={{ marginBottom: 10 }}
+          />
 
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
-          gap: 8,
-          marginBottom: 10,
-        }}
-      >
-        {(['claude', 'codex'] as const).map((app) => {
-          const stats = totalAggregation.byApp?.[app] ?? {
-            input: 0,
-            output: 0,
-            cacheRead: 0,
-            cacheCreation: 0,
-            requests: 0,
-          };
-          const total = stats.input + stats.output + stats.cacheRead + stats.cacheCreation;
-          return (
-            <div
-              key={app}
-              style={{
-                padding: '9px 12px',
-                border: `1px solid ${appFilter === app ? palette.focusBorder : palette.panelBorder}`,
-                borderRadius: 8,
-                background: appFilter === app ? palette.codeBlockBackground : 'transparent',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                gap: 10,
-                cursor: 'pointer',
-              }}
-              onClick={() => setAppFilter(appFilter === app ? 'all' : app)}
-            >
-              <Space size={6}>
-                <span
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))',
+              gap: 8,
+              marginBottom: 10,
+            }}
+          >
+            {visibleApps.map((app) => {
+              const stats = totalAggregation.byApp?.[app] ?? {
+                input: 0,
+                output: 0,
+                cacheRead: 0,
+                cacheCreation: 0,
+                requests: 0,
+              };
+              const total = stats.input + stats.output + stats.cacheRead + stats.cacheCreation;
+              return (
+                <div
+                  key={app}
                   style={{
-                    width: 8,
-                    height: 8,
-                    borderRadius: '50%',
-                    background: app === 'claude' ? '#d97706' : '#1677ff',
+                    padding: '9px 12px',
+                    border: `1px solid ${appFilter === app ? palette.focusBorder : palette.panelBorder}`,
+                    borderRadius: 8,
+                    background: appFilter === app ? palette.codeBlockBackground : 'transparent',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: 10,
+                    cursor: 'pointer',
                   }}
-                />
-                <Text strong style={{ fontSize: 12 }}>{app === 'claude' ? 'Claude' : 'Codex'}</Text>
-              </Space>
-              <Text type="secondary" style={{ fontSize: 11 }}>
-                {stats.requests} {t('claudeCodeConfig.usageRequests')} · {formatTokenCount(total)} Token
-              </Text>
-            </div>
-          );
-        })}
-      </div>
+                  onClick={() => setAppFilter(appFilter === app ? (visibleApps.length > 1 ? 'all' : app) : app)}
+                >
+                  <Space size={6}>
+                    <span
+                      style={{
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        background: app === 'claude' ? '#d97706' : '#1677ff',
+                      }}
+                    />
+                    <Text strong style={{ fontSize: 12 }}>{app === 'claude' ? 'Claude' : 'Codex'}</Text>
+                  </Space>
+                  <Text type="secondary" style={{ fontSize: 11 }}>
+                    {stats.requests} {t('claudeCodeConfig.usageRequests')} · {formatTokenCount(total)} Token
+                  </Text>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
 
       <div
         style={{

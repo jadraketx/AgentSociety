@@ -50,8 +50,15 @@ import {
   applyRectifierRetryFix,
   classifyRectifierRetry,
   DEFAULT_GATEWAY_RECTIFIER_SETTINGS,
+  rectifierFixChanged,
   type GatewayRectifierSettings,
+  type RectifierRetryKind,
 } from './gatewayRequestRectifier';
+import {
+  applyBedrockRequestOptimizer,
+  DEFAULT_GATEWAY_OPTIMIZER_SETTINGS,
+  type GatewayOptimizerSettings,
+} from './bedrockRequestOptimizer';
 import { createOutboundProxyAgent, type OutboundProxyConfig } from './gatewayOutboundProxy';
 import { GatewayRuntimeStatsTracker, type GatewayRuntimeStats } from './gatewayRuntimeStats';
 import {
@@ -247,7 +254,8 @@ function applyAnthropicRequestMapping(
   upstream: AiCliGatewayUpstream,
   urlPath: string,
   body: Buffer,
-  rectifier: GatewayRectifierSettings = DEFAULT_GATEWAY_RECTIFIER_SETTINGS
+  rectifier: GatewayRectifierSettings = DEFAULT_GATEWAY_RECTIFIER_SETTINGS,
+  optimizer: GatewayOptimizerSettings = DEFAULT_GATEWAY_OPTIMIZER_SETTINGS
 ): { body: Buffer; model: string } {
   if (!isAnthropicMessagesPath(urlPath) || body.length === 0) {
     return { body, model: '' };
@@ -259,11 +267,12 @@ function applyAnthropicRequestMapping(
       mapped.mappedModel ??
       mapped.originalModel ??
       extractModelFromRequest(parsed);
-    const rectified = applyPreflightRectifiers(mapped.body, rectifier, model);
-    if (!mapped.mappedModel && rectified === mapped.body) {
+    let next = applyPreflightRectifiers(mapped.body, rectifier, model);
+    next = applyBedrockRequestOptimizer(next, optimizer, upstream.baseUrl);
+    if (!mapped.mappedModel && next === mapped.body) {
       return { body, model };
     }
-    return { body: Buffer.from(JSON.stringify(rectified), 'utf-8'), model };
+    return { body: Buffer.from(JSON.stringify(next), 'utf-8'), model };
   } catch {
     return { body, model: '' };
   }
@@ -391,7 +400,8 @@ export class AiCliGateway {
   private readonly statsTracker = new GatewayRuntimeStatsTracker();
   private outboundProxy: OutboundProxyConfig | null = null;
   private rectifier: GatewayRectifierSettings = { ...DEFAULT_GATEWAY_RECTIFIER_SETTINGS };
-  private readonly rectifierRetried = new WeakSet<IncomingMessage>();
+  private optimizer: GatewayOptimizerSettings = { ...DEFAULT_GATEWAY_OPTIMIZER_SETTINGS };
+  private readonly rectifierRetriedKinds = new WeakMap<IncomingMessage, Set<RectifierRetryKind>>();
 
   onLog(listener: AiCliGatewayLogListener | null): void {
     this.logListener = listener;
@@ -418,6 +428,26 @@ export class AiCliGateway {
 
   getRectifierSettings(): GatewayRectifierSettings {
     return { ...this.rectifier };
+  }
+
+  configureOptimizer(settings: Partial<GatewayOptimizerSettings> | null): void {
+    this.optimizer = {
+      ...DEFAULT_GATEWAY_OPTIMIZER_SETTINGS,
+      ...(settings ?? {}),
+    };
+  }
+
+  getOptimizerSettings(): GatewayOptimizerSettings {
+    return { ...this.optimizer };
+  }
+
+  private rectifierKindsFor(req: IncomingMessage): Set<RectifierRetryKind> {
+    let kinds = this.rectifierRetriedKinds.get(req);
+    if (!kinds) {
+      kinds = new Set();
+      this.rectifierRetriedKinds.set(req, kinds);
+    }
+    return kinds;
   }
 
   private outboundAgent() {
@@ -728,8 +758,10 @@ export class AiCliGateway {
       try {
         body = method === 'GET' || method === 'HEAD' ? Buffer.alloc(0) : await readRequestBody(clientReq);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        this.writeJson(clientRes, 413, { error: message });
+        this.writeJson(clientRes, 413, {
+          error: 'payload_too_large',
+          message: this.clientSafeErrorMessage(err),
+        });
         return;
       }
 
@@ -848,7 +880,9 @@ export class AiCliGateway {
               success = true;
               return;
             }
-            recordUpstreamFailure(this.circuit, upstream.baseUrl);
+            if (shouldFailoverHttpStatus(result.status)) {
+              recordUpstreamFailure(this.circuit, upstream.baseUrl);
+            }
             if (clientRes.headersSent) {
               return;
             }
@@ -866,7 +900,7 @@ export class AiCliGateway {
             });
             return;
           } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
+            const message = this.clientSafeErrorMessage(err);
             this.lastError = message;
             lastFailDetail = message;
             recordUpstreamFailure(this.circuit, upstream.baseUrl);
@@ -949,7 +983,9 @@ export class AiCliGateway {
             return;
           }
 
-          recordUpstreamFailure(this.circuit, upstream.baseUrl);
+          if (shouldFailoverHttpStatus(result.status)) {
+            recordUpstreamFailure(this.circuit, upstream.baseUrl);
+          }
           if (clientRes.headersSent) {
             return;
           }
@@ -962,7 +998,7 @@ export class AiCliGateway {
           });
           return;
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
+          const message = this.clientSafeErrorMessage(err);
           this.lastError = message;
           recordUpstreamFailure(this.circuit, upstream.baseUrl);
           if (clientRes.headersSent) {
@@ -987,6 +1023,42 @@ export class AiCliGateway {
     }
   }
 
+  private tryBuildRectifiedBody(
+    clientReq: IncomingMessage,
+    forwardedBody: Buffer,
+    status: number,
+    errBody: Buffer
+  ): Buffer | null {
+    if (!this.rectifier.enabled || status < 400 || status >= 500) {
+      return null;
+    }
+    let original: Record<string, unknown>;
+    try {
+      original = JSON.parse(forwardedBody.toString('utf-8')) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
+    const kind = classifyRectifierRetry(
+      status,
+      errBody.toString('utf-8'),
+      this.rectifier,
+      original
+    );
+    if (!kind) {
+      return null;
+    }
+    const tried = this.rectifierKindsFor(clientReq);
+    if (tried.has(kind)) {
+      return null;
+    }
+    const fixed = applyRectifierRetryFix(original, kind);
+    if (!rectifierFixChanged(original, fixed)) {
+      return null;
+    }
+    tried.add(kind);
+    return Buffer.from(JSON.stringify(fixed), 'utf-8');
+  }
+
   private async proxyStream(
     upstream: AiCliGatewayUpstream,
     clientReq: IncomingMessage,
@@ -1002,7 +1074,13 @@ export class AiCliGateway {
     const headers = filterForwardHeaders(clientReq.headers, parsed.host);
     headers['x-upstream-base'] = upstream.baseUrl;
     applyUpstreamAuth(headers, upstream.apiKey, upstream.baseUrl);
-    const mappedRequest = applyAnthropicRequestMapping(upstream, urlPath, body, this.rectifier);
+    const mappedRequest = applyAnthropicRequestMapping(
+      upstream,
+      urlPath,
+      body,
+      this.rectifier,
+      this.optimizer
+    );
     const forwardedBody = mappedRequest.body;
     if (forwardedBody.length > 0) {
       headers['content-length'] = String(forwardedBody.length);
@@ -1028,6 +1106,50 @@ export class AiCliGateway {
         if (canRetry) {
           proxyRes.resume();
           resolve({ ok: false, status, canRetry: true });
+          return;
+        }
+
+        if (
+          !clientRes.headersSent &&
+          status >= 400 &&
+          status < 500 &&
+          isAnthropicMessagesPath(urlPath)
+        ) {
+          const errChunks: Buffer[] = [];
+          proxyRes.on('data', (chunk: Buffer) => errChunks.push(chunk));
+          proxyRes.on('end', () => {
+            const errBody = Buffer.concat(errChunks);
+            const fixed = this.tryBuildRectifiedBody(clientReq, forwardedBody, status, errBody);
+            if (!fixed) {
+              const respHeaders = { ...proxyRes.headers } as Record<string, string | string[]>;
+              delete respHeaders['transfer-encoding'];
+              respHeaders['content-length'] = String(errBody.length);
+              clientRes.writeHead(status, respHeaders);
+              clientRes.end(errBody);
+              resolve({
+                ok: false,
+                status,
+                canRetry: false,
+                detail: summarizeUpstreamErrorBody(errBody, status),
+              });
+              return;
+            }
+            void this.proxyStream(
+              upstream,
+              clientReq,
+              clientRes,
+              method,
+              parsed,
+              targetUrl,
+              urlPath,
+              startTime,
+              captureUsage,
+              fixed
+            ).then(resolve);
+          });
+          proxyRes.on('error', () => {
+            resolve({ ok: false, status, canRetry: false });
+          });
           return;
         }
 
@@ -1110,7 +1232,13 @@ export class AiCliGateway {
     const headers = filterForwardHeaders(clientReq.headers, parsed.host);
     headers['x-upstream-base'] = upstream.baseUrl;
     applyUpstreamAuth(headers, upstream.apiKey, upstream.baseUrl);
-    const mappedRequest = applyAnthropicRequestMapping(upstream, urlPath, body, this.rectifier);
+    const mappedRequest = applyAnthropicRequestMapping(
+      upstream,
+      urlPath,
+      body,
+      this.rectifier,
+      this.optimizer
+    );
     const forwardedBody = mappedRequest.body;
     if (forwardedBody.length > 0) {
       headers['content-length'] = String(forwardedBody.length);
@@ -1143,15 +1271,14 @@ export class AiCliGateway {
           !clientRes.headersSent &&
           status >= 400 &&
           status < 500 &&
-          isAnthropicMessagesPath(urlPath) &&
-          !this.rectifierRetried.has(clientReq)
+          isAnthropicMessagesPath(urlPath)
         ) {
           const errChunks: Buffer[] = [];
           proxyRes.on('data', (chunk: Buffer) => errChunks.push(chunk));
           proxyRes.on('end', () => {
             const errBody = Buffer.concat(errChunks);
-            const kind = classifyRectifierRetry(status, errBody.toString('utf-8'), this.rectifier);
-            if (!kind) {
+            const fixed = this.tryBuildRectifiedBody(clientReq, forwardedBody, status, errBody);
+            if (!fixed) {
               delete respHeaders['transfer-encoding'];
               respHeaders['content-length'] = String(errBody.length);
               clientRes.writeHead(status, respHeaders);
@@ -1159,29 +1286,18 @@ export class AiCliGateway {
               resolve({ ok: false, status, canRetry: false, detail: summarizeUpstreamErrorBody(errBody, status) });
               return;
             }
-            try {
-              const original = JSON.parse(forwardedBody.toString('utf-8')) as Record<string, unknown>;
-              const fixed = Buffer.from(JSON.stringify(applyRectifierRetryFix(original, kind)), 'utf-8');
-              this.rectifierRetried.add(clientReq);
-              void this.proxyBuffered(
-                upstream,
-                clientReq,
-                clientRes,
-                method,
-                parsed,
-                targetUrl,
-                urlPath,
-                startTime,
-                captureUsage,
-                fixed
-              ).then(resolve);
-            } catch {
-              delete respHeaders['transfer-encoding'];
-              respHeaders['content-length'] = String(errBody.length);
-              clientRes.writeHead(status, respHeaders);
-              clientRes.end(errBody);
-              resolve({ ok: false, status, canRetry: false, detail: summarizeUpstreamErrorBody(errBody, status) });
-            }
+            void this.proxyBuffered(
+              upstream,
+              clientReq,
+              clientRes,
+              method,
+              parsed,
+              targetUrl,
+              urlPath,
+              startTime,
+              captureUsage,
+              fixed
+            ).then(resolve);
           });
           proxyRes.on('error', () => {
             resolve({ ok: false, status, canRetry: false });
@@ -1700,8 +1816,9 @@ export class AiCliGateway {
 
     const mapped = applyAnthropicModelMapping(anthropicRequest, upstream);
     const chatModel = String(mapped.body.model ?? mapped.mappedModel ?? mapped.originalModel ?? upstream.model ?? 'gpt-4o');
-    const rectified = applyPreflightRectifiers(mapped.body, this.rectifier, chatModel);
-    const chatRequest = translateAnthropicMessagesToOpenAiChat(rectified, chatModel);
+    let anthropicBody = applyPreflightRectifiers(mapped.body, this.rectifier, chatModel);
+    anthropicBody = applyBedrockRequestOptimizer(anthropicBody, this.optimizer, upstream.baseUrl);
+    const chatRequest = translateAnthropicMessagesToOpenAiChat(anthropicBody, chatModel);
     const targetUrl = resolveChatCompletionsTargetUrl(upstream.baseUrl);
     const parsed = new URL(targetUrl);
     const isStreaming = chatRequest.stream !== false;
@@ -1729,6 +1846,19 @@ export class AiCliGateway {
               return;
             }
             const respBody = Buffer.concat(chunks);
+            const fixed = this.tryBuildRectifiedBody(clientReq, Buffer.from(JSON.stringify(anthropicBody), 'utf-8'), status, respBody);
+            if (fixed && !clientRes.headersSent) {
+              void this.proxyAnthropicMessagesViaOpenAiChat(
+                clientReq,
+                clientRes,
+                method,
+                urlPath,
+                startTime,
+                fixed,
+                upstream
+              ).then(resolve);
+              return;
+            }
             const detail = summarizeUpstreamErrorBody(respBody, status);
             this.lastError = detail;
             this.writeJson(clientRes, status, { error: 'upstream_error', message: detail });
@@ -1864,13 +1994,9 @@ export class AiCliGateway {
             });
             resolve({ ok: true, status, canRetry: false });
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message = this.clientSafeErrorMessage(error);
             this.lastError = message;
-            // Sanitize error message to avoid leaking stack traces or internal details
-            const sanitized = (error instanceof Error && error.stack)
-              ? message.split('\n')[0].trim()
-              : message;
-            this.writeJson(clientRes, 502, { error: 'translation_failed', message: sanitized });
+            this.writeJson(clientRes, 502, { error: 'translation_failed', message });
             resolve({ ok: false, status: 502, canRetry: false, detail: message });
           }
         });
@@ -2077,13 +2203,9 @@ export class AiCliGateway {
             });
             resolve({ ok: true, status: 200, canRetry: false });
           } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
+            const message = this.clientSafeErrorMessage(error);
             this.lastError = message;
-            // Sanitize error message to avoid leaking stack traces or internal details
-            const sanitized = (error instanceof Error && error.stack)
-              ? message.split('\n')[0].trim()
-              : message;
-            this.writeJson(clientRes, 502, { error: 'translation_failed', message: sanitized });
+            this.writeJson(clientRes, 502, { error: 'translation_failed', message });
             resolve({ ok: false, status: 502, canRetry: false, detail: message });
           }
         });
@@ -2117,6 +2239,13 @@ export class AiCliGateway {
     res.end(body);
   }
 
+  /** First-line client-safe error text; never stringify unknown Error (can include stack). */
+  private clientSafeErrorMessage(err: unknown): string {
+    const raw = err instanceof Error ? err.message : 'request_failed';
+    const firstLine = raw.split('\n')[0].trim() || 'request_failed';
+    return firstLine.length > 280 ? `${firstLine.slice(0, 280)}…` : firstLine;
+  }
+
   /** Recursively sanitize error payload: drop stacks and truncate messages. */
   private sanitizeErrorPayload(payload: unknown): unknown {
     if (typeof payload !== 'object' || payload === null) {
@@ -2134,14 +2263,15 @@ export class AiCliGateway {
       'cause',
       'trace',
     ]);
+    const textKeys = new Set(['message', 'error', 'detail', 'hint']);
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(payload as Record<string, unknown>)) {
       if (blockedKeys.has(key)) {
         continue;
       }
-      if (key === 'message' && typeof value === 'string') {
+      if (textKeys.has(key) && typeof value === 'string') {
         const firstLine = value.split('\n')[0].trim();
-        out[key] = firstLine.length > 280 ? firstLine.slice(0, 280) + '…' : firstLine;
+        out[key] = firstLine.length > 280 ? `${firstLine.slice(0, 280)}…` : firstLine;
       } else if (typeof value === 'object' && value !== null) {
         out[key] = this.sanitizeErrorPayload(value);
       } else {

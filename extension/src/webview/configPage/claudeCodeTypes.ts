@@ -44,6 +44,11 @@ export interface AiCliGatewayStatus {
     unsupportedImageDowngrade: boolean;
     heuristicTextOnlyModels: boolean;
   };
+  optimizer?: {
+    enabled: boolean;
+    thinkingOptimizer: boolean;
+    cacheInjection: boolean;
+  };
   stats?: {
     startedAt: string;
     uptimeMs: number;

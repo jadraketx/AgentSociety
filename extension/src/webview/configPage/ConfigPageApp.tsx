@@ -896,6 +896,10 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
     vscode.postMessage({ command: 'gatewaySetRectifier', settings });
   }, [vscode]);
 
+  const handleOptimizerChange = React.useCallback((settings: Record<string, boolean>) => {
+    vscode.postMessage({ command: 'gatewaySetOptimizer', settings });
+  }, [vscode]);
+
   const handleRefreshCodexOfficialLogin = React.useCallback(() => {
     vscode.postMessage({ command: 'refreshCodexOfficialLogin' });
   }, [vscode]);
@@ -1881,6 +1885,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                   onSyncCodexConfig={handleSyncCodexConfig}
                   onSaveOutboundProxy={handleSaveOutboundProxy}
                   onRectifierChange={handleRectifierChange}
+                  onOptimizerChange={handleOptimizerChange}
                   onRefreshCodexOfficialLogin={handleRefreshCodexOfficialLogin}
                   easyPaperForm={easyPaperForm}
                   onSaveEasyPaper={saveEasyPaperConfig}
@@ -2042,6 +2047,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                                     onSyncCodexConfig={handleSyncCodexConfig}
                                     onSaveOutboundProxy={handleSaveOutboundProxy}
                                     onRectifierChange={handleRectifierChange}
+                                    onOptimizerChange={handleOptimizerChange}
                                     onRefreshCodexOfficialLogin={handleRefreshCodexOfficialLogin}
                                   />
                                 </div>
@@ -2193,6 +2199,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
                             onSyncCodexConfig={handleSyncCodexConfig}
                             onSaveOutboundProxy={handleSaveOutboundProxy}
                             onRectifierChange={handleRectifierChange}
+                            onOptimizerChange={handleOptimizerChange}
                             onRefreshCodexOfficialLogin={handleRefreshCodexOfficialLogin}
                           />
                         </div>

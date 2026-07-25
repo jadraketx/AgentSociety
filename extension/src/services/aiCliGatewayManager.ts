@@ -47,8 +47,14 @@ import {
   applyCodexDirectProvider,
   applyCodexGatewayConfig,
   applyCodexOfficialSubscription,
+  buildCodexDirectProviderConfigText,
+  detectCodexOfficialLogin,
   getCodexRoutingSnapshot,
   getCodexOfficialLoginSnapshot,
+  isCodexGatewayTakeoverConfig,
+  readCodexConfigText,
+  releaseCodexGatewayTakeover,
+  snapshotCodexLiveBackup,
   stripCodexGatewayConfig,
   type CodexProviderPatch,
 } from './codexSettings';
@@ -56,6 +62,10 @@ import {
   DEFAULT_GATEWAY_RECTIFIER_SETTINGS,
   type GatewayRectifierSettings,
 } from './gatewayRequestRectifier';
+import {
+  DEFAULT_GATEWAY_OPTIMIZER_SETTINGS,
+  type GatewayOptimizerSettings,
+} from './bedrockRequestOptimizer';
 import type { OutboundProxyConfig } from './gatewayOutboundProxy';
 import { buildOutboundProxyUrl } from './gatewayOutboundProxy';
 import { resolveManualConfigSyncMode } from './manualConfigSync';
@@ -88,8 +98,13 @@ const REMOTE_PRICING_FETCHED_AT_STATE_KEY = 'aiCliGateway.remotePricingFetchedAt
 const FAILOVER_ENABLED_STATE_KEY = 'aiCliGateway.failoverEnabled';
 const ROUTE_CLAUDE_STATE_KEY = 'aiCliGateway.routeClaude';
 const ROUTE_CODEX_STATE_KEY = 'aiCliGateway.routeCodex';
+/** Pre-takeover ~/.codex/config.toml snapshot (cc-switch live backup). */
+const CODEX_LIVE_BACKUP_STATE_KEY = 'aiCliGateway.codexLiveBackup';
+const CODEX_LIVE_BACKUP_SECRET_KEY = 'aiCliGateway.codexLiveBackup.secret';
 const OUTBOUND_PROXY_STATE_KEY = 'aiCliGateway.outboundProxy';
+const OUTBOUND_PROXY_SECRET_KEY = 'aiCliGateway.outboundProxy.secret';
 const RECTIFIER_STATE_KEY = 'aiCliGateway.rectifier';
+const OPTIMIZER_STATE_KEY = 'aiCliGateway.optimizer';
 const MAX_USAGE_RECORDS = 10000;
 const REMOTE_PRICING_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -103,6 +118,7 @@ export type AiCliGatewayPublicStatus = AiCliGatewayStatus & {
   codexAuthPath?: string;
   outboundProxyUrl: string;
   rectifier: GatewayRectifierSettings;
+  optimizer: GatewayOptimizerSettings;
 };
 
 export type AiCliProviderConfig = {
@@ -151,6 +167,10 @@ export class AiCliGatewayManager {
   private usagePersistPromise: Promise<void> = Promise.resolve();
   private providersCache: AiCliProviderConfig[] = [];
   private storedUpstreamCache: AiCliGatewayUpstream | undefined;
+  private codexLiveBackupCache: string | undefined;
+  private outboundProxyCache: OutboundProxyConfig | null;
+  private codexLoginSnapshot = getCodexOfficialLoginSnapshot();
+  private codexLoginRefreshed = false;
   private readonly secretsReady: Promise<void>;
 
   constructor(private readonly context: vscode.ExtensionContext) {
@@ -173,6 +193,7 @@ export class AiCliGatewayManager {
       void this.applyFailoverUpstream(upstream, role);
     });
     this.providersCache = this.readStoredProviderMetadata();
+    this.outboundProxyCache = this.readLegacyOutboundProxy();
     this.secretsReady = this.initializeSecretStorage();
   }
 
@@ -181,6 +202,7 @@ export class AiCliGatewayManager {
       clearTimeout(this.usagePersistTimer);
       this.usagePersistTimer = undefined;
     }
+    this.restoreLiveConfigsBeforeShutdown();
     void this.persistUsage();
     void this.gateway.stop();
   }
@@ -191,7 +213,8 @@ export class AiCliGatewayManager {
     const claudeProxyAvailable = Boolean(this.getAnthropicProviderForGateway());
     const codexProxyAvailable = Boolean(this.getOpenAiProviderForGateway());
     this.syncGatewayEnhancements();
-    const login = getCodexOfficialLoginSnapshot();
+    const fileLogin = getCodexOfficialLoginSnapshot();
+    const login = fileLogin.present ? fileLogin : this.codexLoginSnapshot;
     return {
       ...this.gateway.getStatus(),
       enabled: routeClaude || routeCodex,
@@ -203,11 +226,12 @@ export class AiCliGatewayManager {
       codexAuthPath: login.authPath,
       outboundProxyUrl: this.getOutboundProxy()?.url ?? '',
       rectifier: this.getRectifierSettings(),
+      optimizer: this.getOptimizerSettings(),
     };
   }
 
   getOutboundProxy(): OutboundProxyConfig | null {
-    const stored = this.context.globalState.get<OutboundProxyConfig>(OUTBOUND_PROXY_STATE_KEY);
+    const stored = this.outboundProxyCache;
     if (!stored?.url?.trim()) {
       return null;
     }
@@ -221,14 +245,20 @@ export class AiCliGatewayManager {
   async setOutboundProxy(proxy: OutboundProxyConfig | null): Promise<AiCliGatewayPublicStatus> {
     await this.initialize();
     if (!proxy?.url.trim()) {
-      await this.context.globalState.update(OUTBOUND_PROXY_STATE_KEY, undefined);
+      this.outboundProxyCache = null;
+      await this.context.secrets.delete(OUTBOUND_PROXY_SECRET_KEY);
     } else {
-      await this.context.globalState.update(OUTBOUND_PROXY_STATE_KEY, {
+      this.outboundProxyCache = {
         url: proxy.url.trim(),
         username: proxy.username?.trim() || undefined,
         password: proxy.password?.trim() || undefined,
-      });
+      };
+      await this.context.secrets.store(
+        OUTBOUND_PROXY_SECRET_KEY,
+        JSON.stringify(this.outboundProxyCache)
+      );
     }
+    await this.context.globalState.update(OUTBOUND_PROXY_STATE_KEY, undefined);
     this.syncGatewayEnhancements();
     return this.getPublicStatus();
   }
@@ -248,32 +278,163 @@ export class AiCliGatewayManager {
     return this.getPublicStatus();
   }
 
+  getOptimizerSettings(): GatewayOptimizerSettings {
+    const stored = this.context.globalState.get<Partial<GatewayOptimizerSettings>>(OPTIMIZER_STATE_KEY);
+    return { ...DEFAULT_GATEWAY_OPTIMIZER_SETTINGS, ...(stored ?? {}) };
+  }
+
+  async setOptimizerSettings(
+    patch: Partial<GatewayOptimizerSettings>
+  ): Promise<AiCliGatewayPublicStatus> {
+    await this.initialize();
+    const next = { ...this.getOptimizerSettings(), ...patch };
+    await this.context.globalState.update(OPTIMIZER_STATE_KEY, next);
+    this.syncGatewayEnhancements();
+    return this.getPublicStatus();
+  }
+
   private syncGatewayEnhancements(): void {
     this.gateway.configureOutboundProxy(this.getOutboundProxy());
     this.gateway.configureRectifier(this.getRectifierSettings());
+    this.gateway.configureOptimizer(this.getOptimizerSettings());
   }
 
-  /** Shell exports so Codex CLI itself (including login) can reach OpenAI via the outbound proxy. */
-  buildOutboundProxyEnvExports(): string {
+  /** Process environment so Codex CLI itself (including login) can reach OpenAI via the proxy. */
+  buildOutboundProxyEnv(): Record<string, string> | undefined {
     const proxy = this.getOutboundProxy();
     const url = proxy ? buildOutboundProxyUrl(proxy) : null;
     if (!url) {
-      return '';
+      return undefined;
     }
-    const quoted = JSON.stringify(url);
-    return `export HTTP_PROXY=${quoted} HTTPS_PROXY=${quoted} ALL_PROXY=${quoted} http_proxy=${quoted} https_proxy=${quoted} all_proxy=${quoted}`;
+    const noProxy = Array.from(
+      new Set(
+        [
+          ...(process.env.NO_PROXY ?? '').split(','),
+          ...(process.env.no_proxy ?? '').split(','),
+          '127.0.0.1',
+          'localhost',
+          '::1',
+        ]
+          .map((entry) => entry.trim())
+          .filter(Boolean)
+      )
+    ).join(',');
+    return {
+      HTTP_PROXY: url,
+      HTTPS_PROXY: url,
+      ALL_PROXY: url,
+      http_proxy: url,
+      https_proxy: url,
+      all_proxy: url,
+      NO_PROXY: noProxy,
+      no_proxy: noProxy,
+    };
   }
 
   /**
    * Apply live Codex projection to config.toml / model catalog only.
-   * Never overwrite auth.json so ChatGPT OAuth (mobile remote / plugins) stays intact.
+   * Never overwrite auth.json so ChatGPT OAuth (mobile remote / plugins) stays intact
+   * (cc-switch: auth.json = login cache, config.toml = provider routing).
    */
-  private projectCodexProviderLive(provider: AiCliProviderConfig, gatewayPort?: number): void {
+  private async projectCodexProviderLive(
+    provider: AiCliProviderConfig,
+    gatewayPort?: number
+  ): Promise<void> {
     const patch = this.providerToCodexPatch(provider);
     if (typeof gatewayPort === 'number' && gatewayPort > 0) {
+      await this.updateCodexRestoreTarget(provider);
       applyCodexGatewayConfig(gatewayPort, patch);
     } else {
       applyCodexDirectProvider(patch);
+    }
+  }
+
+  private async storeCodexLiveBackup(text: string): Promise<void> {
+    this.codexLiveBackupCache = text;
+    await this.context.secrets.store(CODEX_LIVE_BACKUP_SECRET_KEY, text);
+    await this.context.globalState.update(CODEX_LIVE_BACKUP_STATE_KEY, undefined);
+  }
+
+  private async clearCodexLiveBackup(): Promise<void> {
+    this.codexLiveBackupCache = undefined;
+    await this.context.secrets.delete(CODEX_LIVE_BACKUP_SECRET_KEY);
+    await this.context.globalState.update(CODEX_LIVE_BACKUP_STATE_KEY, undefined);
+  }
+
+  /**
+   * Keep the restore snapshot aligned with the selected provider while takeover
+   * stays active. This is the cc-switch invariant: live points at the proxy,
+   * while the backup represents the direct config to restore when routing stops.
+   */
+  private async updateCodexRestoreTarget(provider: AiCliProviderConfig): Promise<void> {
+    const live = readCodexConfigText();
+    const cleanBase =
+      snapshotCodexLiveBackup(live) ??
+      (this.codexLiveBackupCache &&
+      !isCodexGatewayTakeoverConfig(this.codexLiveBackupCache)
+        ? this.codexLiveBackupCache
+        : live);
+    const restoreTarget = buildCodexDirectProviderConfigText(
+      cleanBase,
+      this.providerToCodexPatch(provider)
+    );
+    await this.storeCodexLiveBackup(restoreTarget);
+  }
+
+  /**
+   * Release Codex proxy takeover: restore live backup if clean, else rebuild from active provider.
+   * Matches cc-switch stop_with_restore / placeholder-guard behavior.
+   */
+  private async releaseCodexProxyTakeover(): Promise<void> {
+    const mode = releaseCodexGatewayTakeover(this.codexLiveBackupCache, () => {
+      this.rebuildCodexLiveFromActiveProvider();
+    });
+    await this.clearCodexLiveBackup();
+    this.log(
+      mode === 'backup'
+        ? 'Codex proxy off: restored pre-takeover config.toml backup'
+        : 'Codex proxy off: rebuilt config.toml from active provider'
+    );
+  }
+
+  private rebuildCodexLiveFromActiveProvider(): void {
+    const active = this.getActiveCodexProvider();
+    if (!active || isOfficialSubscriptionProvider(active)) {
+      applyCodexOfficialSubscription();
+      return;
+    }
+    if (
+      this.providerHasApiUpstream(active) &&
+      (active.apiKind ?? inferApiKindFromBaseUrl(active.baseUrl)) === 'openai'
+    ) {
+      applyCodexDirectProvider(this.providerToCodexPatch(active));
+      return;
+    }
+    applyCodexOfficialSubscription();
+  }
+
+  /**
+   * VS Code can unload the extension while keeping Codex terminals alive.
+   * Restore usable direct configs synchronously, but retain route state and the
+   * encrypted restore snapshot so the next activation can re-establish takeover.
+   */
+  private restoreLiveConfigsBeforeShutdown(): void {
+    const codexRouting = getCodexRoutingSnapshot();
+    if (codexRouting.routedViaGateway || this.codexLiveBackupCache !== undefined) {
+      releaseCodexGatewayTakeover(this.codexLiveBackupCache, () => {
+        this.rebuildCodexLiveFromActiveProvider();
+      });
+    }
+
+    if (isLocalGatewayBaseUrl(readClaudeConfig().baseUrl)) {
+      const active = this.getActiveClaudeProvider();
+      if (active && isOfficialSubscriptionProvider(active)) {
+        applyClaudeOfficialSubscription(active.permissionMode);
+      } else if (active && this.isAnthropicProvider(active) && this.providerHasApiUpstream(active)) {
+        writeClaudeConfig(this.providerToClaudeConfig(active));
+      } else {
+        applyClaudeOfficialSubscription();
+      }
     }
   }
 
@@ -371,6 +532,18 @@ export class AiCliGatewayManager {
     return raw.map((provider) => this.normalizeProvider(provider));
   }
 
+  private readLegacyOutboundProxy(): OutboundProxyConfig | null {
+    const stored = this.context.globalState.get<OutboundProxyConfig>(OUTBOUND_PROXY_STATE_KEY);
+    if (!stored?.url?.trim()) {
+      return null;
+    }
+    return {
+      url: stored.url.trim(),
+      username: stored.username?.trim() || undefined,
+      password: stored.password?.trim() || undefined,
+    };
+  }
+
   private providerSecretKey(id: string): string {
     return `${PROVIDER_SECRET_PREFIX}${id}`;
   }
@@ -397,6 +570,28 @@ export class AiCliGatewayManager {
       if (secretUpstream) {
         this.storedUpstreamCache = JSON.parse(secretUpstream) as AiCliGatewayUpstream;
       }
+
+      const legacyBackup = this.context.globalState.get<string>(CODEX_LIVE_BACKUP_STATE_KEY);
+      const secretBackup = await this.context.secrets.get(CODEX_LIVE_BACKUP_SECRET_KEY);
+      this.codexLiveBackupCache = secretBackup ?? legacyBackup;
+      if (this.codexLiveBackupCache && !secretBackup) {
+        await this.context.secrets.store(
+          CODEX_LIVE_BACKUP_SECRET_KEY,
+          this.codexLiveBackupCache
+        );
+      }
+      await this.context.globalState.update(CODEX_LIVE_BACKUP_STATE_KEY, undefined);
+
+      const secretProxy = await this.context.secrets.get(OUTBOUND_PROXY_SECRET_KEY);
+      if (secretProxy) {
+        this.outboundProxyCache = JSON.parse(secretProxy) as OutboundProxyConfig;
+      } else if (this.outboundProxyCache) {
+        await this.context.secrets.store(
+          OUTBOUND_PROXY_SECRET_KEY,
+          JSON.stringify(this.outboundProxyCache)
+        );
+      }
+      await this.context.globalState.update(OUTBOUND_PROXY_STATE_KEY, undefined);
     } catch (error) {
       this.log(`Secret storage initialization failed: ${error instanceof Error ? error.message : String(error)}`);
     }
@@ -404,6 +599,17 @@ export class AiCliGatewayManager {
 
   async initialize(): Promise<void> {
     await this.secretsReady;
+    if (!this.codexLoginRefreshed) {
+      this.codexLoginRefreshed = true;
+      this.codexLoginSnapshot = await detectCodexOfficialLogin();
+    }
+  }
+
+  async refreshCodexOfficialLogin(): Promise<AiCliGatewayPublicStatus> {
+    await this.secretsReady;
+    this.codexLoginSnapshot = await detectCodexOfficialLogin();
+    this.codexLoginRefreshed = true;
+    return this.getPublicStatus();
   }
 
   private isAnthropicProvider(provider: AiCliProviderConfig): boolean {
@@ -526,26 +732,11 @@ export class AiCliGatewayManager {
 
   private async prepareGatewayRoutesForEnable(): Promise<Array<'claude' | 'codex'>> {
     const adjusted = await this.syncGatewayRoutesWithProviders();
-    let routeClaude = this.isRouteClaudeViaGateway();
-    let routeCodex = this.isRouteCodexViaGateway();
+    const routeClaude = this.isRouteClaudeViaGateway();
+    const routeCodex = this.isRouteCodexViaGateway();
+    // Never auto-enable Claude/Codex proxy — user must flip the route switch.
     if (!routeClaude && !routeCodex) {
-      if (this.getAnthropicProviderForGateway()) {
-        await this.context.globalState.update(ROUTE_CLAUDE_STATE_KEY, true);
-        routeClaude = true;
-        if (!adjusted.includes('claude')) {
-          adjusted.push('claude');
-        }
-      }
-      if (this.getOpenAiProviderForGateway()) {
-        await this.context.globalState.update(ROUTE_CODEX_STATE_KEY, true);
-        routeCodex = true;
-        if (!adjusted.includes('codex')) {
-          adjusted.push('codex');
-        }
-      }
-    }
-    if (!routeClaude && !routeCodex) {
-      throw new Error('gateway_no_api_provider');
+      throw new Error('gateway_no_route_selected');
     }
     return adjusted;
   }
@@ -675,33 +866,38 @@ export class AiCliGatewayManager {
     if (routeClaude && gatewayStatus.running && gatewayStatus.port) {
       writeClaudeConfig(this.buildClaudeLiveConfig(gatewayStatus.port, claudeConfig));
       this.ensureGatewayDiscoveryEnv();
-    } else {
+    } else if (isLocalGatewayBaseUrl(readClaudeConfig().baseUrl)) {
+      // Only rewrite Claude when leaving gateway — never while only Codex is on.
       const activeAnthropic = this.getActiveAnthropicProvider();
       if (activeAnthropic && isOfficialSubscriptionProvider(activeAnthropic)) {
         applyClaudeOfficialSubscription(activeAnthropic.permissionMode);
-      } else if (anthropicProvider) {
+      } else if (anthropicProvider && this.isAnthropicProvider(anthropicProvider)) {
         const direct = this.providerToClaudeConfig(anthropicProvider);
         writeClaudeConfig(direct);
         const upstream = providerUpstream(anthropicProvider);
         await this.persistUpstream({ baseUrl: upstream.baseUrl, apiKey: upstream.apiKey });
+      } else {
+        applyClaudeOfficialSubscription();
       }
     }
 
     if (routeCodex && gatewayStatus.running && gatewayStatus.port) {
       const openaiActive = this.getOpenAiProviderForGateway();
       if (openaiActive) {
-        this.projectCodexProviderLive(openaiActive, gatewayStatus.port);
+        await this.projectCodexProviderLive(openaiActive, gatewayStatus.port);
+        this.log(`Codex gateway config applied on port ${gatewayStatus.port}`);
       } else {
         await this.context.globalState.update(ROUTE_CODEX_STATE_KEY, false);
-        stripCodexGatewayConfig();
+        await this.releaseCodexProxyTakeover();
         this.log('Codex gateway route disabled: active provider has no resolvable model');
       }
-      if (openaiActive) {
-        this.log(`Codex gateway config applied on port ${gatewayStatus.port}`);
-      }
-    } else {
-      stripCodexGatewayConfig();
-      this.applyCodexDirectFromActiveProvider();
+    } else if (
+      getCodexRoutingSnapshot().routedViaGateway ||
+      this.codexLiveBackupCache !== undefined
+    ) {
+      // Only release when live is still takeover or a pre-takeover backup exists.
+      // Avoid repeatedly rebuilding from the active API provider on every sync.
+      await this.releaseCodexProxyTakeover();
     }
 
     if (!gatewayStatus.running) {
@@ -713,8 +909,7 @@ export class AiCliGatewayManager {
   async disableAndRestoreDirect(config: ClaudeCodeConfigValues): Promise<AiCliGatewayPublicStatus> {
     const upstream = this.resolveUpstreamFromClaudeForm(config);
     await this.gateway.stop();
-    stripCodexGatewayConfig();
-    this.applyCodexDirectFromActiveProvider();
+    await this.releaseCodexProxyTakeover();
     if (upstream.baseUrl && upstream.apiKey) {
       writeClaudeConfig({
         ...config,
@@ -724,7 +919,7 @@ export class AiCliGatewayManager {
       await this.persistUpstream(upstream);
     }
     await this.persistEnabled(false);
-    this.log('Gateway disabled; Claude and Codex restored to direct upstream');
+    this.log('Gateway disabled; Claude restored to upstream; Codex released from proxy takeover');
     return this.getPublicStatus();
   }
 
@@ -738,20 +933,27 @@ export class AiCliGatewayManager {
 
   async restoreIfEnabled(): Promise<void> {
     await this.initialize();
-    const enabled = this.context.globalState.get<boolean>(ENABLED_STATE_KEY, false);
-    if (!enabled) {
+    const routeClaude = this.isRouteClaudeViaGateway();
+    const routeCodex = this.isRouteCodexViaGateway();
+    if (!routeClaude && !routeCodex) {
+      if (getCodexRoutingSnapshot().routedViaGateway || this.codexLiveBackupCache !== undefined) {
+        await this.releaseCodexProxyTakeover();
+      }
+      await this.persistEnabled(false);
       return;
     }
-    const upstream = this.getStoredUpstream();
-    if (!upstream?.baseUrl || !upstream.apiKey) {
-      return;
+    const anthropic = this.getAnthropicProviderForGateway();
+    const config = anthropic
+      ? this.providerToClaudeConfig(anthropic)
+      : readClaudeConfig();
+    try {
+      await this.enableWithClaudeConfig(config);
+    } catch (error) {
+      if (getCodexRoutingSnapshot().routedViaGateway || this.codexLiveBackupCache !== undefined) {
+        await this.releaseCodexProxyTakeover();
+      }
+      throw error;
     }
-    const live = readClaudeConfig();
-    await this.enableWithClaudeConfig({
-      ...live,
-      baseUrl: upstream.baseUrl,
-      apiKey: upstream.apiKey,
-    });
   }
 
   async checkProviderAvailability(
@@ -967,20 +1169,16 @@ export class AiCliGatewayManager {
       }
       applyClaudeOfficialSubscription(normalized.permissionMode);
       this.log('Claude official subscription: cleared proxy env; run claude and /login if needed');
-      if (enabled) {
+      if (enabled || this.gateway.getStatus().running) {
         await this.reconcileGatewayAfterDirectSwitch();
       }
       return this.getPublicStatus();
     }
-    if (!this.isAnthropicProvider(normalized) && !this.isRouteClaudeViaGateway()) {
-      await this.context.globalState.update(ROUTE_CLAUDE_STATE_KEY, true);
-    }
     const config = this.providerToClaudeConfig(normalized);
-    if (!this.isAnthropicProvider(normalized) && !enabled) {
-      return this.enableWithClaudeConfig(config);
-    }
-    if (enabled) {
-      if (!this.gateway.getStatus().running) {
+    // Inventory → live only: write Claude settings / gateway when user already enabled proxy,
+    // or write direct upstream when proxy is off. Never auto-flip routeClaude.
+    if (this.isRouteClaudeViaGateway()) {
+      if (!enabled || !this.gateway.getStatus().running) {
         return this.enableWithClaudeConfig(config);
       }
       await this.applyGatewayRoutes(config);
@@ -994,34 +1192,36 @@ export class AiCliGatewayManager {
   private async applyActiveCodexProvider(provider: AiCliProviderConfig): Promise<AiCliGatewayPublicStatus> {
     const normalized = this.normalizeProvider(provider);
     const enabled = this.context.globalState.get<boolean>(ENABLED_STATE_KEY, false);
-    if (isOfficialSubscriptionProvider(normalized)) {
-      if (normalized.apiKind !== 'openai') {
-        if (!this.isRouteCodexViaGateway()) {
-          await this.context.globalState.update(ROUTE_CODEX_STATE_KEY, true);
-        }
-      } else {
-        if (this.isRouteCodexViaGateway()) {
-          await this.context.globalState.update(ROUTE_CODEX_STATE_KEY, false);
-        }
-        applyCodexOfficialSubscription();
-        this.log('Codex official subscription: cleared AgentSociety proxy blocks; run codex login if needed');
-        if (enabled) {
-          await this.reconcileGatewayAfterDirectSwitch();
-        }
-        return this.getPublicStatus();
+    if (isOfficialSubscriptionProvider(normalized) && normalized.apiKind === 'openai') {
+      if (this.isRouteCodexViaGateway()) {
+        await this.context.globalState.update(ROUTE_CODEX_STATE_KEY, false);
       }
+      if (getCodexRoutingSnapshot().routedViaGateway || this.codexLiveBackupCache !== undefined) {
+        await this.releaseCodexProxyTakeover();
+      }
+      applyCodexOfficialSubscription();
+      this.log('Codex official subscription: cleared AgentSociety proxy blocks; run codex login if needed');
+      if (enabled || this.gateway.getStatus().running) {
+        await this.reconcileGatewayAfterDirectSwitch();
+      }
+      return this.getPublicStatus();
     }
-    if (!isOfficialSubscriptionProvider(normalized) && !this.isRouteCodexViaGateway()) {
-      await this.context.globalState.update(ROUTE_CODEX_STATE_KEY, true);
+    // Never auto-flip routeCodex. Direct projection when proxy off; gateway when already on.
+    if (this.isRouteCodexViaGateway()) {
+      if (!this.gateway.getStatus().running) {
+        const anthropic = this.getAnthropicProviderForGateway();
+        const config = anthropic
+          ? this.providerToClaudeConfig(anthropic)
+          : readClaudeConfig();
+        return this.enableWithClaudeConfig(config);
+      }
+      await this.applyGatewayRoutes();
+      return this.getPublicStatus();
     }
-    if (!this.gateway.getStatus().running) {
-      const anthropic = this.getAnthropicProviderForGateway();
-      const config = anthropic
-        ? this.providerToClaudeConfig(anthropic)
-        : readClaudeConfig();
-      return this.enableWithClaudeConfig(config);
+    if (getCodexRoutingSnapshot().routedViaGateway || this.codexLiveBackupCache !== undefined) {
+      await this.releaseCodexProxyTakeover();
     }
-    await this.applyGatewayRoutes();
+    await this.projectCodexProviderLive(normalized, undefined);
     return this.getPublicStatus();
   }
 
@@ -1128,9 +1328,13 @@ export class AiCliGatewayManager {
       if (!openaiActive) {
         throw new Error('no_codex_provider');
       }
-      this.projectCodexProviderLive(openaiActive, gatewayStatus.port);
+      await this.projectCodexProviderLive(openaiActive, gatewayStatus.port);
     } else {
-      stripCodexGatewayConfig();
+      if (getCodexRoutingSnapshot().routedViaGateway || this.codexLiveBackupCache !== undefined) {
+        await this.releaseCodexProxyTakeover();
+      } else {
+        stripCodexGatewayConfig();
+      }
       const active = this.getActiveCodexProvider();
       if (!active) {
         throw new Error('no_codex_provider');
@@ -1138,7 +1342,7 @@ export class AiCliGatewayManager {
       if (isOfficialSubscriptionProvider(active) && active.apiKind === 'openai') {
         applyCodexOfficialSubscription();
       } else if ((active.apiKind ?? inferApiKindFromBaseUrl(active.baseUrl)) === 'openai') {
-        this.projectCodexProviderLive(active);
+        await this.projectCodexProviderLive(active);
       } else {
         throw new Error('no_codex_provider');
       }
@@ -1270,25 +1474,6 @@ export class AiCliGatewayManager {
       directConfigured: snap.directConfigured,
       directUrl: snap.gatewayBaseUrl,
     };
-  }
-
-  private applyCodexDirectFromActiveProvider(): void {
-    const openai = this.getOpenAiProviderForGateway();
-    if (!openai) {
-      const subscription = this.getProviders().find(
-        (p) => p.activeCodex && p.apiKind === 'openai' && isOfficialSubscriptionProvider(p)
-      );
-      if (subscription) {
-        applyCodexOfficialSubscription();
-      }
-      return;
-    }
-    if ((openai.apiKind ?? inferApiKindFromBaseUrl(openai.baseUrl)) !== 'openai') {
-      this.log(`Codex direct provider skipped for Anthropic-compatible upstream; use gateway: ${openai.baseUrl}`);
-      return;
-    }
-    this.projectCodexProviderLive(openai);
-    this.log(`Codex direct provider: ${openai.baseUrl}`);
   }
 
   // ============ Custom pricing ============
@@ -1481,6 +1666,9 @@ export class AiCliGatewayManager {
           p.activeCodex = p.id === match.id;
         }
         await this.saveProviders(hydrated);
+        if (this.isRouteCodexViaGateway() && this.gateway.getStatus().running) {
+          await this.applyGatewayRoutes();
+        }
       } else if (role === 'claude' && this.isAnthropicProvider(match)) {
         for (const p of hydrated) {
           if (this.isAnthropicProvider(p)) {

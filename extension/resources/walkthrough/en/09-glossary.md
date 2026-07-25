@@ -23,6 +23,7 @@ Quick index: [A](#a) · [B-C](#b-c) · [D-E](#d-e) · [F-I](#f-i) · [L-M](#l-m)
 | Term | Meaning |
 |------|---------|
 | **Backend** | The local Python service behind the extension. Start it for the full extension experience; local file viewing, config editing, and CLI/Claude Code experiment runs can continue if it is not running yet. |
+| **Bypass permission mode** | Claude Code `bypassPermissions`: fewer permission prompts in a trusted workspace; never use on untrusted repos. |
 | **Claude Code skill** | A skill installed under `.claude/skills/`, mainly used by Claude Code or similar coding assistants in the IDE. |
 | **CLAUDE.md** | Project instructions for Claude Code, used to explain how the coding assistant should understand and work with this project. |
 | **Codex CLI** | OpenAI's command-line coding assistant. Can be routed through the local gateway to third-party providers. |
@@ -75,8 +76,8 @@ Quick index: [A](#a) · [B-C](#b-c) · [D-E](#d-e) · [F-I](#f-i) · [L-M](#l-m)
 
 | Term | Meaning |
 |------|---------|
-| **Silicon Scientist** | A paper-style term for an agent that assists hypothesis generation, experiment design, data analysis, and writing. In the welcome page, this is called a "research assistant." |
-| **Silicon Subject** | A paper-style term for an agent simulated and observed as an experimental subject. In the welcome page, this is called a "research subject." |
+| **AI Social Scientist** | The agentic research role that coordinates literature, hypotheses, experiment design, simulation, analysis, and manuscript drafting; earlier material may call it a Silicon Scientist. |
+| **Silicon Participant** | A simulated participant that generates behavioral responses, receives interventions, and is measured in a configurable social environment; also called a Silicon Subject. |
 | **Skill** | An installable capability module that tells an agent or coding assistant when to use a capability, what files to read, and what outputs to produce. |
 | **Skill Marketplace** | The extension page for browsing, installing, enabling, archiving, or deleting skills. |
 | **Steps Config** | A configuration file that describes what an experiment should do, such as ask, intervene, run simulation steps, and save artifacts. |

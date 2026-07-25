@@ -373,8 +373,9 @@ export function ProviderEditor({
       apiKind: preset.apiKind,
       authMode: preset.official ? 'subscription' : 'api',
       name: draft.name.trim() ? draft.name : t(`claudeCodeConfig.baseUrlPresets.${preset.id}`),
-      activeClaude: draft.activeClaude || preset.apiKind === 'anthropic',
-      activeCodex: draft.activeCodex || preset.apiKind === 'openai',
+      // Preset only fills URL/hints — never auto-activate (create ≠ write live).
+      activeClaude: draft.activeClaude,
+      activeCodex: draft.activeCodex,
     });
   };
 

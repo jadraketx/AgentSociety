@@ -122,10 +122,38 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     && pipx ensurepath
 
 # ---- Node.js + Claude Code / Codex (independent of uv.lock / AS2 source) ----
+# Copy the Node binary and global package tree only. Do NOT COPY /usr/local/bin/{npm,npx,claude,codex}:
+# Docker often materializes those shims as plain files, so relative requires like
+# `../lib/cli.js` resolve under /usr/local/lib and break (`Cannot find module '../lib/cli.js'`).
 COPY --from=node-cli /usr/local/bin/node /usr/local/bin/node
-COPY --from=node-cli /usr/local/bin/npm /usr/local/bin/npm
-COPY --from=node-cli /usr/local/bin/npx /usr/local/bin/npx
 COPY --from=node-cli /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN set -eux; \
+    ln -sfn ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm; \
+    ln -sfn ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx; \
+    node <<'NODE'
+const fs = require("fs");
+const path = require("path");
+for (const name of ["@anthropic-ai/claude-code", "@openai/codex"]) {
+  const root = path.join("/usr/local/lib/node_modules", name);
+  const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+  const bins =
+    typeof pkg.bin === "string"
+      ? { [path.basename(name)]: pkg.bin }
+      : pkg.bin;
+  if (!bins || typeof bins !== "object") {
+    throw new Error(`missing bin field in ${name}`);
+  }
+  for (const [cmd, rel] of Object.entries(bins)) {
+    const target = path.join(root, rel);
+    if (!fs.existsSync(target)) {
+      throw new Error(`missing bin target ${target}`);
+    }
+    const link = path.join("/usr/local/bin", cmd);
+    fs.rmSync(link, { force: true });
+    fs.symlinkSync(path.relative("/usr/local/bin", target), link);
+  }
+}
+NODE
 
 # ---- Locked third-party deps from workspace manifest (uv.lock changes only) ----
 COPY pyproject.toml uv.lock ./

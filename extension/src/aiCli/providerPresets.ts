@@ -28,9 +28,9 @@ export type AiCliProviderPreset = {
 };
 
 /**
- * Built-in dropdown presets for the provider editor.
+ * Built-in dropdown presets (aligned with cc-switch cn_official / official set).
  * These do not auto-create cards — they only fill Base URL / hints when selected.
- * Fiblab still comes from Web import.
+ * Fiblab still comes from Web import. Partner aggregators are intentionally omitted.
  */
 export const CLAUDE_PROVIDER_PRESETS: AiCliProviderPreset[] = [
   { id: 'anthropic', url: OFFICIAL_ANTHROPIC_BASE_URL, apiKind: 'anthropic', official: true, roles: ['claude'] },
@@ -53,6 +53,21 @@ export const CLAUDE_PROVIDER_PRESETS: AiCliProviderPreset[] = [
     modelHints: [{ id: 'ark-code-latest', label: 'Ark Code Latest' }],
   },
   {
+    id: 'byteplus',
+    url: 'https://ark.ap-southeast.bytepluses.com/api/coding',
+    apiKind: 'anthropic',
+    planKind: 'agent',
+    roles: ['claude'],
+    modelHints: [{ id: 'ark-code-latest', label: 'Ark Code Latest' }],
+  },
+  {
+    id: 'doubaoSeed',
+    url: 'https://ark.cn-beijing.volces.com/api/compatible',
+    apiKind: 'anthropic',
+    roles: ['claude'],
+    modelHints: [{ id: 'doubao-seed-2-1-pro-260628', label: 'Doubao Seed 2.1 Pro' }],
+  },
+  {
     id: 'mimo',
     url: 'https://api.xiaomimimo.com/anthropic',
     apiKind: 'anthropic',
@@ -72,7 +87,7 @@ export const CLAUDE_PROVIDER_PRESETS: AiCliProviderPreset[] = [
     url: 'https://api.longcat.chat/anthropic',
     apiKind: 'anthropic',
     roles: ['claude'],
-    modelHints: [{ id: 'LongCat-2.0-Preview', label: 'LongCat 2.0 Preview' }],
+    modelHints: [{ id: 'LongCat-2.0', label: 'LongCat 2.0' }],
   },
   {
     id: 'bigmodel',
@@ -80,7 +95,7 @@ export const CLAUDE_PROVIDER_PRESETS: AiCliProviderPreset[] = [
     apiKind: 'anthropic',
     planKind: 'coding',
     roles: ['claude'],
-    modelHints: [{ id: 'glm-5.2', label: 'GLM-5.2' }],
+    modelHints: [{ id: 'glm-5.1', label: 'GLM-5.1' }],
   },
   {
     id: 'zhipuEn',
@@ -88,7 +103,7 @@ export const CLAUDE_PROVIDER_PRESETS: AiCliProviderPreset[] = [
     apiKind: 'anthropic',
     planKind: 'coding',
     roles: ['claude'],
-    modelHints: [{ id: 'glm-5.2', label: 'GLM-5.2' }],
+    modelHints: [{ id: 'glm-5.1', label: 'GLM-5.1' }],
   },
   {
     id: 'kimi',
@@ -96,7 +111,17 @@ export const CLAUDE_PROVIDER_PRESETS: AiCliProviderPreset[] = [
     apiKind: 'anthropic',
     planKind: 'coding',
     roles: ['claude'],
-    modelHints: [{ id: 'kimi-k2.7-code', label: 'Kimi K2.7 Code' }],
+    modelHints: [{ id: 'kimi-for-coding', label: 'Kimi for Coding' }],
+  },
+  {
+    id: 'moonshot',
+    url: 'https://api.moonshot.cn/anthropic',
+    apiKind: 'anthropic',
+    roles: ['claude'],
+    modelHints: [
+      { id: 'kimi-k2.7-code', label: 'Kimi K2.7 Code' },
+      { id: 'kimi-k3', label: 'Kimi K3' },
+    ],
   },
   {
     id: 'minimax',
@@ -104,7 +129,21 @@ export const CLAUDE_PROVIDER_PRESETS: AiCliProviderPreset[] = [
     apiKind: 'anthropic',
     planKind: 'coding',
     roles: ['claude'],
-    modelHints: [{ id: 'MiniMax-M3', label: 'MiniMax M3' }],
+    modelHints: [{ id: 'MiniMax-M2.7', label: 'MiniMax M2.7' }],
+  },
+  {
+    id: 'minimaxEn',
+    url: 'https://api.minimax.io/anthropic',
+    apiKind: 'anthropic',
+    planKind: 'coding',
+    roles: ['claude'],
+    modelHints: [{ id: 'MiniMax-M2.7', label: 'MiniMax M2.7' }],
+  },
+  {
+    id: 'bailian',
+    url: 'https://dashscope.aliyuncs.com/apps/anthropic',
+    apiKind: 'anthropic',
+    roles: ['claude'],
   },
   {
     id: 'bailianCoding',
@@ -112,6 +151,44 @@ export const CLAUDE_PROVIDER_PRESETS: AiCliProviderPreset[] = [
     apiKind: 'anthropic',
     planKind: 'coding',
     roles: ['claude'],
+  },
+  {
+    id: 'stepfunClaude',
+    url: 'https://api.stepfun.com/step_plan',
+    apiKind: 'anthropic',
+    planKind: 'token',
+    roles: ['claude'],
+    modelHints: [{ id: 'step-3.5-flash-2603', label: 'Step 3.5 Flash' }],
+  },
+  {
+    id: 'stepfunClaudeEn',
+    url: 'https://api.stepfun.ai/step_plan',
+    apiKind: 'anthropic',
+    planKind: 'token',
+    roles: ['claude'],
+    modelHints: [{ id: 'step-3.5-flash-2603', label: 'Step 3.5 Flash' }],
+  },
+  {
+    id: 'bailing',
+    url: 'https://api.tbox.cn/api/anthropic',
+    apiKind: 'anthropic',
+    roles: ['claude'],
+    modelHints: [{ id: 'Ling-2.5-1T', label: 'Ling 2.5 1T' }],
+  },
+  {
+    id: 'qianfan',
+    url: 'https://qianfan.baidubce.com/anthropic/coding',
+    apiKind: 'anthropic',
+    planKind: 'coding',
+    roles: ['claude'],
+    modelHints: [{ id: 'qianfan-code-latest', label: 'Qianfan Code Latest' }],
+  },
+  {
+    id: 'xaiClaude',
+    url: 'https://api.x.ai/v1',
+    apiKind: 'anthropic',
+    roles: ['claude'],
+    modelHints: [{ id: 'grok-4.5', label: 'Grok 4.5' }],
   },
   {
     id: 'openrouter',
@@ -124,12 +201,23 @@ export const CLAUDE_PROVIDER_PRESETS: AiCliProviderPreset[] = [
 export const CODEX_PROVIDER_PRESETS: AiCliProviderPreset[] = [
   { id: 'openai', url: OFFICIAL_OPENAI_BASE_URL, apiKind: 'openai', official: true, roles: ['codex'], codexWire: 'openai_responses' },
   {
+    id: 'xaiCodex',
+    url: 'https://api.x.ai/v1',
+    apiKind: 'openai',
+    roles: ['codex'],
+    codexWire: 'openai_responses',
+    modelHints: [{ id: 'grok-4.5', label: 'Grok 4.5' }],
+  },
+  {
     id: 'mimoCodex',
     url: 'https://api.xiaomimimo.com/v1',
     apiKind: 'openai',
     roles: ['codex'],
     codexWire: 'openai_responses',
-    modelHints: [{ id: 'mimo-v2.5-pro', label: 'MiMo V2.5 Pro' }],
+    modelHints: [
+      { id: 'mimo-v2.5-pro', label: 'MiMo V2.5 Pro' },
+      { id: 'mimo-v2.5', label: 'MiMo V2.5' },
+    ],
   },
   {
     id: 'mimoTokenPlanCodex',
@@ -138,7 +226,10 @@ export const CODEX_PROVIDER_PRESETS: AiCliProviderPreset[] = [
     planKind: 'token',
     roles: ['codex'],
     codexWire: 'openai_responses',
-    modelHints: [{ id: 'mimo-v2.5-pro', label: 'MiMo V2.5 Pro' }],
+    modelHints: [
+      { id: 'mimo-v2.5-pro', label: 'MiMo V2.5 Pro' },
+      { id: 'mimo-v2.5', label: 'MiMo V2.5' },
+    ],
   },
   {
     id: 'longcatCodex',
@@ -146,7 +237,7 @@ export const CODEX_PROVIDER_PRESETS: AiCliProviderPreset[] = [
     apiKind: 'openai',
     roles: ['codex'],
     codexWire: 'openai_responses',
-    modelHints: [{ id: 'LongCat-2.0-Preview', label: 'LongCat 2.0 Preview' }],
+    modelHints: [{ id: 'LongCat-2.0', label: 'LongCat 2.0' }],
   },
   {
     id: 'zhipuCodex',
@@ -176,12 +267,33 @@ export const CODEX_PROVIDER_PRESETS: AiCliProviderPreset[] = [
     modelHints: [{ id: 'kimi-for-coding', label: 'Kimi for Coding' }],
   },
   {
+    id: 'moonshotCodex',
+    url: 'https://api.moonshot.cn/v1',
+    apiKind: 'openai',
+    roles: ['codex'],
+    codexWire: 'openai_chat',
+    modelHints: [
+      { id: 'kimi-k2.7-code', label: 'Kimi K2.7 Code' },
+      { id: 'kimi-k3', label: 'Kimi K3' },
+    ],
+  },
+  {
     id: 'minimaxOpenAi',
     url: 'https://api.minimaxi.com/v1',
     apiKind: 'openai',
     planKind: 'coding',
     roles: ['codex'],
-    codexWire: 'openai_chat',
+    // MiniMax official /v1/responses — native Responses (cc-switch).
+    codexWire: 'openai_responses',
+    modelHints: [{ id: 'MiniMax-M3', label: 'MiniMax M3' }],
+  },
+  {
+    id: 'minimaxOpenAiEn',
+    url: 'https://api.minimax.io/v1',
+    apiKind: 'openai',
+    planKind: 'coding',
+    roles: ['codex'],
+    codexWire: 'openai_responses',
     modelHints: [{ id: 'MiniMax-M3', label: 'MiniMax M3' }],
   },
   {
@@ -205,6 +317,23 @@ export const CODEX_PROVIDER_PRESETS: AiCliProviderPreset[] = [
     modelHints: [{ id: 'ark-code-latest', label: 'Ark Code Latest' }],
   },
   {
+    id: 'byteplusCodex',
+    url: 'https://ark.ap-southeast.bytepluses.com/api/coding/v3',
+    apiKind: 'openai',
+    planKind: 'agent',
+    roles: ['codex'],
+    codexWire: 'openai_chat',
+    modelHints: [{ id: 'ark-code-latest', label: 'Ark Code Latest' }],
+  },
+  {
+    id: 'doubaoSeedCodex',
+    url: 'https://ark.cn-beijing.volces.com/api/v3',
+    apiKind: 'openai',
+    roles: ['codex'],
+    codexWire: 'openai_responses',
+    modelHints: [{ id: 'doubao-seed-2-1-pro-260628', label: 'Doubao Seed 2.1 Pro' }],
+  },
+  {
     id: 'siliconflow',
     url: 'https://api.siliconflow.cn/v1',
     apiKind: 'openai',
@@ -212,7 +341,7 @@ export const CODEX_PROVIDER_PRESETS: AiCliProviderPreset[] = [
     codexWire: 'openai_chat',
   },
   {
-    id: 'bailian',
+    id: 'bailianCodex',
     url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     apiKind: 'openai',
     roles: ['codex'],
@@ -229,7 +358,39 @@ export const CODEX_PROVIDER_PRESETS: AiCliProviderPreset[] = [
     planKind: 'token',
     roles: ['codex'],
     codexWire: 'openai_chat',
-    modelHints: [{ id: 'step-3.7-flash', label: 'Step 3.7 Flash' }],
+    modelHints: [
+      { id: 'step-3.7-flash', label: 'Step 3.7 Flash' },
+      { id: 'step-3.5-flash-2603', label: 'Step 3.5 Flash' },
+    ],
+  },
+  {
+    id: 'stepfunEn',
+    url: 'https://api.stepfun.ai/step_plan/v1',
+    apiKind: 'openai',
+    planKind: 'token',
+    roles: ['codex'],
+    codexWire: 'openai_chat',
+    modelHints: [
+      { id: 'step-3.7-flash', label: 'Step 3.7 Flash' },
+      { id: 'step-3.5-flash-2603', label: 'Step 3.5 Flash' },
+    ],
+  },
+  {
+    id: 'qianfanCodex',
+    url: 'https://qianfan.baidubce.com/v2/coding',
+    apiKind: 'openai',
+    planKind: 'coding',
+    roles: ['codex'],
+    codexWire: 'openai_chat',
+    modelHints: [{ id: 'qianfan-code-latest', label: 'Qianfan Code Latest' }],
+  },
+  {
+    id: 'bailingCodex',
+    url: 'https://api.tbox.cn/api/llm/v1',
+    apiKind: 'openai',
+    roles: ['codex'],
+    codexWire: 'openai_chat',
+    modelHints: [{ id: 'Ling-2.6-1T', label: 'Ling 2.6 1T' }],
   },
   {
     id: 'openrouterOpenAi',
@@ -247,6 +408,7 @@ export const OPENAI_FALLBACK_MODELS: ClaudeModelOption[] = [
 ];
 
 export const ANTHROPIC_FALLBACK_MODELS: ClaudeModelOption[] = [
+  { id: 'claude-sonnet-5', label: 'Claude Sonnet 5' },
   { id: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6' },
   { id: 'claude-opus-4-6', label: 'Claude Opus 4.6' },
   { id: 'claude-haiku-4-5', label: 'Claude Haiku 4.5' },
@@ -275,6 +437,7 @@ const NATIVE_RESPONSES_HOST_MARKERS = [
   'token-plan-cn.xiaomimimo.com',
   'token-plan.xiaomimimo.com',
   'dashscope.aliyuncs.com',
+  'api.x.ai',
 ];
 
 export function inferCodexWireFromBaseUrl(baseUrl: string): CodexWireHint {
