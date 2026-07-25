@@ -20,7 +20,7 @@ const TimelinePlayer = observer(({ initialInterval }: {
     const [currentIndex, setCurrentIndex] = useState<number>(0);
     const [isPlaying, setIsPlaying] = useState<boolean>(false);
     const [playInterval, setPlayInterval] = useState<number>(initialInterval);
-    const intervalRef = useRef<ReturnType<typeof setInterval>>();
+    const intervalRef = useRef<ReturnType<typeof setInterval> | undefined>(undefined);
 
     const currentTimeline = store.timeline[currentIndex] || { day: 0, t: 0 };
 

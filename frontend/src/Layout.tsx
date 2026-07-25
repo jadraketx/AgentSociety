@@ -1,7 +1,7 @@
 import { Divider, Flex, Layout } from "antd";
 import { Content, Header } from "antd/es/layout/layout";
 import RootMenu from "./Menu";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import React, { useEffect, useRef } from "react";
 
 export default function RootLayout({

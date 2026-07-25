@@ -2,7 +2,7 @@ import { useEffect, useState, useRef } from "react";
 
 import { Col, Row, message, Button, Space, Popconfirm, Modal, Dropdown, Select } from 'antd';
 import { parseT } from "../../components/util";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { Experiment } from "../../components/type";
 import { ProColumns, ProDescriptions, ProTable } from "@ant-design/pro-components";
 import { ActionType } from "@ant-design/pro-table";
@@ -17,7 +17,7 @@ const Page = () => {
     const [logVisible, setLogVisible] = useState(false);
     const [logContent, setLogContent] = useState('');
     const [logLoading, setLogLoading] = useState(false);
-    const actionRef = useRef<ActionType>();
+    const actionRef = useRef<ActionType | undefined>(undefined);
     const [currentExpId, setCurrentExpId] = useState<string>('');
     const [refreshInterval, setRefreshInterval] = useState<number>(0);
     const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);

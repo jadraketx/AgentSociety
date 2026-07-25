@@ -27,7 +27,7 @@ interface SkillItem {
 
 const SkillsPage = () => {
   const { t } = useTranslation();
-  const actionRef = useRef<ActionType>();
+  const actionRef = useRef<ActionType | undefined>(undefined);
   const [skills, setSkills] = useState<SkillItem[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { Form, Input, Card, Row, Col, Button, Switch, InputNumber, Select, Space, message, Tooltip, Table, Tabs, Empty } from 'antd';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import { fetchCustom } from '../../components/fetch';
 import { QuestionCircleOutlined } from '@ant-design/icons';
 import MonacoPromptEditor from '../../components/MonacoPromptEditor';

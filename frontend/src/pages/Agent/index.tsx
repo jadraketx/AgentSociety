@@ -5,7 +5,7 @@ import { AgentsConfig, ConfigWrapper, AgentConfig } from '../../types/config';
 import { fetchCustom } from '../../components/fetch';
 import dayjs from 'dayjs';
 import { useTranslation } from 'react-i18next';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { ApiAgentTemplate } from '../../types/agentTemplate';
 import { ApiAgentProfile } from '../../types/profile';
 

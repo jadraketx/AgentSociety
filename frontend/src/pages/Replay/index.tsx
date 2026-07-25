@@ -6,7 +6,7 @@ import {
 import InfoPanel from "./LeftPanel";
 import { RightPanel } from "./ChatBox";
 import Deck from "./Deck";
-import { useParams } from "react-router-dom";
+import { useParams } from "react-router";
 import { store, StoreContext } from "./store";
 import { observer } from 'mobx-react-lite'
 import TimelinePlayer from "./TimelinePlayer";

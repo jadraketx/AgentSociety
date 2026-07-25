@@ -33,7 +33,7 @@ const Page = () => {
     const [paymentStatus, setPaymentStatus] = useState<'pending' | 'success' | 'failed'>('pending');
     const [paymentModalVisible, setPaymentModalVisible] = useState(false);
     const [paymentUrl, setPaymentUrl] = useState('');
-    const actionRef = useRef<ActionType>();
+    const actionRef = useRef<ActionType | undefined>(undefined);
 
     const presetAmounts = [10, 20, 50, 100, 1000];
 

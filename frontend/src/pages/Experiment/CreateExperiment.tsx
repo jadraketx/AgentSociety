@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Card, Button, Select, Space, Typography, Divider, message, Row, Col, Spin, Form, Input } from 'antd';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { ApiOutlined, TeamOutlined, GlobalOutlined, NodeIndexOutlined } from '@ant-design/icons';
 import { fetchCustom } from '../../components/fetch';
 import { useTranslation } from 'react-i18next';

@@ -1,6 +1,6 @@
 import { GithubOutlined, ExperimentOutlined, ApiOutlined, TeamOutlined, GlobalOutlined, NodeIndexOutlined, SettingOutlined, RocketOutlined, ThunderboltOutlined } from "@ant-design/icons";
 import { Menu, MenuProps, Space, Dropdown, Button } from "antd";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import Account from "./components/Account";
 import { useTranslation } from 'react-i18next';
 import { WITH_AUTH } from "./components/fetch";
