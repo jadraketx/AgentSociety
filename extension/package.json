@@ -752,7 +752,7 @@
     "@vscode/vsce": "^3.9.2",
     "concurrently": "^10.0.3",
     "css-loader": "^7.1.4",
-    "eslint": "^9.0.0",
+    "eslint": "^10.8.0",
     "globals": "^17.7.0",
     "less": "^4.2.0",
     "less-loader": "^12.2.0",
@@ -793,8 +793,8 @@
     "mermaid": {
       "uuid": ">=14.0.0"
     },
-    "brace-expansion@1": "1.1.16",
-    "brace-expansion@5": "5.0.7",
+    "brace-expansion": "5.0.8",
+    "postcss": ">=8.5.18",
     "dompurify": ">=3.4.12",
     "fast-uri": ">=3.1.4",
     "linkify-it": "5.0.2",
