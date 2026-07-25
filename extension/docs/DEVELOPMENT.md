@@ -488,6 +488,16 @@ code --install-extension ai-social-scientist.vsix
 
 许可证与归属文件 `LICENSE`、`NOTICE`、`README.md` 会随 VSIX 一并打包；`docs/`、`test/`、`scripts/`、`.nvmrc` 等不会进入包。
 
+### README 与远程演示素材
+
+Marketplace 要求 README 图片最终解析为 HTTPS 地址。`package.json` 中的 `vsce.baseImagesUrl` / `baseContentUrl` 会把相对路径改写到公开 GitHub 镜像的 `main/extension/`：
+
+- 七阶段架构图和 AI Social Scientist 主演示直接显示在 README。
+- `resources/readme/` 与 `resources/walkthrough/images/gif/init-0*.gif` 保留在 Git 仓库，但通过 `.vscodeignore` 排除出 VSIX。
+- 工作区初始化和 Gateway 等辅助长动图以链接形式按需打开。
+
+**必须先把这些素材推送到公开 GitHub `main`，再构建或发布 Marketplace 版本。** 否则已打包 README 中的远程图片地址会暂时显示为破图。
+
 ### 正式发版（GitHub Release）
 
 扩展**不单独**走 `vsce publish` 上架 Marketplace。正式发布与 Python SDK 共用标签流程（见仓库根 [CONTRIBUTING.md](../../CONTRIBUTING.md)）：

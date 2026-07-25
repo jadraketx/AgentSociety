@@ -230,6 +230,7 @@ export type ConfigWizardStepPanelProps = {
   onSyncCodexConfig: () => void;
   onSaveOutboundProxy: (url: string) => void;
   onRectifierChange: (settings: Record<string, boolean>) => void;
+  onOptimizerChange: (settings: Record<string, boolean>) => void;
   onRefreshCodexOfficialLogin: () => void;
   easyPaperForm: FormInstance<EasyPaperConfigValues>;
   onSaveEasyPaper: () => void;
@@ -403,6 +404,7 @@ export function ConfigWizardStepPanel(props: ConfigWizardStepPanelProps) {
         onSyncCodexConfig={props.onSyncCodexConfig}
         onSaveOutboundProxy={props.onSaveOutboundProxy}
         onRectifierChange={props.onRectifierChange}
+        onOptimizerChange={props.onOptimizerChange}
         onRefreshCodexOfficialLogin={props.onRefreshCodexOfficialLogin}
       />
     </div>

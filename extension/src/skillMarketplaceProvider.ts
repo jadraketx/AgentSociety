@@ -1193,26 +1193,31 @@ export class SkillMarketplacePanel {
     installTarget: 'agent' | 'claudeCode'
   ): Promise<void> {
     const skillTypeLabel = installTarget === 'agent' ? 'Agent Skill' : 'Claude Code Skill';
+    let tempDir: string | undefined;
     try {
+      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+      if (!workspaceFolder) {
+        throw new Error('Open a workspace folder before installing skills.');
+      }
+
       await this._postMessage({ type: 'installProgress', payload: { skillId: skill.id, status: 'downloading' } });
 
-      const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
       const targetDir = installTarget === 'agent'
-        ? path.join(workspaceFolder?.uri.fsPath || '', 'custom', 'skills', skill.id)
-        : path.join(workspaceFolder?.uri.fsPath || '', '.claude', 'skills', skill.id);
+        ? path.join(workspaceFolder.uri.fsPath, 'custom', 'skills', skill.id)
+        : path.join(workspaceFolder.uri.fsPath, '.claude', 'skills', skill.id);
 
-      // 安全校验：分支名
+      if (skill.id.startsWith('agentsociety-')) {
+        throw new Error(`Built-in skill "${skill.id}" is managed by version presets; do not overwrite from marketplace.`);
+      }
+
       const branch = skill.branch || 'main';
       if (!isValidGitBranch(branch)) {
         throw new Error(`Invalid branch name: ${branch}`);
       }
-
-      // 安全校验：仓库 URL
       if (!isValidGitRepoUrl(skill.repo)) {
         throw new Error(`Invalid or disallowed repository URL: ${skill.repo}`);
       }
 
-      // 清理已存在的目标目录
       if (fs.existsSync(targetDir)) {
         fs.rmSync(targetDir, { recursive: true, force: true });
       }
@@ -1220,8 +1225,7 @@ export class SkillMarketplacePanel {
 
       await this._postMessage({ type: 'installProgress', payload: { skillId: skill.id, status: 'installing' } });
 
-      // 克隆仓库到临时目录
-      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `skill-install-${skill.id}-`));
+      tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `skill-install-${skill.id}-`));
       const cloneResult = spawnSync('git', ['clone', '--depth', '1', '--branch', branch, skill.repo, tempDir], {
         encoding: 'utf-8',
         timeout: 120000
@@ -1230,28 +1234,40 @@ export class SkillMarketplacePanel {
         throw new Error(`git clone failed: ${cloneResult.stderr || 'unknown error'}`);
       }
 
-      // 复制技能目录
       const sourcePath = path.join(tempDir, skill.path);
-      if (fs.existsSync(sourcePath)) {
+      if (fs.existsSync(sourcePath) && skill.path !== '.' && skill.path !== '') {
         fs.cpSync(sourcePath, targetDir, { recursive: true });
       } else if (skill.path === '.' || skill.path === '' || skill.path === skill.id) {
-        fs.cpSync(tempDir, targetDir, { recursive: true });
+        // Copy skill contents without the .git directory from a shallow clone.
+        for (const entry of fs.readdirSync(tempDir, { withFileTypes: true })) {
+          if (entry.name === '.git') {
+            continue;
+          }
+          fs.cpSync(path.join(tempDir, entry.name), path.join(targetDir, entry.name), { recursive: true });
+        }
       } else {
         throw new Error(`Skill path not found: ${sourcePath}`);
       }
-
-      // 清理临时目录
-      fs.rmSync(tempDir, { recursive: true, force: true });
 
       await this._postMessage({
         type: 'installComplete',
         payload: { skillId: skill.id, name: skill.name, skillType: installTarget }
       });
+      if (installTarget === 'agent') {
+        await this._loadAgentSkills();
+      } else {
+        await this._loadClaudeCodeSkills();
+      }
+      await this._loadMarketplaceSkills();
       this._log(`[SkillManagement] Successfully installed ${skillTypeLabel}: ${skill.name}`);
     } catch (error: any) {
       const message = error?.message || String(error);
       this._log(`[SkillManagement] Failed to install ${skill.name}: ${message}`);
       await this._postMessage({ type: 'installFailed', payload: { skillId: skill.id, error: message } });
+    } finally {
+      if (tempDir && fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
     }
   }
 

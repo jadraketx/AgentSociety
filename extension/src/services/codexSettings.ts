@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import * as cp from 'child_process';
 import { parse as parseToml } from 'smol-toml';
 import writeFileAtomic from 'write-file-atomic';
 import {
@@ -152,7 +153,7 @@ export type CodexOfficialLoginSnapshot = {
   present: boolean;
   authPath: string;
   authMode?: string;
-  storeHint: 'file' | 'missing' | 'api_key_only';
+  storeHint: 'file' | 'keyring_or_cli' | 'missing' | 'api_key_only';
 };
 
 export function getCodexOfficialLoginSnapshot(): CodexOfficialLoginSnapshot {
@@ -194,19 +195,40 @@ export function hasCodexOfficialLogin(): boolean {
   return Boolean(readCodexSubscriptionSession()?.accessToken);
 }
 
+export function isCodexChatGptLoginStatusOutput(output: string): boolean {
+  return /\blogged\s+in\s+using\s+chatgpt\b/i.test(output);
+}
+
 /**
- * Project third-party API key into auth.json (legacy overwrite path).
- * Prefer config.toml experimental_bearer_token when preserving official login.
+ * Resolve official login through Codex itself so keyring-backed credentials are
+ * detected as well as file-backed ~/.codex/auth.json credentials.
  */
-export function writeCodexApiKeyAuth(apiKey: string): void {
-  const key = apiKey.trim();
-  if (!key) {
-    return;
+export async function detectCodexOfficialLogin(): Promise<CodexOfficialLoginSnapshot> {
+  const fileSnapshot = getCodexOfficialLoginSnapshot();
+  if (fileSnapshot.present) {
+    return fileSnapshot;
   }
-  atomicWriteFile(
-    resolveCodexAuthPath(),
-    `${JSON.stringify({ auth_mode: 'apikey', OPENAI_API_KEY: key }, null, 2)}\n`
-  );
+
+  return new Promise((resolve) => {
+    cp.execFile(
+      'codex',
+      ['login', 'status'],
+      { timeout: 5_000, windowsHide: true },
+      (error, stdout, stderr) => {
+        const output = `${stdout ?? ''}\n${stderr ?? ''}`;
+        if (!error && isCodexChatGptLoginStatusOutput(output)) {
+          resolve({
+            present: true,
+            authPath: fileSnapshot.authPath,
+            authMode: 'chatgpt',
+            storeHint: 'keyring_or_cli',
+          });
+          return;
+        }
+        resolve(fileSnapshot);
+      }
+    );
+  });
 }
 
 export function readCodexConfigText(): string {
@@ -416,6 +438,8 @@ export function applyCodexGatewayConfig(port: number, provider?: CodexProviderPa
   const gatewayUrl = `${buildLocalGatewayBaseUrl(port)}/v1`;
   let text = readCodexConfigText();
   parseCodexConfigText(text);
+  // Align with cc-switch: never leave a stale top-level proxy placeholder.
+  text = removeTopLevelTomlField(text, 'experimental_bearer_token');
   const previousProvider = readTopLevelTomlString(text, 'model_provider');
   text = removeProviderBlock(text, CODEX_DIRECT_PROVIDER_ID);
   text = appendProviderBlock(text, CODEX_GATEWAY_PROVIDER_ID, [
@@ -447,9 +471,12 @@ export function applyCodexGatewayConfig(port: number, provider?: CodexProviderPa
   writeCodexConfigText(text);
 }
 
-export function applyCodexDirectProvider(provider: CodexProviderPatch): void {
+export function buildCodexDirectProviderConfigText(
+  baseText: string,
+  provider: CodexProviderPatch
+): string {
   const baseUrl = codexBaseUrlForProvider(provider.baseUrl);
-  let text = readCodexConfigText();
+  let text = baseText;
   parseCodexConfigText(text);
   const previousProvider = readTopLevelTomlString(text, 'model_provider');
   text = removeProviderBlock(text, CODEX_GATEWAY_PROVIDER_ID);
@@ -471,6 +498,11 @@ export function applyCodexDirectProvider(provider: CodexProviderPatch): void {
     }
     text = removeAgentSocietyCatalogPolicy(text);
   }
+  return text;
+}
+
+export function applyCodexDirectProvider(provider: CodexProviderPatch): void {
+  const text = buildCodexDirectProviderConfigText(readCodexConfigText(), provider);
   writeCodexConfigText(text);
 }
 
@@ -487,17 +519,89 @@ function stripAgentsocietyCodexProviders(text: string): string {
   return updated;
 }
 
-export function applyCodexOfficialSubscription(): void {
-  let text = readCodexConfigText();
-  if (text) {
-    const activeProvider = readTopLevelTomlString(text, 'model_provider');
-    if (isAgentSocietyProvider(activeProvider)) {
-      text = removeTopLevelTomlField(text, 'model');
-    }
-    text = removeAgentSocietyCatalogPolicy(text);
-    text = stripAgentsocietyCodexProviders(text);
-    writeCodexConfigText(text);
+export function buildCodexOfficialSubscriptionConfigText(baseText: string): string {
+  let text = baseText;
+  if (!text) {
+    return text;
   }
+  const activeProvider = readTopLevelTomlString(text, 'model_provider');
+  if (isAgentSocietyProvider(activeProvider)) {
+    text = removeTopLevelTomlField(text, 'model');
+  }
+  text = removeTopLevelTomlField(text, 'experimental_bearer_token');
+  text = removeAgentSocietyCatalogPolicy(text);
+  text = stripAgentsocietyCodexProviders(text);
+  return text;
+}
+
+export function applyCodexOfficialSubscription(): void {
+  const text = buildCodexOfficialSubscriptionConfigText(readCodexConfigText());
+  if (!text) {
+    return;
+  }
+  writeCodexConfigText(text);
+}
+
+/**
+ * True when live config.toml is our local-proxy takeover (cc-switch placeholder style).
+ * Used to avoid saving a corrupted backup or restoring a placeholder as "pre-takeover".
+ */
+export function isCodexGatewayTakeoverConfig(text: string): boolean {
+  if (!text.trim()) {
+    return false;
+  }
+  try {
+    parseCodexConfigText(text);
+  } catch {
+    return false;
+  }
+  const active = readTopLevelTomlString(text, 'model_provider');
+  if (active !== CODEX_GATEWAY_PROVIDER_ID) {
+    return false;
+  }
+  const block = readProviderBlock(text, CODEX_GATEWAY_PROVIDER_ID);
+  return block.includes(`experimental_bearer_token = ${tomlString(AI_CLI_GATEWAY_PLACEHOLDER_TOKEN)}`)
+    || block.includes(`experimental_bearer_token = "${AI_CLI_GATEWAY_PLACEHOLDER_TOKEN}"`);
+}
+
+/**
+ * Snapshot live config before proxy takeover.
+ * Returns null when live is already a gateway placeholder (do not clobber a good backup).
+ */
+export function snapshotCodexLiveBackup(liveText: string): string | null {
+  if (isCodexGatewayTakeoverConfig(liveText)) {
+    return null;
+  }
+  return liveText;
+}
+
+/**
+ * Restore pre-takeover live config (cc-switch stop_with_restore).
+ * Returns false when backup is missing or itself a placeholder — caller should rebuild from SSOT.
+ */
+export function restoreCodexLiveBackup(backup: string | null | undefined): boolean {
+  if (backup === null || backup === undefined) {
+    return false;
+  }
+  if (isCodexGatewayTakeoverConfig(backup)) {
+    return false;
+  }
+  writeCodexConfigText(backup);
+  return true;
+}
+
+/**
+ * Release Codex local-proxy takeover: prefer clean live backup, else rebuild callback.
+ */
+export function releaseCodexGatewayTakeover(
+  backup: string | null | undefined,
+  rebuildFromProvider: () => void
+): 'backup' | 'rebuild' {
+  if (restoreCodexLiveBackup(backup)) {
+    return 'backup';
+  }
+  rebuildFromProvider();
+  return 'rebuild';
 }
 
 export function stripCodexGatewayConfig(): void {

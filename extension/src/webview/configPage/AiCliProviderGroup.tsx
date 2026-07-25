@@ -217,11 +217,6 @@ export function AiCliProviderGroup({
         <Tooltip title={t('claudeCodeConfig.providerCenterHint')}>
           <QuestionCircleOutlined style={{ opacity: 0.65, cursor: 'help' }} />
         </Tooltip>
-        <Tooltip title={t('claudeCodeConfig.providerConversionHint')}>
-          <Tag style={{ margin: 0, fontSize: 10, cursor: 'help' }}>
-            {t('claudeCodeConfig.providerConversionTitle')}
-          </Tag>
-        </Tooltip>
       </Space>
       <Space direction="vertical" style={{ width: '100%' }} size={10}>
         {providers.map((p) => {

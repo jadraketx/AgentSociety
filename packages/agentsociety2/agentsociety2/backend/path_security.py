@@ -48,17 +48,29 @@ def _ensure_under(
 ) -> Path:
     """Resolve ``candidate`` and require it stays under ``base``.
 
-    Uses ``Path.relative_to`` so static analyzers treat the result as sanitized.
+    Rebuilds the path from ``base`` + relative segments so the returned value
+    is not a tainted user string (CodeQL path-injection sanitizer pattern).
     """
-    base_resolved = Path(os.path.realpath(os.fspath(base)))
-    target_resolved = Path(os.path.realpath(os.fspath(candidate)))
+    base_resolved = os.path.realpath(os.fspath(base))
+    target_resolved = os.path.realpath(os.fspath(candidate))
     try:
-        Path(os.path.normcase(os.fspath(target_resolved))).relative_to(
-            Path(os.path.normcase(os.fspath(base_resolved)))
-        )
+        relative = os.path.relpath(target_resolved, base_resolved)
     except ValueError:
         raise HTTPException(status_code=400, detail=detail) from None
-    return target_resolved
+    if relative == os.pardir or relative.startswith(f"{os.pardir}{os.sep}"):
+        raise HTTPException(status_code=400, detail=detail)
+    if os.path.isabs(relative):
+        raise HTTPException(status_code=400, detail=detail)
+
+    safe = base_resolved
+    if relative not in (os.curdir, ""):
+        for part in relative.split(os.sep):
+            if part in ("", os.curdir):
+                continue
+            if part == os.pardir:
+                raise HTTPException(status_code=400, detail=detail)
+            safe = os.path.join(safe, part)
+    return Path(safe)
 
 
 def resolve_under_root(root: Path, *parts: str) -> Path:

@@ -31,7 +31,7 @@ import type { AiCliGatewayManager, AiCliProviderConfig } from './services/aiCliG
 import type { ClaudeCodeConfigValues } from './webview/configPage/claudeCodeTypes';
 import type { WebImportGatewayProviderDraft } from './services/webConfigGatewayImport';
 import * as path from 'path';
-import { localize } from './i18n';
+import { getCurrentLanguageCode, localize } from './i18n';
 import type { ConfigValues, WorkspaceInfo, EasyPaperConfigValues } from './webview/configPage/types';
 import { EnvManager } from './envManager';
 import { LLMValidator, PythonValidator, LLMType } from './services/llmValidator';
@@ -267,7 +267,15 @@ export class ConfigPageViewProvider {
                 : {}
             );
             break;
+          case 'gatewaySetOptimizer':
+            await this._handleGatewaySetOptimizer(
+              message.settings && typeof message.settings === 'object'
+                ? (message.settings as Record<string, boolean>)
+                : {}
+            );
+            break;
           case 'refreshCodexOfficialLogin':
+            await ConfigPageViewProvider.gatewayManager?.refreshCodexOfficialLogin();
             await this._postGatewayStatus();
             {
               const present =
@@ -465,6 +473,8 @@ export class ConfigPageViewProvider {
               ? 'aiCliGateway.routeClaudeRequiresApi'
               : 'aiCliGateway.routeCodexRequiresApi'
           )
+          : message === 'gateway_no_route_selected'
+            ? localize('aiCliGateway.noRouteSelected')
           : localize('aiCliGateway.toggleFailed', message);
       vscode.window.showWarningMessage(localized);
       await this._postGatewayStatus();
@@ -679,6 +689,16 @@ export class ConfigPageViewProvider {
     await this._postGatewayStatus();
   }
 
+  private async _handleGatewaySetOptimizer(settings: Record<string, boolean>): Promise<void> {
+    const manager = ConfigPageViewProvider.gatewayManager;
+    if (!manager) {
+      return;
+    }
+    await manager.setOptimizerSettings(settings);
+    await this._postGatewayStatus();
+  }
+
+
   private async _handleGatewayToggleFailover(
     id: string,
     role: 'claude' | 'codex'
@@ -848,12 +868,11 @@ export class ConfigPageViewProvider {
     }
 
     const manager = ConfigPageViewProvider.gatewayManager;
-    const proxyExports = manager?.buildOutboundProxyEnvExports() ?? '';
-    const terminal = vscode.window.createTerminal('Codex');
+    const terminal = vscode.window.createTerminal({
+      name: 'Codex',
+      env: manager?.buildOutboundProxyEnv(),
+    });
     terminal.show(true);
-    if (proxyExports) {
-      terminal.sendText(proxyExports);
-    }
     terminal.sendText('codex');
     vscode.window.showInformationMessage(localize('aiCliGateway.restartCodexStarted'));
   }
@@ -1603,6 +1622,7 @@ export class ConfigPageViewProvider {
     );
 
     const nonce = Array.from({ length: 32 }, () => Math.random().toString(36)[2]).join('');
+    const lang = getCurrentLanguageCode();
     const csp = [
       "default-src 'none'",
       `img-src ${webview.cspSource} data:`,
@@ -1612,7 +1632,7 @@ export class ConfigPageViewProvider {
     ].join('; ');
 
     return `<!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="${lang}">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -1632,6 +1652,7 @@ export class ConfigPageViewProvider {
 </head>
 <body>
   <div id="root"></div>
+  <script nonce="${nonce}">window.__AS_LANG__=${JSON.stringify(lang)};</script>
   <script nonce="${nonce}" src="${scriptUri}"></script>
 </body>
 </html>`;

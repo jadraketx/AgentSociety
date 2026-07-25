@@ -16,6 +16,7 @@
 | A | **AI Social Scientist** | VS Code 插件和研究工作台，负责项目管理、配置、技能、回放和帮助入口。 |
 | A | **API Base** | 模型服务的访问地址，例如 `https://api.openai.com/v1`。 |
 | A | **API Key** | 调用模型服务所需的密钥。请保存在本地配置中，不要提交到公开仓库。 |
+| B | **Bypass 权限模式** | Claude Code 的 `bypassPermissions`：在已信任工作区减少权限确认；不可信仓库勿开。 |
 | C | **Claude Code 技能** | 安装到 `.claude/skills/`，主要供 Claude Code 等编码助手在 IDE 中使用。 |
 | C | **CLAUDE.md** | 面向 Claude Code 的项目说明文件，用于告诉编码助手如何理解和操作当前项目。 |
 | C | **Codex CLI** | OpenAI 的命令行编码助手。可经本地网关路由到第三方供应商。 |
@@ -64,8 +65,8 @@
 
 | 索引 | 术语 | 说明 |
 |------|------|------|
-| S | **Silicon Scientist** | 论文语境里的术语，指协助提出假设、设计实验、分析数据和写作的 Agent。欢迎页中通常称为“研究助手”。 |
-| S | **Silicon Subject** | 论文语境里的术语，指作为实验对象被模拟和观察的 Agent。欢迎页中通常称为“被研究对象”。 |
+| S | **AI Social Scientist（AI 社会科学家）** | 协调文献、假设、实验设计、仿真执行、分析和论文草拟的智能体研究角色；早期材料也称 Silicon Scientist。 |
+| S | **Silicon Participant（硅基参与者）** | 在可配置社会环境中产生行为响应、接受干预并被测量的仿真参与者；也常称 Silicon Subject / 硅基被试。 |
 | S | **Skill** | 可安装的能力模块。它告诉 Agent 或编码助手什么时候使用某种能力、读取哪些文件、产生什么输出。 |
 | S | **Steps 配置** | 描述实验要执行哪些步骤的配置，常用于定义提问、干预、运行模拟和保存产物。 |
 | S | **数据密集型范式** | 通过检索、处理、统计、可视化和模式发现理解大规模数据。 |

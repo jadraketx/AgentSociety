@@ -1,8 +1,6 @@
 import * as React from 'react';
 import { Divider, Space, Switch, Tooltip, Typography, Button, Tag, Input, Collapse } from 'antd';
 import { CheckCircleOutlined, LinkOutlined, QuestionCircleOutlined, ReloadOutlined, SyncOutlined, CheckOutlined } from '@ant-design/icons';
-import type { TFunction } from 'i18next';
-import type { VscodeThemePalette } from '../theme';
 import { ClaudeCodeConfigSection, type ProviderSectionCommonProps } from './ClaudeCodeConfigSection';
 import { GatewayUsagePanel } from './GatewayUsagePanel';
 import { tabBodyStyle } from './configPageStyles';
@@ -24,6 +22,7 @@ export interface AiCliConfigSectionProps extends ProviderSectionCommonProps {
   onSyncCodexConfig?: () => void;
   onSaveOutboundProxy?: (url: string, username?: string, password?: string) => void;
   onRectifierChange?: (settings: Record<string, boolean>) => void;
+  onOptimizerChange?: (settings: Record<string, boolean>) => void;
   onRefreshCodexOfficialLogin?: () => void;
   usageRecords: TokenUsageRecord[];
   usageLoading: boolean;
@@ -62,6 +61,7 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
     onSyncCodexConfig,
     onSaveOutboundProxy,
     onRectifierChange,
+    onOptimizerChange,
     onRefreshCodexOfficialLogin,
     ...providerSectionCommon
   } = props;
@@ -82,6 +82,11 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
     unsupportedImageDowngrade: true,
     heuristicTextOnlyModels: true,
   };
+  const optimizer = gatewayStatus.optimizer ?? {
+    enabled: false,
+    thinkingOptimizer: true,
+    cacheInjection: true,
+  };
   const [proxyDraft, setProxyDraft] = React.useState(gatewayStatus.outboundProxyUrl ?? '');
   React.useEffect(() => {
     setProxyDraft(gatewayStatus.outboundProxyUrl ?? '');
@@ -91,6 +96,11 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
   const codexUpstreamCount = providers.filter((p) => providerHasApiUpstream(p)).length;
   const showFailoverToggle =
     (routeClaude && claudeUpstreamCount >= 2) || (routeCodex && codexUpstreamCount >= 2);
+  const anyRouteEnabled = routeClaude || routeCodex;
+  const usageEnabledApps = [
+    ...(routeClaude ? (['claude'] as const) : []),
+    ...(routeCodex ? (['codex'] as const) : []),
+  ];
   const activeClaudeProvider = providers.find((p) => p.activeClaude);
   const activeCodexProvider = providers.find((p) => p.activeCodex);
 
@@ -104,10 +114,14 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
       label: t('claudeCodeConfig.gatewaySummaryService'),
       value: gatewayRunning
         ? t('claudeCodeConfig.gatewaySummaryRunning')
-        : routeClaude || routeCodex
+        : anyRouteEnabled
           ? t('claudeCodeConfig.gatewaySummaryStopped')
           : t('claudeCodeConfig.gatewaySummaryDirect'),
-      tone: gatewayRunning ? '#52c41a' : routeClaude || routeCodex ? '#faad14' : palette.descriptionForeground,
+      tone: gatewayRunning
+        ? '#52c41a'
+        : anyRouteEnabled
+          ? '#faad14'
+          : palette.descriptionForeground,
       detail: gatewayBaseUrl ?? t('claudeCodeConfig.gatewaySummaryNoLocal'),
     },
     {
@@ -135,9 +149,6 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
           <Tooltip title={t('claudeCodeConfig.gatewayTopologyHint')}>
             <QuestionCircleOutlined style={{ opacity: 0.65, cursor: 'help' }} />
           </Tooltip>
-          <Tag color="blue" style={{ margin: 0, fontSize: 10 }}>
-            {t('claudeCodeConfig.gatewaySharedProviders')}
-          </Tag>
         </Space>
         <div
           style={{
@@ -241,7 +252,7 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
         </div>
 
         <div style={routeRowStyle(routeClaude, gatewayRunning)}>
-          <Space size={6}>
+          <Space size={6} wrap style={{ minWidth: 0 }}>
             <span style={dotStyle(routeClaude, gatewayRunning, palette.descriptionForeground)} />
             <Text style={{ fontSize: 12, fontWeight: 500 }}>Claude Code</Text>
             <Tag color={routeStatusColor(routeClaude, gatewayRunning)} style={{ margin: 0, fontSize: 10 }}>
@@ -253,34 +264,31 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
               <QuestionCircleOutlined style={{ opacity: 0.5, cursor: 'help', fontSize: 11 }} />
             </Tooltip>
           </Space>
-          <Space size={6}>
+          <div style={routeActionsStyle}>
             {onSyncClaudeConfig ? (
               <Tooltip title={t('claudeCodeConfig.syncClaudeConfigHint')}>
-                <Button size="small" icon={<SyncOutlined />} onClick={onSyncClaudeConfig}>
-                  {t('claudeCodeConfig.syncClaudeConfig')}
-                </Button>
+                <Button type="text" size="small" icon={<SyncOutlined />} onClick={onSyncClaudeConfig} aria-label={t('claudeCodeConfig.syncClaudeConfig')} />
               </Tooltip>
             ) : null}
             {onRestartClaude ? (
               <Tooltip title={t('claudeCodeConfig.restartClaudeHint')}>
-                <Button size="small" icon={<ReloadOutlined />} onClick={onRestartClaude}>
-                  {t('claudeCodeConfig.restartClaude')}
-                </Button>
+                <Button type="text" size="small" icon={<ReloadOutlined />} onClick={onRestartClaude} aria-label={t('claudeCodeConfig.restartClaude')} />
               </Tooltip>
             ) : null}
-            <Text style={{ fontSize: 11 }}>{t('claudeCodeConfig.gatewayClaudeProxyEnable')}</Text>
-            <Switch
-              size="small"
-              checked={routeClaude}
-              loading={gatewayToggling}
-              disabled={!claudeProxyAvailable && !routeClaude}
-              onChange={onRouteClaudeToggle}
-            />
-          </Space>
+            <Tooltip title={t('claudeCodeConfig.gatewayClaudeProxyEnable')}>
+              <Switch
+                size="small"
+                checked={routeClaude}
+                loading={gatewayToggling}
+                disabled={!claudeProxyAvailable && !routeClaude}
+                onChange={onRouteClaudeToggle}
+              />
+            </Tooltip>
+          </div>
         </div>
 
         <div style={{ ...routeRowStyle(routeCodex, gatewayRunning), marginTop: 6 }}>
-          <Space size={6} wrap>
+          <Space size={6} wrap style={{ minWidth: 0 }}>
             <span style={dotStyle(routeCodex, gatewayRunning, palette.descriptionForeground)} />
             <Text style={{ fontSize: 12, fontWeight: 500 }}>Codex</Text>
             <Tag color={routeStatusColor(routeCodex, gatewayRunning)} style={{ margin: 0, fontSize: 10 }}>
@@ -312,126 +320,27 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
               <QuestionCircleOutlined style={{ opacity: 0.5, cursor: 'help', fontSize: 11 }} />
             </Tooltip>
           </Space>
-          <Space size={6} wrap>
+          <div style={routeActionsStyle}>
             {onSyncCodexConfig ? (
               <Tooltip title={t('claudeCodeConfig.syncCodexConfigHint')}>
-                <Button size="small" icon={<SyncOutlined />} onClick={onSyncCodexConfig}>
-                  {t('claudeCodeConfig.syncCodexConfig')}
-                </Button>
+                <Button type="text" size="small" icon={<SyncOutlined />} onClick={onSyncCodexConfig} aria-label={t('claudeCodeConfig.syncCodexConfig')} />
               </Tooltip>
             ) : null}
             {onRestartCodex ? (
               <Tooltip title={t('claudeCodeConfig.restartCodexHint')}>
-                <Button size="small" icon={<ReloadOutlined />} onClick={onRestartCodex}>
-                  {t('claudeCodeConfig.restartCodex')}
-                </Button>
+                <Button type="text" size="small" icon={<ReloadOutlined />} onClick={onRestartCodex} aria-label={t('claudeCodeConfig.restartCodex')} />
               </Tooltip>
             ) : null}
-            <Text style={{ fontSize: 11 }}>{t('claudeCodeConfig.gatewayCodexProxyEnable')}</Text>
-            <Switch
-              size="small"
-              checked={routeCodex}
-              loading={gatewayToggling}
-              disabled={!codexProxyAvailable && !routeCodex}
-              onChange={onRouteCodexToggle}
-            />
-          </Space>
-        </div>
-
-        <div
-          style={{
-            marginTop: 8,
-            padding: '0 4px',
-            borderRadius: 8,
-            border: `1px solid ${palette.panelBorder}`,
-            background: palette.codeBlockBackground,
-          }}
-        >
-          <Collapse
-            ghost
-            size="small"
-            defaultActiveKey={[]}
-            items={[
-              {
-                key: 'advanced',
-                label: (
-                  <Space size={6}>
-                    <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.advancedSettingsTitle')}</Text>
-                    <Tag style={{ margin: 0, fontSize: 10 }}>{t('claudeCodeConfig.advancedSettingsDefaultOn')}</Tag>
-                  </Space>
-                ),
-                children: (
-                  <div style={{ paddingBottom: 8 }}>
-                    <div style={{ marginBottom: 12 }}>
-                      <Space size={6} style={{ marginBottom: 6 }}>
-                        <Text style={{ fontSize: 12 }}>{t('claudeCodeConfig.outboundProxyTitle')}</Text>
-                        <Tooltip title={t('claudeCodeConfig.outboundProxyHint')}>
-                          <QuestionCircleOutlined style={{ opacity: 0.65, cursor: 'help' }} />
-                        </Tooltip>
-                      </Space>
-                      <Space.Compact style={{ width: '100%' }}>
-                        <Input
-                          size="small"
-                          placeholder={t('claudeCodeConfig.outboundProxyPlaceholder')}
-                          value={proxyDraft}
-                          onChange={(e) => setProxyDraft(e.target.value)}
-                        />
-                        <Button
-                          size="small"
-                          type="primary"
-                          disabled={!onSaveOutboundProxy}
-                          onClick={() => onSaveOutboundProxy?.(proxyDraft.trim())}
-                        >
-                          {t('claudeCodeConfig.outboundProxySave')}
-                        </Button>
-                      </Space.Compact>
-                    </div>
-
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginBottom: 6 }}>
-                      <Space size={6}>
-                        <Text style={{ fontSize: 12 }}>{t('claudeCodeConfig.rectifierTitle')}</Text>
-                        <Tooltip title={t('claudeCodeConfig.rectifierHint')}>
-                          <QuestionCircleOutlined style={{ opacity: 0.65, cursor: 'help' }} />
-                        </Tooltip>
-                      </Space>
-                      <Switch
-                        size="small"
-                        checked={rectifier.enabled}
-                        disabled={!onRectifierChange}
-                        onChange={(checked) => onRectifierChange?.({ enabled: checked })}
-                      />
-                    </div>
-                    {(
-                      [
-                        ['thinkingSignature', 'rectifierThinkingSignature', 'rectifierThinkingSignatureHint'],
-                        ['thinkingBudget', 'rectifierThinkingBudget', 'rectifierThinkingBudgetHint'],
-                        ['unsupportedImageDowngrade', 'rectifierImageDowngrade', 'rectifierImageDowngradeHint'],
-                        ['heuristicTextOnlyModels', 'rectifierHeuristicTextOnly', 'rectifierHeuristicTextOnlyHint'],
-                      ] as const
-                    ).map(([key, labelKey, hintKey]) => (
-                      <div
-                        key={key}
-                        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 8 }}
-                      >
-                        <Space size={4}>
-                          <Text style={{ fontSize: 11 }}>{t(`claudeCodeConfig.${labelKey}`)}</Text>
-                          <Tooltip title={t(`claudeCodeConfig.${hintKey}`)}>
-                            <QuestionCircleOutlined style={{ opacity: 0.55, cursor: 'help', fontSize: 10 }} />
-                          </Tooltip>
-                        </Space>
-                        <Switch
-                          size="small"
-                          checked={Boolean(rectifier[key]) && rectifier.enabled}
-                          disabled={!rectifier.enabled || !onRectifierChange}
-                          onChange={(checked) => onRectifierChange?.({ [key]: checked })}
-                        />
-                      </div>
-                    ))}
-                  </div>
-                ),
-              },
-            ]}
-          />
+            <Tooltip title={t('claudeCodeConfig.gatewayCodexProxyEnable')}>
+              <Switch
+                size="small"
+                checked={routeCodex}
+                loading={gatewayToggling}
+                disabled={!codexProxyAvailable && !routeCodex}
+                onChange={onRouteCodexToggle}
+              />
+            </Tooltip>
+          </div>
         </div>
 
         {(routeClaude || routeCodex) ? (
@@ -538,23 +447,129 @@ export function AiCliConfigSection(props: AiCliConfigSectionProps) {
       </div>
 
       <ClaudeCodeConfigSection {...providerSectionCommon} mode="unified" onReset={onResetClaude} />
-      <Divider orientation="left" plain style={{ margin: '20px 0 12px', fontSize: 12 }}>
-        {t('claudeCodeConfig.usageDivider')}
-      </Divider>
-      <GatewayUsagePanel
-        t={t}
-        palette={palette}
-        gatewayStatus={gatewayStatus}
-        records={usageRecords}
-        loading={usageLoading}
-        onRefresh={onRefreshUsage}
-        onClear={onClearUsage}
-        customPricing={customPricing}
-        onGetPricing={onGetPricing}
-        onRefreshPricing={onRefreshPricing}
-        onSavePricing={onSavePricing}
-        onClearPricing={onClearPricing}
-      />
+      {anyRouteEnabled ? (
+        <>
+          <Divider orientation="left" plain style={{ margin: '20px 0 12px', fontSize: 12 }}>
+            {t('claudeCodeConfig.usageDivider')}
+          </Divider>
+          <GatewayUsagePanel
+            t={t}
+            palette={palette}
+            gatewayStatus={gatewayStatus}
+            records={usageRecords}
+            loading={usageLoading}
+            onRefresh={onRefreshUsage}
+            onClear={onClearUsage}
+            customPricing={customPricing}
+            onGetPricing={onGetPricing}
+            onRefreshPricing={onRefreshPricing}
+            onSavePricing={onSavePricing}
+            onClearPricing={onClearPricing}
+            enabledApps={usageEnabledApps}
+          />
+        </>
+      ) : (
+        <Text type="secondary" style={{ display: 'block', marginTop: 16, fontSize: 12 }}>
+          {t('claudeCodeConfig.usageEnableRouteHint')}
+        </Text>
+      )}
+
+      <div
+        style={{
+          marginTop: 16,
+          padding: '0 4px',
+          borderRadius: 8,
+          border: `1px solid ${palette.panelBorder}`,
+          background: palette.codeBlockBackground,
+        }}
+      >
+        <Collapse
+          ghost
+          size="small"
+          defaultActiveKey={[]}
+          items={[
+            {
+              key: 'advanced',
+              label: (
+                <Text strong style={{ fontSize: 12 }}>{t('claudeCodeConfig.advancedSettingsTitle')}</Text>
+              ),
+              children: (
+                <div style={{ paddingBottom: 8 }}>
+                  <AdvancedSectionHeader
+                    title={t('claudeCodeConfig.advancedSectionNetwork')}
+                    hint={t('claudeCodeConfig.advancedSectionNetworkHint')}
+                  />
+                  <Space.Compact style={{ width: '100%', marginBottom: 14 }}>
+                    <Input
+                      size="small"
+                      placeholder={t('claudeCodeConfig.outboundProxyPlaceholder')}
+                      value={proxyDraft}
+                      onChange={(e) => setProxyDraft(e.target.value)}
+                    />
+                    <Button
+                      size="small"
+                      type="primary"
+                      disabled={!onSaveOutboundProxy}
+                      onClick={() => onSaveOutboundProxy?.(proxyDraft.trim())}
+                    >
+                      {t('claudeCodeConfig.outboundProxySave')}
+                    </Button>
+                  </Space.Compact>
+
+                  <AdvancedSectionHeader
+                    title={t('claudeCodeConfig.rectifierTitle')}
+                    hint={t('claudeCodeConfig.rectifierHint')}
+                    switchChecked={rectifier.enabled}
+                    switchDisabled={!onRectifierChange}
+                    onSwitchChange={(checked) => onRectifierChange?.({ enabled: checked })}
+                  />
+                  {(
+                    [
+                      ['thinkingSignature', 'rectifierThinkingSignature', 'rectifierThinkingSignatureHint'],
+                      ['thinkingBudget', 'rectifierThinkingBudget', 'rectifierThinkingBudgetHint'],
+                      ['unsupportedImageDowngrade', 'rectifierImageDowngrade', 'rectifierImageDowngradeHint'],
+                      ['heuristicTextOnlyModels', 'rectifierHeuristicTextOnly', 'rectifierHeuristicTextOnlyHint'],
+                    ] as const
+                  ).map(([key, labelKey, hintKey]) => (
+                    <SettingRow
+                      key={key}
+                      label={t(`claudeCodeConfig.${labelKey}`)}
+                      hint={t(`claudeCodeConfig.${hintKey}`)}
+                      checked={Boolean(rectifier[key]) && rectifier.enabled}
+                      disabled={!rectifier.enabled || !onRectifierChange}
+                      onChange={(checked) => onRectifierChange?.({ [key]: checked })}
+                    />
+                  ))}
+
+                  <AdvancedSectionHeader
+                    title={t('claudeCodeConfig.optimizerTitle')}
+                    hint={t('claudeCodeConfig.optimizerHint')}
+                    style={{ marginTop: 14 }}
+                    switchChecked={optimizer.enabled}
+                    switchDisabled={!onOptimizerChange}
+                    onSwitchChange={(checked) => onOptimizerChange?.({ enabled: checked })}
+                  />
+                  {(
+                    [
+                      ['thinkingOptimizer', 'optimizerThinking', 'optimizerThinkingHint'],
+                      ['cacheInjection', 'optimizerCache', 'optimizerCacheHint'],
+                    ] as const
+                  ).map(([key, labelKey, hintKey]) => (
+                    <SettingRow
+                      key={key}
+                      label={t(`claudeCodeConfig.${labelKey}`)}
+                      hint={t(`claudeCodeConfig.${hintKey}`)}
+                      checked={Boolean(optimizer[key]) && optimizer.enabled}
+                      disabled={!optimizer.enabled || !onOptimizerChange}
+                      onChange={(checked) => onOptimizerChange?.({ [key]: checked })}
+                    />
+                  ))}
+                </div>
+              ),
+            },
+          ]}
+        />
+      </div>
     </div>
   );
 }
@@ -570,6 +585,79 @@ function routeRowStyle(active: boolean, running: boolean): React.CSSProperties {
     background: active ? 'rgba(22, 119, 255, 0.04)' : 'transparent',
     border: active ? '1px solid rgba(22, 119, 255, 0.15)' : '1px solid transparent',
   };
+}
+
+const routeActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  flexShrink: 0,
+};
+
+function AdvancedSectionHeader(props: {
+  title: string;
+  hint: string;
+  style?: React.CSSProperties;
+  switchChecked?: boolean;
+  switchDisabled?: boolean;
+  onSwitchChange?: (checked: boolean) => void;
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        marginBottom: 8,
+        ...props.style,
+      }}
+    >
+      <Space size={6} wrap>
+        <Text style={{ fontSize: 12, fontWeight: 600 }}>{props.title}</Text>
+        <Tooltip title={props.hint}>
+          <QuestionCircleOutlined style={{ opacity: 0.65, cursor: 'help' }} />
+        </Tooltip>
+      </Space>
+      {props.onSwitchChange ? (
+        <Switch
+          size="small"
+          checked={Boolean(props.switchChecked)}
+          disabled={props.switchDisabled}
+          onChange={props.onSwitchChange}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+function SettingRow(props: {
+  label: string;
+  hint: string;
+  checked: boolean;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <div
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 12,
+        marginTop: 8,
+        paddingLeft: 4,
+      }}
+    >
+      <Space size={4}>
+        <Text style={{ fontSize: 11 }}>{props.label}</Text>
+        <Tooltip title={props.hint}>
+          <QuestionCircleOutlined style={{ opacity: 0.55, cursor: 'help', fontSize: 10 }} />
+        </Tooltip>
+      </Space>
+      <Switch size="small" checked={props.checked} disabled={props.disabled} onChange={props.onChange} />
+    </div>
+  );
 }
 
 function dotStyle(active: boolean, running: boolean, fallback: string): React.CSSProperties {

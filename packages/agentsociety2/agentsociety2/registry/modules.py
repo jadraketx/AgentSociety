@@ -84,7 +84,7 @@ def register_scanned_custom_modules(
             )
         except Exception as exc:
             registration_errors.append(
-                f"Env module {env_info.get('class_name')}: {exc}"
+                f"Env module {env_info.get('class_name')}: registration failed"
             )
             logger.warning(
                 f"Failed to register custom env module {env_info.get('class_name')}: {exc}"
@@ -104,7 +104,9 @@ def register_scanned_custom_modules(
                 is_custom=True,
             )
         except Exception as exc:
-            registration_errors.append(f"Agent {agent_info.get('class_name')}: {exc}")
+            registration_errors.append(
+                f"Agent {agent_info.get('class_name')}: registration failed"
+            )
             logger.warning(
                 f"Failed to register custom agent {agent_info.get('class_name')}: {exc}"
             )

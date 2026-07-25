@@ -214,29 +214,88 @@ test('Codex to Chat maps reasoning for known providers without raw passthrough',
   assert.equal(lookalikeHost.enable_thinking, undefined);
 });
 
-test('thinking budget rectifier uses a bounded minimum', () => {
+test('thinking budget rectifier uses cc-switch 32000/64000 defaults', () => {
   const {
     applyThinkingBudgetFix,
     classifyRectifierRetry,
     DEFAULT_GATEWAY_RECTIFIER_SETTINGS,
   } = require('../out/services/gatewayRequestRectifier');
   const fixed = applyThinkingBudgetFix({ messages: [], max_tokens: 1024 });
-  assert.equal(fixed.thinking.budget_tokens, 1024);
-  assert.equal(fixed.max_tokens, 2048);
-  const bounded = applyThinkingBudgetFix({
+  assert.equal(fixed.thinking.budget_tokens, 32_000);
+  assert.equal(fixed.max_tokens, 64_000);
+  const adaptive = applyThinkingBudgetFix({
     messages: [],
-    thinking: { type: 'enabled', budget_tokens: 1_000_000 },
+    thinking: { type: 'adaptive', budget_tokens: 512 },
     max_tokens: 1024,
   });
-  assert.equal(bounded.thinking.budget_tokens, 32_000);
-  assert.equal(bounded.max_tokens, 64_000);
+  assert.equal(adaptive.thinking.type, 'adaptive');
+  assert.equal(adaptive.thinking.budget_tokens, 512);
+  assert.equal(adaptive.max_tokens, 1024);
   assert.equal(
     classifyRectifierRetry(
       400,
-      'thinking.budget_tokens must be at least 1024',
+      'thinking.budget_tokens: Input should be greater than or equal to 1024',
       DEFAULT_GATEWAY_RECTIFIER_SETTINGS
     ),
     'thinking_budget'
+  );
+  assert.equal(
+    classifyRectifierRetry(
+      400,
+      'budget_tokens must be less than max_tokens',
+      DEFAULT_GATEWAY_RECTIFIER_SETTINGS
+    ),
+    null
+  );
+});
+
+test('Bedrock optimizer injects adaptive thinking and cache breakpoints', () => {
+  const {
+    applyBedrockRequestOptimizer,
+    DEFAULT_GATEWAY_OPTIMIZER_SETTINGS,
+  } = require('../out/services/bedrockRequestOptimizer');
+  const settings = { ...DEFAULT_GATEWAY_OPTIMIZER_SETTINGS, enabled: true };
+  const optimized = applyBedrockRequestOptimizer(
+    {
+      model: 'anthropic.claude-sonnet-4-6-v1:0',
+      max_tokens: 8192,
+      tools: [{ name: 'bash' }],
+      system: 'sys',
+      messages: [{ role: 'user', content: [{ type: 'text', text: 'hi' }] }],
+    },
+    settings,
+    'https://bedrock-runtime.us-east-1.amazonaws.com'
+  );
+  assert.equal(optimized.thinking.type, 'adaptive');
+  assert.equal(optimized.output_config.effort, 'max');
+  assert.ok(optimized.tools[0].cache_control);
+  assert.ok(Array.isArray(optimized.system));
+  assert.ok(optimized.system[0].cache_control);
+});
+
+test('unsupported image rectifier matches text-only self-evident errors', () => {
+  const {
+    classifyRectifierRetry,
+    DEFAULT_GATEWAY_RECTIFIER_SETTINGS,
+    containsImageBlocks,
+  } = require('../out/services/gatewayRequestRectifier');
+  const body = {
+    messages: [
+      {
+        role: 'user',
+        content: [{ type: 'image', source: { type: 'base64', data: 'abc' } }],
+      },
+    ],
+  };
+  assert.equal(containsImageBlocks(body), true);
+  assert.equal(
+    classifyRectifierRetry(
+      400,
+      'Model only support text input',
+      DEFAULT_GATEWAY_RECTIFIER_SETTINGS,
+      body
+    ),
+    'unsupported_image'
   );
 });
 
@@ -519,6 +578,141 @@ test('switching to official Codex removes only AgentSociety-owned routing fields
   }
 });
 
+test('Codex takeover restore target follows provider hot switches and then returns to official', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsociety-codex-'));
+  const previousCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = codexHome;
+  try {
+    const {
+      applyCodexGatewayConfig,
+      buildCodexDirectProviderConfigText,
+      buildCodexOfficialSubscriptionConfigText,
+      restoreCodexLiveBackup,
+    } = require('../out/services/codexSettings');
+
+    const official = [
+      'model_reasoning_effort = "high"',
+      '',
+      '[profiles.work]',
+      'model = "profile-model"',
+      '',
+      '[mcp_servers.keep-me]',
+      'command = "keep-me"',
+      '',
+    ].join('\n');
+    fs.writeFileSync(path.join(codexHome, 'config.toml'), official, 'utf8');
+
+    const directA = buildCodexDirectProviderConfigText(official, {
+      baseUrl: 'https://a.example/v1',
+      apiKey: 'sk-a',
+      model: 'model-a',
+    });
+    applyCodexGatewayConfig(15721, {
+      baseUrl: 'https://a.example/v1',
+      apiKey: 'sk-a',
+      model: 'model-a',
+    });
+
+    const directB = buildCodexDirectProviderConfigText(directA, {
+      baseUrl: 'https://b.example/v1',
+      apiKey: 'sk-b',
+      model: 'model-b',
+    });
+    assert.equal(restoreCodexLiveBackup(directB), true);
+    const restored = parseToml(fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8'));
+    assert.equal(restored.model, 'model-b');
+    assert.equal(restored.model_provider, 'agentsociety-codex');
+    assert.equal(
+      restored.model_providers['agentsociety-codex'].base_url,
+      'https://b.example/v1'
+    );
+    assert.equal(restored.profiles.work.model, 'profile-model');
+    assert.equal(restored.mcp_servers['keep-me'].command, 'keep-me');
+
+    const backToOfficial = buildCodexOfficialSubscriptionConfigText(directB);
+    const officialAgain = parseToml(backToOfficial);
+    assert.equal(officialAgain.model, undefined);
+    assert.equal(officialAgain.model_provider, undefined);
+    assert.equal(officialAgain.model_providers?.['agentsociety-codex'], undefined);
+    assert.equal(officialAgain.model_reasoning_effort, 'high');
+    assert.equal(officialAgain.profiles.work.model, 'profile-model');
+    assert.equal(officialAgain.mcp_servers['keep-me'].command, 'keep-me');
+  } finally {
+    if (previousCodexHome === undefined) {
+      delete process.env.CODEX_HOME;
+    } else {
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test('Codex proxy takeover backup refuses placeholder and restores clean live', () => {
+  const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsociety-codex-'));
+  const previousCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = codexHome;
+  try {
+    const {
+      applyCodexGatewayConfig,
+      isCodexGatewayTakeoverConfig,
+      releaseCodexGatewayTakeover,
+      snapshotCodexLiveBackup,
+    } = require('../out/services/codexSettings');
+
+    const clean = [
+      'model = "gpt-5.4"',
+      '',
+      '[profiles.work]',
+      'model = "profile-model"',
+      '',
+    ].join('\n');
+    fs.writeFileSync(path.join(codexHome, 'config.toml'), clean, 'utf8');
+    const backup = snapshotCodexLiveBackup(clean);
+    assert.equal(backup, clean);
+
+    applyCodexGatewayConfig(15721, {
+      baseUrl: 'https://example.com/v1',
+      apiKey: 'sk-test',
+      model: 'glm-5.2',
+    });
+    const live = fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8');
+    assert.equal(isCodexGatewayTakeoverConfig(live), true);
+    assert.equal(snapshotCodexLiveBackup(live), null);
+
+    let rebuilt = false;
+    const mode = releaseCodexGatewayTakeover(backup, () => {
+      rebuilt = true;
+    });
+    assert.equal(mode, 'backup');
+    assert.equal(rebuilt, false);
+    const restored = parseToml(fs.readFileSync(path.join(codexHome, 'config.toml'), 'utf8'));
+    assert.equal(restored.model, 'gpt-5.4');
+    assert.equal(restored.model_provider, undefined);
+    assert.equal(restored.profiles.work.model, 'profile-model');
+
+    const mode2 = releaseCodexGatewayTakeover(live, () => {
+      rebuilt = true;
+      fs.writeFileSync(path.join(codexHome, 'config.toml'), 'model = "rebuilt"\n', 'utf8');
+    });
+    assert.equal(mode2, 'rebuild');
+    assert.equal(rebuilt, true);
+  } finally {
+    if (previousCodexHome === undefined) {
+      delete process.env.CODEX_HOME;
+    } else {
+      process.env.CODEX_HOME = previousCodexHome;
+    }
+    fs.rmSync(codexHome, { recursive: true, force: true });
+  }
+});
+
+test('Codex login status parser recognizes ChatGPT but not API-key login', () => {
+  const { isCodexChatGptLoginStatusOutput } = require('../out/services/codexSettings');
+  assert.equal(isCodexChatGptLoginStatusOutput('Logged in using ChatGPT'), true);
+  assert.equal(isCodexChatGptLoginStatusOutput('Logged in using an API key'), false);
+  assert.equal(isCodexChatGptLoginStatusOutput('Not logged in'), false);
+});
+
 test('Codex provider without a model removes stale AgentSociety model metadata', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsociety-codex-'));
   const previousCodexHome = process.env.CODEX_HOME;
@@ -605,28 +799,28 @@ test('applying Codex provider always rewrites model catalog', () => {
   }
 });
 
-test('Codex API-key auth replaces incompatible OAuth fields', () => {
+test('Codex direct provider leaves official auth.json untouched', () => {
   const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'agentsociety-codex-'));
   const previousCodexHome = process.env.CODEX_HOME;
   process.env.CODEX_HOME = codexHome;
   try {
-    fs.writeFileSync(
-      path.join(codexHome, 'auth.json'),
-      JSON.stringify({
-        auth_mode: 'chatgpt',
-        OPENAI_API_KEY: null,
-        tokens: { access_token: 'oauth-token', refresh_token: 'refresh-token' },
-        last_refresh: '2026-07-13T00:00:00Z',
-      }),
-      'utf8'
-    );
-    const { writeCodexApiKeyAuth } = require('../out/services/codexSettings');
-    writeCodexApiKeyAuth(' sk-third-party ');
-    const auth = JSON.parse(fs.readFileSync(path.join(codexHome, 'auth.json'), 'utf8'));
-    assert.deepEqual(auth, {
-      auth_mode: 'apikey',
-      OPENAI_API_KEY: 'sk-third-party',
+    const authPath = path.join(codexHome, 'auth.json');
+    const oauth = {
+      auth_mode: 'chatgpt',
+      OPENAI_API_KEY: null,
+      tokens: { access_token: 'oauth-token', refresh_token: 'refresh-token' },
+      last_refresh: '2026-07-13T00:00:00Z',
+    };
+    fs.writeFileSync(authPath, JSON.stringify(oauth), 'utf8');
+    const { applyCodexDirectProvider, hasCodexOfficialLogin } = require('../out/services/codexSettings');
+    applyCodexDirectProvider({
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-third-party',
+      model: 'gpt-5.5',
     });
+    const auth = JSON.parse(fs.readFileSync(authPath, 'utf8'));
+    assert.deepEqual(auth, oauth);
+    assert.equal(hasCodexOfficialLogin(), true);
   } finally {
     if (previousCodexHome === undefined) {
       delete process.env.CODEX_HOME;
@@ -818,4 +1012,17 @@ test('upstreamHealth reports degraded and unhealthy states', () => {
   assert.equal(upstreamHealth(undefined), 'healthy');
   assert.equal(upstreamHealth({ consecutiveFailures: 1, openUntil: 0 }), 'degraded');
   assert.equal(upstreamHealth({ consecutiveFailures: 3, openUntil: Date.now() + 60_000 }), 'unhealthy');
+});
+
+
+test('text-only model registry matches cc-switch exact tails and fail-open', () => {
+  const { isLikelyTextOnlyModel } = require('../out/services/gatewayRequestRectifier');
+  assert.equal(isLikelyTextOnlyModel('deepseek/deepseek-v4-pro'), true);
+  assert.equal(isLikelyTextOnlyModel('GLM-5.2[1M]'), true);
+  assert.equal(isLikelyTextOnlyModel('LongCat-2.0'), true);
+  assert.equal(isLikelyTextOnlyModel('MiniMax-M2.7-Highspeed'), true);
+  assert.equal(isLikelyTextOnlyModel('glm-5.2v'), false);
+  assert.equal(isLikelyTextOnlyModel('MiniMax-M3'), false);
+  assert.equal(isLikelyTextOnlyModel('minimax-m2.7-vision'), false);
+  assert.equal(isLikelyTextOnlyModel('gpt-5.5'), false);
 });

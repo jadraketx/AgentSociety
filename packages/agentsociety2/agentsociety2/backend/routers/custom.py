@@ -675,10 +675,20 @@ async def rescan_custom_modules(
         scan_result = scan_and_register_custom_modules(
             resolve_workspace_root(workspace_path), registry
         )
+        registration_errors = scan_result.get("registration_errors", [])
+        if registration_errors:
+            logger.warning(
+                "Custom module registration reported %s error(s)",
+                len(registration_errors),
+            )
 
         return {
             "success": True,
-            "scan_result": scan_result,
+            "scan_result": {
+                "envs": list(scan_result.get("envs", [])),
+                "agents": list(scan_result.get("agents", [])),
+                "registration_error_count": len(registration_errors),
+            },
             "message": f"Scanned {len(scan_result.get('envs', []))} env modules and "
             f"{len(scan_result.get('agents', []))} agents",
         }

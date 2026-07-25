@@ -11,7 +11,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/tsinghua-fib-lab/agentsociety.git"
+    "url": "https://github.com/tsinghua-fib-lab/agentsociety.git",
+    "directory": "extension"
+  },
+  "vsce": {
+    "baseContentUrl": "https://github.com/tsinghua-fib-lab/agentsociety/blob/main/extension",
+    "baseImagesUrl": "https://raw.githubusercontent.com/tsinghua-fib-lab/agentsociety/main/extension"
   },
   "keywords": [
     "agentsociety",
@@ -88,11 +93,19 @@
             }
           },
           {
-            "id": "openSidebar",
-            "title": "%walkthrough.step.openSidebar.title%",
-            "description": "%walkthrough.step.openSidebar.description%",
+            "id": "firstLaunch",
+            "title": "%walkthrough.step.firstLaunch.title%",
+            "description": "%walkthrough.step.firstLaunch.description%",
             "media": {
-              "markdown": "%walkthrough.step.openSidebar.media%"
+              "markdown": "%walkthrough.step.firstLaunch.media%"
+            }
+          },
+          {
+            "id": "meetLayout",
+            "title": "%walkthrough.step.meetLayout.title%",
+            "description": "%walkthrough.step.meetLayout.description%",
+            "media": {
+              "markdown": "%walkthrough.step.meetLayout.media%"
             },
             "completionEvents": [
               "onView:projectStructureView"
@@ -110,24 +123,14 @@
             ]
           },
           {
-            "id": "configureApi",
-            "title": "%walkthrough.step.configureApi.title%",
-            "description": "%walkthrough.step.configureApi.description%",
+            "id": "configure",
+            "title": "%walkthrough.step.configure.title%",
+            "description": "%walkthrough.step.configure.description%",
             "media": {
-              "markdown": "%walkthrough.step.configureApi.media%"
+              "markdown": "%walkthrough.step.configure.media%"
             },
             "completionEvents": [
-              "onCommand:aiSocialScientist.openConfigPage"
-            ]
-          },
-          {
-            "id": "startBackend",
-            "title": "%walkthrough.step.startBackend.title%",
-            "description": "%walkthrough.step.startBackend.description%",
-            "media": {
-              "markdown": "%walkthrough.step.startBackend.media%"
-            },
-            "completionEvents": [
+              "onCommand:aiSocialScientist.openConfigPage",
               "onCommand:aiSocialScientist.startBackend"
             ]
           },
@@ -143,27 +146,26 @@
             ]
           },
           {
-            "id": "claudeCode",
-            "title": "%walkthrough.step.claudeCode.title%",
-            "description": "%walkthrough.step.claudeCode.description%",
+            "id": "startChat",
+            "title": "%walkthrough.step.startChat.title%",
+            "description": "%walkthrough.step.startChat.description%",
             "media": {
-              "markdown": "%walkthrough.step.claudeCode.media%"
+              "markdown": "%walkthrough.step.startChat.media%"
             },
             "completionEvents": [
-              "onCommand:aiSocialScientist.openClaudeSkillSourcesSettings"
+              "onCommand:aiSocialScientist.openChat"
             ]
           },
           {
-            "id": "nextSteps",
-            "title": "%walkthrough.step.nextSteps.title%",
-            "description": "%walkthrough.step.nextSteps.description%",
+            "id": "cliAssistants",
+            "title": "%walkthrough.step.cliAssistants.title%",
+            "description": "%walkthrough.step.cliAssistants.description%",
             "media": {
-              "markdown": "%walkthrough.step.nextSteps.media%"
+              "markdown": "%walkthrough.step.cliAssistants.media%"
             },
             "completionEvents": [
-              "onCommand:aiSocialScientist.openChat",
-              "onCommand:aiSocialScientist.openReplay",
-              "onCommand:aiSocialScientist.openHelpPage"
+              "onCommand:aiSocialScientist.openClaudeSkillSourcesSettings",
+              "onCommand:aiSocialScientist.openConfigPage"
             ]
           },
           {
@@ -742,7 +744,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^26.0.0",
+    "@types/node": "26.1.1",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@types/vscode": "^1.95.0",
@@ -774,8 +776,8 @@
     "dayjs": "^1.11.19",
     "https-proxy-agent": "^7.0.6",
     "i18next": "^26.3.4",
-    "js-yaml": "^4.1.0",
-    "mapbox-gl": "^3.9.0",
+    "js-yaml": "^4.3.0",
+    "mapbox-gl": "3.26.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-i18next": "^17.0.8",
@@ -790,7 +792,13 @@
     "diff": ">=3.5.1",
     "mermaid": {
       "uuid": ">=14.0.0"
-    }
+    },
+    "brace-expansion@1": "1.1.16",
+    "brace-expansion@5": "5.0.7",
+    "dompurify": ">=3.4.12",
+    "fast-uri": ">=3.1.4",
+    "linkify-it": "5.0.2",
+    "shell-quote": ">=1.9.0"
   },
   "allowScripts": {
     "@vscode/vsce-sign@2.0.9": true,
