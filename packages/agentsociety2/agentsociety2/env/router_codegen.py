@@ -1862,7 +1862,7 @@ class CodeGenRouter(RouterBase):
             get_logger().debug(f"{_get_debug_info('observe工具不存在')} - 跳过代码生成")
             return ""
 
-        instruction = self.OBSERVE_INSTRUCTION
+        instruction = OBSERVE_INSTRUCTION
         ctx = {"id": 123}  # 测试执行用的最小上下文（observe 工具需要 agent id）
         return await self._generate_initialization_code_with_retry(
             instruction=instruction, ctx=ctx, kind="observe"
@@ -1883,7 +1883,7 @@ class CodeGenRouter(RouterBase):
             )
             return ""
 
-        instruction = self.STATISTICS_INSTRUCTION
+        instruction = STATISTICS_INSTRUCTION
         ctx = {}  # 测试执行用的最小上下文
         return await self._generate_initialization_code_with_retry(
             instruction=instruction, ctx=ctx, kind="statistics"
