@@ -78,7 +78,8 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
         poppler-utils \
         tesseract-ocr \
         unzip \
-        ripgrep
+        ripgrep \
+        vim
 
 RUN ln -sf /usr/local/bin/python3 /usr/bin/python3 \
     && ln -sf /usr/local/bin/python3-config /usr/bin/python3-config \
