@@ -35,16 +35,12 @@
 
 AgentSociety is a framework for building LLM-based agent simulations in urban environments and research workflows.
 
-The paper is available at [arXiv](https://arxiv.org/abs/2502.08691):
+**Papers:**
 
-```bibtex
-@article{piao2025agentsociety,
-  title={AgentSociety: Large-Scale Simulation of LLM-Driven Generative Agents Advances Understanding of Human Behaviors and Society},
-  author={Piao, Jinghua and Yan, Yuwei and Zhang, Jun and Li, Nian and Yan, Junbo and Lan, Xiaochong and Lu, Zhihong and Zheng, Zhiheng and Wang, Jing Yi and Zhou, Di and others},
-  journal={arXiv preprint arXiv:2502.08691},
-  year={2025}
-}
-```
+- **AgentSociety 2** (recommended): [arXiv:2607.11895](https://arxiv.org/abs/2607.11895)
+- **AgentSociety** (v1): [arXiv:2502.08691](https://arxiv.org/abs/2502.08691)
+
+Machine-readable citations: [CITATION.cff](./CITATION.cff) · [citations.bib](./citations.bib)
 
 ## Star History
 
@@ -190,14 +186,37 @@ AgentSociety is licensed under the Apache License Version 2.0 except for the `pa
 
 ## Citation
 
-If you use AgentSociety in your research, please cite:
+If you use AgentSociety in your research, please cite the relevant paper(s). Prefer **AgentSociety 2** when using the current platform (`agentsociety2`); cite **AgentSociety (v1)** when referring to the original large-scale city simulator.
+
+See also [CITATION.cff](./CITATION.cff) and [citations.bib](./citations.bib).
+
+**AgentSociety 2** ([arXiv:2607.11895](https://arxiv.org/abs/2607.11895)):
 
 ```bibtex
-@article{piao2025agentsociety,
-  title={AgentSociety: Large-Scale Simulation of LLM-Driven Generative Agents Advances Understanding of Human Behaviors and Society},
-  author={Piao, Jinghua and Yan, Yuwei and Zhang, Jun and Li, Nian and Yan, Junbo and Lan, Xiaochong and Lu, Zhihong and Zheng, Zhiheng and Wang, Jing Yi and Zhou, Di and others},
-  journal={arXiv preprint arXiv:2502.08691},
-  year={2025}
+@misc{piao2026agentsociety2,
+  title        = {{AgentSociety} 2: An Integrated Research Environment for Executable Social Science},
+  author       = {Jinghua Piao and Jun Zhang and Haoyu Huang and Keming Zhang and Jing Yi Wang and Xinran Zhao and Songwei Li and Boyuan Sun and Jiayi Chang and Fengli Xu and Chunyan Wang and Fang Zhang and Ke Rong and Jun Su and Tianguang Meng and Yi Liu and Qingguo Meng and Yu Wang and Yong Li},
+  year         = {2026},
+  eprint       = {2607.11895},
+  archiveprefix= {arXiv},
+  primaryclass = {cs.CY},
+  doi          = {10.48550/arXiv.2607.11895},
+  url          = {https://arxiv.org/abs/2607.11895},
+}
+```
+
+**AgentSociety (v1)** ([arXiv:2502.08691](https://arxiv.org/abs/2502.08691)):
+
+```bibtex
+@misc{piao2025agentsociety,
+  title        = {{AgentSociety}: Large-Scale Simulation of {LLM}-Driven Generative Agents Advances Understanding of Human Behaviors and Society},
+  author       = {Jinghua Piao and Yuwei Yan and Jun Zhang and Nian Li and Junbo Yan and Xiaochong Lan and Zhihong Lu and Zhiheng Zheng and Jing Yi Wang and Di Zhou and Chen Gao and Fengli Xu and Fang Zhang and Ke Rong and Jun Su and Yong Li},
+  year         = {2025},
+  eprint       = {2502.08691},
+  archiveprefix= {arXiv},
+  primaryclass = {cs.SI},
+  doi          = {10.48550/arXiv.2502.08691},
+  url          = {https://arxiv.org/abs/2502.08691},
 }
 ```
 

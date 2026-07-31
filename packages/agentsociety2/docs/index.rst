@@ -102,6 +102,31 @@ AgentSociety 2
    api/index
    examples
 
+引用
+----
+
+如果您在研究中使用了 AgentSociety 2，请引用：
+
+.. code-block:: bibtex
+
+   @misc{piao2026agentsociety2,
+     title        = {{AgentSociety} 2: An Integrated Research Environment for Executable Social Science},
+     author       = {Jinghua Piao and Jun Zhang and Haoyu Huang and Keming Zhang and Jing Yi Wang and Xinran Zhao and Songwei Li and Boyuan Sun and Jiayi Chang and Fengli Xu and Chunyan Wang and Fang Zhang and Ke Rong and Jun Su and Tianguang Meng and Yi Liu and Qingguo Meng and Yu Wang and Yong Li},
+     year         = {2026},
+     eprint       = {2607.11895},
+     archiveprefix= {arXiv},
+     primaryclass = {cs.CY},
+     doi          = {10.48550/arXiv.2607.11895},
+     url          = {https://arxiv.org/abs/2607.11895},
+   }
+
+论文：https://arxiv.org/abs/2607.11895
+
+仓库级引用文件：
+
+* ``CITATION.cff``: https://github.com/tsinghua-fib-lab/AgentSociety/blob/main/CITATION.cff
+* ``citations.bib``: https://github.com/tsinghua-fib-lab/AgentSociety/blob/main/citations.bib
+
 链接
 -----
 

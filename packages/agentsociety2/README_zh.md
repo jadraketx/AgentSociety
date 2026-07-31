@@ -152,13 +152,19 @@ Apache License 2.0，详见 [LICENSE](./LICENSE)。
 如果您在研究中使用了 AgentSociety 2，请引用：
 
 ```bibtex
-@article{piao2025agentsociety,
-  title={AgentSociety: Large-Scale Simulation of LLM-Driven Generative Agents Advances Understanding of Human Behaviors and Society},
-  author={Piao, Jinghua and Yan, Yuwei and Zhang, Jun and Li, Nian and Yan, Junbo and Lan, Xiaochong and Lu, Zhihong and Zheng, Zhiheng and Wang, Jing Yi and Zhou, Di and others},
-  journal={arXiv preprint arXiv:2502.08691},
-  year={2025}
+@misc{piao2026agentsociety2,
+  title        = {{AgentSociety} 2: An Integrated Research Environment for Executable Social Science},
+  author       = {Jinghua Piao and Jun Zhang and Haoyu Huang and Keming Zhang and Jing Yi Wang and Xinran Zhao and Songwei Li and Boyuan Sun and Jiayi Chang and Fengli Xu and Chunyan Wang and Fang Zhang and Ke Rong and Jun Su and Tianguang Meng and Yi Liu and Qingguo Meng and Yu Wang and Yong Li},
+  year         = {2026},
+  eprint       = {2607.11895},
+  archiveprefix= {arXiv},
+  primaryclass = {cs.CY},
+  doi          = {10.48550/arXiv.2607.11895},
+  url          = {https://arxiv.org/abs/2607.11895},
 }
 ```
+
+论文：[arXiv:2607.11895](https://arxiv.org/abs/2607.11895)。仓库级引用：[CITATION.cff](../../CITATION.cff) · [citations.bib](../../citations.bib)。
 
 ## 联系我们
 

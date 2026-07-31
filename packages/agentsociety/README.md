@@ -22,19 +22,22 @@
 
 AgentSociety is an advanced framework specifically designed for building agents in urban simulation environments. With AgentSociety, you can easily create and manage agents, enabling complex urban scenarios to be modeled and simulated efficiently.
 
-The paper is available at [arXiv](https://arxiv.org/abs/2502.08691):
+The paper is available at [arXiv:2502.08691](https://arxiv.org/abs/2502.08691):
 
 ```bibtex
-@article{piao2025agentsociety,
-  title={AgentSociety: Large-Scale Simulation of LLM-Driven Generative Agents Advances Understanding of Human Behaviors and Society},
-  author={Piao, Jinghua and Yan, Yuwei and Zhang, Jun and Li, Nian and Yan, Junbo and Lan, Xiaochong and Lu, Zhihong and Zheng, Zhiheng and Wang, Jing Yi and Zhou, Di and others},
-  journal={arXiv preprint arXiv:2502.08691},
-  year={2025}
+@misc{piao2025agentsociety,
+  title        = {{AgentSociety}: Large-Scale Simulation of {LLM}-Driven Generative Agents Advances Understanding of Human Behaviors and Society},
+  author       = {Jinghua Piao and Yuwei Yan and Jun Zhang and Nian Li and Junbo Yan and Xiaochong Lan and Zhihong Lu and Zhiheng Zheng and Jing Yi Wang and Di Zhou and Chen Gao and Fengli Xu and Fang Zhang and Ke Rong and Jun Su and Yong Li},
+  year         = {2025},
+  eprint       = {2502.08691},
+  archiveprefix= {arXiv},
+  primaryclass = {cs.SI},
+  doi          = {10.48550/arXiv.2502.08691},
+  url          = {https://arxiv.org/abs/2502.08691},
 }
 ```
 
-> **Note**: This is AgentSociety 1.x (legacy). For the modern LLM-native platform, see [AgentSociety 2](https://pypi.org/project/agentsociety2/).
-
+> **Note**: This is AgentSociety 1.x (legacy). For the modern LLM-native platform, see [AgentSociety 2](https://pypi.org/project/agentsociety2/) ([arXiv:2607.11895](https://arxiv.org/abs/2607.11895)). Repository-wide citations: [CITATION.cff](../../CITATION.cff) · [citations.bib](../../citations.bib).
 ## Star History
 
 <a href="https://www.star-history.com/#tsinghua-fib-lab/AgentSociety&Date">

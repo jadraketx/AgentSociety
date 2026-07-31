@@ -211,26 +211,58 @@ msgid "文档"
 msgstr "Documentation"
 
 #: ../../index.rst:106
+msgid "引用"
+msgstr "Citation"
+
+#: ../../index.rst:108
+msgid "如果您在研究中使用了 AgentSociety 2，请引用："
+msgstr "If you use AgentSociety 2 in your research, please cite:"
+
+#: ../../index.rst:123
+msgid "论文：https://arxiv.org/abs/2607.11895"
+msgstr "Paper: https://arxiv.org/abs/2607.11895"
+
+#: ../../index.rst:125
+msgid "仓库级引用文件："
+msgstr "Repository-wide citation files:"
+
+#: ../../index.rst:127
+msgid ""
+"``CITATION.cff``: "
+"https://github.com/tsinghua-fib-lab/AgentSociety/blob/main/CITATION.cff"
+msgstr ""
+"``CITATION.cff``: "
+"https://github.com/tsinghua-fib-lab/AgentSociety/blob/main/CITATION.cff"
+
+#: ../../index.rst:128
+msgid ""
+"``citations.bib``: "
+"https://github.com/tsinghua-fib-lab/AgentSociety/blob/main/citations.bib"
+msgstr ""
+"``citations.bib``: "
+"https://github.com/tsinghua-fib-lab/AgentSociety/blob/main/citations.bib"
+
+#: ../../index.rst:131
 msgid "链接"
 msgstr "Links"
 
-#: ../../index.rst:108
+#: ../../index.rst:133
 msgid "**GitHub**: https://github.com/tsinghua-fib-lab/AgentSociety"
 msgstr "**GitHub**: https://github.com/tsinghua-fib-lab/AgentSociety"
 
-#: ../../index.rst:109
+#: ../../index.rst:134
 msgid "**PyPI**: https://pypi.org/project/agentsociety2/"
 msgstr "**PyPI**: https://pypi.org/project/agentsociety2/"
 
-#: ../../index.rst:110
+#: ../../index.rst:135
 msgid "**Issues**: https://github.com/tsinghua-fib-lab/AgentSociety/issues"
 msgstr "**Issues**: https://github.com/tsinghua-fib-lab/AgentSociety/issues"
 
-#: ../../index.rst:113
+#: ../../index.rst:138
 msgid "搜索"
 msgstr "Search"
 
-#: ../../index.rst:115
+#: ../../index.rst:140
 msgid ":ref:`search`"
 msgstr ":ref:`search`"
 
