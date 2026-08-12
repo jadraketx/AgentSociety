@@ -231,9 +231,13 @@
 			"sectionGateway": "CLI Gateway 供应商",
 			"sectionEasyPaper": "EasyPaper（可选）",
 			"gatewayName": "供应商名称",
+			"codexModel": "Codex 模型",
 			"codex1mEnabled": "已启用",
 			"successWithGateway": "已填入仿真配置，并完成 Gateway 供应商「{{name}}」的 API Key、模型和 Claude/Codex 激活配置。请继续保存 .env。",
-			"gatewayApplyInvalid": "Gateway 供应商未正确保存 API Key，请保留当前窗口并重试。"
+			"gatewayApplyInvalid": "Gateway 供应商未正确保存 API Key，请保留当前窗口并重试。",
+			"overwriteWarningTitle": "检测到已有的 Codex / Claude Code 配置",
+			"overwriteWarningDesc": "默认保留你现有的配置，仅导入仿真与 EasyPaper 设置；如需用导入数据覆盖，请勾选下方选项。",
+			"overwriteToggle": "覆盖现有的 Codex / Claude Code 配置"
 		},
 		"llm": {
 			"cardTitle": "默认 LLM",

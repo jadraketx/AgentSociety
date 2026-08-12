@@ -333,6 +333,8 @@ export class AgentsocietyWebConfigService {
       },
       gatewayProvider: buildGatewayProviderFromWebImport(apiKey, apiBase, importedClaudeModels, {
         enableCodex1m: true,
+        openAiCompatibleModels: modelOptions.openaiCompatible,
+        defaults,
       }),
       modelOptions,
       defaults,

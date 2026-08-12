@@ -549,7 +549,8 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
   );
 
   const applyImportedWebConfig = React.useCallback(
-    (imported: PendingWebImport) => {
+    (imported: PendingWebImport, options?: { overwriteCodexClaude?: boolean }) => {
+      const overwrite = options?.overwriteCodexClaude !== false;
       const importedConfig = imported.config ?? {};
       const importedClaude = imported.claudeConfig ?? {};
       const importedEasyPaper = imported.easyPaperConfig ?? {};
@@ -567,7 +568,9 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
       }
       setEnvDraftOverrides((prev) => ({ ...prev, ...importedConfig }));
       form.setFieldsValue(mergedEnvConfig);
-      if (Object.keys(importedClaude).length > 0) {
+      // When the user declines to overwrite their Codex/Claude Code live config,
+      // also skip pre-filling the Claude Code form (keep their own values intact).
+      if (overwrite && Object.keys(importedClaude).length > 0) {
         setClaudeDraftOverrides((prev) => ({ ...prev, ...importedClaude }));
         claudeForm.setFieldsValue({
           ...claudeForm.getFieldsValue(true),
@@ -578,7 +581,7 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
         ...easyPaperForm.getFieldsValue(true),
         ...importedEasyPaper,
       });
-      if (imported.gatewayProvider) {
+      if (overwrite && imported.gatewayProvider) {
         setWebImportApplying(true);
         vscode.postMessage({ command: 'gatewayUpsertWebImportProvider' });
         return;
@@ -1268,6 +1271,8 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
           gatewayProviderHasApiKey?: boolean;
           modelOptions?: ImportedModelOptions;
           authPath?: string;
+          codexConfiguredByUser?: boolean;
+          claudeConfiguredByUser?: boolean;
         };
         setPendingWebImport({
           config: msg.config,
@@ -1277,6 +1282,8 @@ export const ConfigPageApp: React.FC<ConfigPageAppProps> = ({ vscode }) => {
           gatewayProviderHasApiKey: msg.gatewayProviderHasApiKey,
           modelOptions: msg.modelOptions,
           authPath: msg.authPath,
+          codexConfiguredByUser: msg.codexConfiguredByUser,
+          claudeConfiguredByUser: msg.claudeConfiguredByUser,
         });
         setDeviceAuth({ status: 'idle', authPath: msg.authPath });
       } else if (message.command === 'webConfigApplyResult') {

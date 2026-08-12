@@ -61,6 +61,7 @@ export interface ImportedModelOptions {
 export interface ImportedModelDefaults {
   simulation: string;
   coder: string;
+  codex?: string;
   embedding: string;
   claudeCode: string;
   claudeCodeSonnet: string;

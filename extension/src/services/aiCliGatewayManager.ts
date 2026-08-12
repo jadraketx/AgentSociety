@@ -133,6 +133,7 @@ export type AiCliProviderConfig = {
   failoverClaude: boolean;
   failoverCodex: boolean;
   model?: string;
+  codexModel?: string;
   sonnetModel?: string;
   opusModel?: string;
   fableModel?: string;
@@ -651,9 +652,10 @@ export class AiCliGatewayManager {
   private resolveCodexProviderModel(provider: AiCliProviderConfig): string | undefined {
     const normalized = this.normalizeProvider(provider);
     const upstream = providerUpstream(normalized);
+    const codexModelPref = normalized.codexModel?.trim() || normalized.model;
     const resolved = resolveCodexChatModel(normalized.model, {
       baseUrl: upstream.baseUrl,
-      codexModel: normalized.model,
+      codexModel: codexModelPref,
       codexApiFormat: inferOpenAiApiFormat(upstream.baseUrl),
     });
     return resolved.trim() || undefined;
@@ -1081,6 +1083,7 @@ export class AiCliGatewayManager {
     apiKey: string;
     apiKind?: AiCliApiKind;
     model?: string;
+    codexModel?: string;
     sonnetModel?: string;
     opusModel?: string;
     fableModel?: string;
@@ -1109,6 +1112,7 @@ export class AiCliGatewayManager {
       apiKey: draft.apiKey.trim(),
       apiKind,
       model: draft.model,
+      codexModel: draft.codexModel,
       sonnetModel: draft.sonnetModel,
       opusModel: draft.opusModel,
       fableModel: draft.fableModel,

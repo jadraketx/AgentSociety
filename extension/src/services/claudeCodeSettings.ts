@@ -3,6 +3,7 @@ import * as os from 'os';
 import * as path from 'path';
 import * as cp from 'child_process';
 import type { ClaudeCodeCliStatus, ClaudeCodeConfigValues } from '../webview/configPage/claudeCodeTypes';
+import { isLocalGatewayBaseUrl } from './aiCliGatewayUpstream';
 export const CLAUDE_SETTINGS_DIR = path.join(os.homedir(), '.claude');
 export const CLAUDE_SETTINGS_PATH = path.join(CLAUDE_SETTINGS_DIR, 'settings.json');
 
@@ -120,6 +121,32 @@ export function isClaudeCodeEnvCustomized(): boolean {
       'ANTHROPIC_DEFAULT_FABLE_MODEL',
       'ANTHROPIC_DEFAULT_HAIKU_MODEL',
     ].some((key) => Boolean((env[key] ?? '').trim()));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * True when ~/.claude/settings.json points Claude Code at a non-AgentSociety endpoint.
+ *
+ * AgentSociety-managed routing uses either the local gateway (localhost base url) or a
+ * direct upstream we wrote. We only flag user-authored configuration: an
+ * ANTHROPIC_BASE_URL that is NOT a local gateway url is treated as user-owned. The
+ * gateway-mode localhost base url is excluded so that our own prior writes do not
+ * trigger a false positive.
+ */
+export function isClaudeCodeConfiguredByUser(): boolean {
+  try {
+    const env = (readClaudeSettingsFile().env as Record<string, string> | undefined) ?? {};
+    const base = (env.ANTHROPIC_BASE_URL ?? '').trim();
+    if (base && !isLocalGatewayBaseUrl(base)) {
+      return true;
+    }
+    // An auth token set without any AgentSociety-managed base url is likely user-owned.
+    if (!base && ((env.ANTHROPIC_AUTH_TOKEN ?? '').trim() || (env.ANTHROPIC_API_KEY ?? '').trim())) {
+      return true;
+    }
+    return false;
   } catch {
     return false;
   }

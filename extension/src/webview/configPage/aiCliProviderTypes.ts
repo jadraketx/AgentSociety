@@ -14,6 +14,7 @@ export type AiCliProviderRecord = {
   failoverClaude: boolean;
   failoverCodex: boolean;
   model?: string;
+  codexModel?: string;
   sonnetModel?: string;
   opusModel?: string;
   fableModel?: string;
@@ -38,6 +39,7 @@ export const EMPTY_PROVIDER_DRAFT: Omit<AiCliProviderRecord, 'id' | 'activeClaud
   apiKind: undefined,
   authMode: 'api',
   model: '',
+  codexModel: '',
   sonnetModel: '',
   opusModel: '',
   fableModel: '',

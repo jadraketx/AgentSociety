@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Alert, Button, Modal, Space, Tag, Tooltip, Typography } from 'antd';
+import { Alert, Button, Checkbox, Modal, Space, Tag, Tooltip, Typography } from 'antd';
 import { CloudDownloadOutlined, CopyOutlined, LinkOutlined } from '@ant-design/icons';
 import type { TFunction } from 'i18next';
 import type { VscodeThemePalette } from '../theme';
@@ -15,6 +15,7 @@ export type WebImportGatewayProviderDraft = {
   apiKey: string;
   apiKind?: 'anthropic' | 'openai';
   model?: string;
+  codexModel?: string;
   sonnetModel?: string;
   opusModel?: string;
   fableModel?: string;
@@ -42,6 +43,8 @@ export type PendingWebImport = {
   gatewayProviderHasApiKey?: boolean;
   modelOptions?: ImportedModelOptions;
   authPath?: string;
+  codexConfiguredByUser?: boolean;
+  claudeConfiguredByUser?: boolean;
 };
 
 type Props = {
@@ -53,7 +56,7 @@ type Props = {
   applying: boolean;
   onStart: () => void;
   onCancel: () => void;
-  onConfirm: (imported: PendingWebImport) => void;
+  onConfirm: (imported: PendingWebImport, options?: { overwriteCodexClaude?: boolean }) => void;
   onDismissConfirm: () => void;
   notify: (type: 'success' | 'error', message: string, description?: string) => void;
   prominent?: boolean;
@@ -86,6 +89,22 @@ export function WebConfigImportPanel({
   const importBusy = deviceAuth.status === 'starting' || deviceAuth.status === 'polling';
   const gateway = pendingImport?.gatewayProvider;
 
+  const userConfiguredCodex = Boolean(pendingImport?.codexConfiguredByUser);
+  const userConfiguredClaude = Boolean(pendingImport?.claudeConfiguredByUser);
+  const existingConfigDetected = userConfiguredCodex || userConfiguredClaude;
+  // Default to NOT overwriting when the user already has their own Codex/Claude config.
+  const [overwriteExisting, setOverwriteExisting] = React.useState(false);
+  React.useEffect(() => {
+    // Reset the toggle whenever a new import lands.
+    setOverwriteExisting(false);
+  }, [pendingImport]);
+
+  const handleApply = () => {
+    if (pendingImport) {
+      onConfirm(pendingImport, { overwriteCodexClaude: existingConfigDetected ? overwriteExisting : true });
+    }
+  };
+
   return (
     <>
       <Modal
@@ -97,15 +116,39 @@ export function WebConfigImportPanel({
         cancelButtonProps={{ disabled: applying }}
         closable={!applying}
         maskClosable={!applying}
-        onOk={() => {
-          if (pendingImport) {
-            onConfirm(pendingImport);
-          }
-        }}
+        onOk={handleApply}
         onCancel={onDismissConfirm}
       >
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
           <Text type="secondary">{t('configPage.webImport.confirmDesc')}</Text>
+          {existingConfigDetected ? (
+            <Alert
+              type="warning"
+              showIcon
+              style={{ borderRadius: 8 }}
+              message={t('configPage.webImport.overwriteWarningTitle')}
+              description={
+                <Space direction="vertical" size={6} style={{ width: '100%' }}>
+                  <Text style={{ fontSize: 12 }}>
+                    {[
+                      userConfiguredCodex ? 'Codex' : '',
+                      userConfiguredClaude ? 'Claude Code' : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' / ')}
+                    {' · '}
+                    {t('configPage.webImport.overwriteWarningDesc')}
+                  </Text>
+                  <Checkbox
+                    checked={overwriteExisting}
+                    onChange={(e) => setOverwriteExisting(e.target.checked)}
+                  >
+                    {t('configPage.webImport.overwriteToggle')}
+                  </Checkbox>
+                </Space>
+              }
+            />
+          ) : null}
           <Text strong style={{ fontSize: 12 }}>
             {t('configPage.webImport.sectionSimulation')}
           </Text>
@@ -132,6 +175,9 @@ export function WebConfigImportPanel({
               </Text>
               <Text>
                 {t('configPage.llm.modelName')}: <code>{gateway.model || '-'}</code>
+              </Text>
+              <Text>
+                {t('configPage.webImport.codexModel')}: <code>{gateway.codexModel || '-'}</code>
               </Text>
               <Text>
                 {t('configPage.llm.apiKey')}:{' '}

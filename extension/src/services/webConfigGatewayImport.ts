@@ -10,6 +10,7 @@ export type WebImportGatewayProviderDraft = {
   apiKey: string;
   apiKind: 'anthropic' | 'openai';
   model?: string;
+  codexModel?: string;
   sonnetModel?: string;
   opusModel?: string;
   fableModel?: string;
@@ -49,6 +50,21 @@ function pickFableModel(options: string[], preferred?: string): string {
   return preferred?.trim() || options.find((model) => /fable/i.test(model)) || '';
 }
 
+function pickCodexModel(
+  openAiCompatible: string[],
+  defaults: Partial<ImportedModelDefaults>
+): string {
+  const preferred = (defaults.codex ?? defaults.coder ?? '').trim();
+  if (preferred && (!openAiCompatible.length || openAiCompatible.includes(preferred))) {
+    return preferred;
+  }
+  if (preferred) {
+    return preferred;
+  }
+  const codexHint = openAiCompatible.find((model) => /codex|coder|gpt/i.test(model));
+  return codexHint ?? openAiCompatible[0] ?? '';
+}
+
 export function resolveWebImportClaudeConfig(
   modelOptions: ImportedModelOptions,
   defaults: Partial<ImportedModelDefaults>
@@ -85,6 +101,8 @@ export function buildGatewayProviderFromWebImport(
   claudeConfig: Partial<ClaudeCodeConfigValues>,
   options?: {
     enableCodex1m?: boolean;
+    openAiCompatibleModels?: string[];
+    defaults?: Partial<ImportedModelDefaults>;
   }
 ): WebImportGatewayProviderDraft | undefined {
   const key = apiKey.trim();
@@ -93,12 +111,18 @@ export function buildGatewayProviderFromWebImport(
     return undefined;
   }
 
+  const codexModel = pickCodexModel(
+    options?.openAiCompatibleModels ?? [],
+    options?.defaults ?? {}
+  );
+
   return {
     name: isFiblabLlmBase(baseUrl) ? 'Fiblab' : 'AgentSociety Web',
     baseUrl,
     apiKey: key,
     apiKind: 'openai',
     model: claudeConfig.model?.trim() || undefined,
+    codexModel: codexModel || undefined,
     sonnetModel: claudeConfig.sonnetModel?.trim() || undefined,
     opusModel: claudeConfig.opusModel?.trim() || undefined,
     fableModel: claudeConfig.fableModel?.trim() || undefined,

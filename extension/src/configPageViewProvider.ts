@@ -21,10 +21,12 @@ import * as vscode from 'vscode';
 import {
   CLAUDE_SETTINGS_PATH,
   detectClaudeCli,
+  isClaudeCodeConfiguredByUser,
   isClaudeCodeEnvCustomized,
   readClaudeConfig,
   writeClaudeConfig,
 } from './services/claudeCodeSettings';
+import { isCodexConfiguredByUser } from './services/codexSettings';
 import { fetchProviderModels } from './services/claudeCodeModels';
 import { inferApiKindFromBaseUrl } from './aiCli/officialEndpoints';
 import type { AiCliGatewayManager, AiCliProviderConfig } from './services/aiCliGatewayManager';
@@ -1029,6 +1031,8 @@ export class ConfigPageViewProvider {
         modelOptions: imported.modelOptions,
         defaults: imported.defaults,
         authPath: imported.authPath,
+        codexConfiguredByUser: isCodexConfiguredByUser(),
+        claudeConfiguredByUser: isClaudeCodeConfiguredByUser(),
       });
     } catch (err) {
       if (this._webConfigImport !== service) {

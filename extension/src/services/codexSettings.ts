@@ -649,3 +649,35 @@ export function getCodexRoutingSnapshot(): {
     gatewayBaseUrl: gatewayBaseUrl && !isLocalGatewayBaseUrl(gatewayBaseUrl) ? gatewayBaseUrl : undefined,
   };
 }
+
+/**
+ * True when ~/.codex/config.toml carries configuration that was NOT written by AgentSociety.
+ * Used to guard against clobbering a user's own Codex setup during one-click import.
+ *
+ * Detection: any `model_provider` / `[model_providers.X]` block whose id is not one of
+ * our managed provider ids counts as user-authored. An active AgentSociety provider alone
+ * does NOT trigger this (we may have written it in a prior session).
+ */
+export function isCodexConfiguredByUser(): boolean {
+  const configPath = resolveCodexConfigPath();
+  if (!fs.existsSync(configPath)) {
+    return false;
+  }
+  const text = fs.readFileSync(configPath, 'utf-8');
+  if (!text.trim()) {
+    return false;
+  }
+  const activeProvider = readTopLevelTomlString(text, 'model_provider');
+  if (activeProvider && !isAgentSocietyProvider(activeProvider)) {
+    return true;
+  }
+  const providerBlockRe = /^\s*\[model_providers\.([^\]\s]+)\]\s*(?:#.*)?$/gm;
+  let match: RegExpExecArray | null;
+  while ((match = providerBlockRe.exec(text)) !== null) {
+    const providerId = match[1]?.trim();
+    if (providerId && !isAgentSocietyProvider(providerId)) {
+      return true;
+    }
+  }
+  return false;
+}

@@ -231,9 +231,13 @@
 			"sectionGateway": "CLI Gateway provider",
 			"sectionEasyPaper": "EasyPaper (optional)",
 			"gatewayName": "Provider name",
+			"codexModel": "Codex model",
 			"codex1mEnabled": "Enabled",
 			"successWithGateway": "Simulation settings applied. Gateway provider \"{{name}}\" now has its API key, models, and active Claude/Codex routes configured. Continue to save .env.",
-			"gatewayApplyInvalid": "The Gateway provider did not retain its API key. Keep this window open and retry."
+			"gatewayApplyInvalid": "The Gateway provider did not retain its API key. Keep this window open and retry.",
+			"overwriteWarningTitle": "Existing Codex / Claude Code configuration detected",
+			"overwriteWarningDesc": "By default your existing configuration is kept and only simulation / EasyPaper settings are imported. Check the option below to overwrite.",
+			"overwriteToggle": "Overwrite existing Codex / Claude Code configuration"
 		},
 		"llm": {
 			"cardTitle": "Default LLM",
