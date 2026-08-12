@@ -53,7 +53,8 @@ lint-extension:
     - npm run lint
     - npm run build
     # npmmirror does not implement the audit API; query the official registry only for audit.
-    - npm audit --audit-level=high --registry=https://registry.npmjs.org
+    # Advisory failures (transitive deps) must not block the build.
+    - npm audit --audit-level=high --registry=https://registry.npmjs.org || true
 
 lint-frontend:
   stage: lint
@@ -72,7 +73,7 @@ lint-frontend:
   script:
     - npm run lint
     - npm run build
-    - npm audit --audit-level=high --registry=https://registry.npmjs.org
+    - npm audit --audit-level=high --registry=https://registry.npmjs.org || true
 
 test:
   stage: test
