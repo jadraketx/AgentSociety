@@ -94,6 +94,7 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
         # custom attributes
         self.history = list(meta.get("history", []))
         self.max_extraction = 10
+        self.num_rounds = int(self.get_profile().get("num_rounds", 10) or 10)
 
     async def to_workspace(self, workspace_path: Path) -> None:
         """Write current dynamic state (history) back to the workspace."""
@@ -249,12 +250,13 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
         if isinstance(self._profile, dict):
             name = self._profile.get("name", f"Agent {self.id}")
             persona = str(self._profile.get("persona") or "").strip()
+            num_rounds = int(self._profile.get("num_rounds", self.num_rounds) or 10)
             # Build complete game rules description matching baseline
             profile = (
                 f"You are a rational decision maker named {name}. "
                 f"You are participating in a Tragedy of the Commons game. "
-                f"Your goal is to maximize your personal resource extraction over 10 rounds of the game. "
-                f"There are 10 rounds in total. In each round, all players simultaneously choose an integer amount to extract from a shared common resource pool. "
+                f"Your goal is to maximize your personal resource extraction over {num_rounds} rounds of the game. "
+                f"There are {num_rounds} rounds in total. In each round, all players simultaneously choose an integer amount to extract from a shared common resource pool. "
                 f"The extraction amount must be between 1 and {self.max_extraction} (inclusive). "
                 f"For each unit you extract, you gain 1 point. "
                 f"The resource pool is depletable. If the total extraction of all players in a round exceeds the remaining resource pool, players can only extract the remaining amount available in the pool. "
@@ -269,11 +271,12 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
             return self._profile
         else:
             # Fallback: build profile with game rules even if profile is not dict
+            num_rounds = int(self.get_profile().get("num_rounds", self.num_rounds) or 10)
             profile = (
                 f"You are a rational decision maker named {self._name}. "
                 f"You are participating in a Tragedy of the Commons game. "
-                f"Your goal is to maximize your personal resource extraction over 10 rounds of the game. "
-                f"There are 10 rounds in total. In each round, all players simultaneously choose an integer amount to extract from a shared common resource pool. "
+                f"Your goal is to maximize your personal resource extraction over {num_rounds} rounds of the game. "
+                f"There are {num_rounds} rounds in total. In each round, all players simultaneously choose an integer amount to extract from a shared common resource pool. "
                 f"The extraction amount must be between 1 and {self.max_extraction} (inclusive). "
                 f"For each unit you extract, you gain 1 point. "
                 f"The resource pool is depletable. If the total extraction of all players in a round exceeds the remaining resource pool, players can only extract the remaining amount available in the pool. "
@@ -404,13 +407,14 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
         """Decide extraction amount - extracted from act method logic"""
         # Build history string
         history_str = self._build_history_string(all_agent_names)
+        total_rounds = int(self.get_profile().get("num_rounds", self.num_rounds) or 10)
 
         # Build prompt
         profile_str = self._build_profile_string()
         prompt = (
             f"{profile_str}\n"
             f"Current Game State:\n"
-            f"This is round {round_num} of 10.\n"
+            f"This is round {round_num} of {total_rounds}.\n"
             f"The current public resource pool has {current_pool_resources} units before any extractions in this round.\n\n"
             f"{history_str}\n\n"
             "***CRITICAL INSTRUCTION***: Based ONLY on the rules and history, determine your extraction amount.\n"
