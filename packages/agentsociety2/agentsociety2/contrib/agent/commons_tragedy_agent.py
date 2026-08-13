@@ -95,6 +95,9 @@ This agent participates in a Tragedy of the Commons game where multiple players 
         self.history = list(meta.get("history", []))
         self.max_extraction = 10
         self.num_rounds = int(self.get_profile().get("num_rounds", 10) or 10)
+        self.write_llm_debug_log = bool(
+            self.get_profile().get("write_llm_debug_log", False)
+        )
 
     async def to_workspace(self, workspace_path: Path) -> None:
         """Write current dynamic state (history) back to the workspace."""
@@ -472,6 +475,12 @@ This agent participates in a Tragedy of the Commons game where multiple players 
             "IMPORTANT: Do not write any additional text before or after the XML structure. Your entire output must consist of exactly the XML format shown above."
         )
 
+        self._write_llm_debug_log(
+            round_num=round_num,
+            section="prompt",
+            content=prompt,
+        )
+
         extraction = 1  # Default extraction (conservative strategy)
         explanation = "LLM call or parsing failed"
 
@@ -488,7 +497,11 @@ This agent participates in a Tragedy of the Commons game where multiple players 
                 raise ValueError("LLM returned empty response")
 
             content = choice.message.content or ""  # type: ignore
-            self._logger.debug(f"[{self.name}] [DEBUG] Raw response: {content}")
+            self._write_llm_debug_log(
+                round_num=round_num,
+                section="response",
+                content=content,
+            )
 
             if not content or content.isspace():
                 raise ValueError("LLM returned empty response")
@@ -574,3 +587,25 @@ This agent participates in a Tragedy of the Commons game where multiple players 
 
         self._logger.debug(f"[{self.name}] [DEBUG] Final selection: {extraction}")
         return extraction, explanation
+
+    def _write_llm_debug_log(self, round_num: int, section: str, content: str) -> None:
+        """Append prompt/response debug traces to the agent workspace when enabled."""
+        if not getattr(self, "write_llm_debug_log", False):
+            return
+
+        try:
+            log_path = self.workspace_root_path() / "state" / "llm_debug.log"
+            log_path.parent.mkdir(parents=True, exist_ok=True)
+            timestamp = datetime.now().isoformat()
+            with log_path.open("a", encoding="utf-8") as handle:
+                handle.write(
+                    f"[{timestamp}] round={round_num} section={section}\n"
+                )
+                handle.write(content)
+                handle.write("\n\n")
+        except OSError:
+            self._logger.debug(
+                "[%s] Failed to write LLM debug log",
+                self.name,
+                exc_info=True,
+            )
