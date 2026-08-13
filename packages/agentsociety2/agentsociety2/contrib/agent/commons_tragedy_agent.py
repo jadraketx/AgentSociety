@@ -89,6 +89,7 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
         self._name = meta.get("name") or f"Agent_{self._id}"
         self._config = {}
         self._bind_services(service_proxy)
+        self._bind_workspace(workspace_path)
         self._step_count = int(meta.get("step_count", 0))
         # custom attributes
         self.history = list(meta.get("history", []))
@@ -150,7 +151,9 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
             )
 
             # Parse pool resources from response
-            current_pool_resources = self._parse_pool_resources(pool_response)
+            current_pool_resources = self._parse_pool_resources(
+                pool_result, pool_response
+            )
 
             # Step 2: Get round history from environment
             history_result, history_response = await self.ask_env(
@@ -275,24 +278,23 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
                 f"Make your decisions wisely based on the current resource pool size and past extraction behaviors."
             )
 
-    def _parse_pool_resources(self, response: str) -> int:
+    def _parse_pool_resources(self, env_result: Any, response: str) -> int:
         """Parse current pool resources from environment response"""
-        # Try to extract from JSON-like response
-        try:
-            # Look for JSON in the response
-            json_match = re.search(r"\{[^}]+\}", response)
-            if json_match:
-                data = json.loads(json_match.group(0))
-                if isinstance(data, dict):
-                    return data.get("current_pool_resources", 100)
-        except (json.JSONDecodeError, ValueError, KeyError):
-            import logging
-            logging.getLogger(__name__).debug("Failed to parse pool resources from JSON", exc_info=True)
+        for payload in (response, env_result):
+            data = self._extract_embedded_mapping(payload)
+            if isinstance(data, dict) and isinstance(
+                data.get("current_pool_resources"), int
+            ):
+                return data["current_pool_resources"]
 
         # Fallback: try to extract number from text
         numbers = re.findall(r"\d+", response)
         if numbers:
             return int(numbers[0])
+
+        snapshot = self._load_env_state_snapshot()
+        if isinstance(snapshot.get("current_pool_resources"), int):
+            return int(snapshot["current_pool_resources"])
 
         # Default fallback
         return 100
@@ -300,7 +302,63 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
     def _parse_round_history(self, env_result: Any, response: str) -> list:
         """Parse round history from environment response"""
         rounds = self._extract_env_list_result(env_result, response, "round_history")
+        if not rounds:
+            rounds = self._load_env_round_history_snapshot()
         return [round_data for round_data in rounds if isinstance(round_data, dict)]
+
+    def _load_env_round_history_snapshot(self) -> list:
+        """Load the persisted env history when router summaries omit raw results."""
+        snapshot = self._load_env_state_snapshot()
+        history = snapshot.get("round_history", [])
+        if isinstance(history, list):
+            return history
+        return []
+
+    def _load_env_state_snapshot(self) -> dict[str, Any]:
+        """Load the persisted CommonsTragedyEnv state snapshot if available."""
+        try:
+            env_state_path = (
+                self.workspace_root_path().parent.parent
+                / "env"
+                / "CommonsTragedyEnv"
+                / "state"
+                / "ENV_STATE.json"
+            )
+            if not env_state_path.is_file():
+                return {}
+            payload = json.loads(env_state_path.read_text(encoding="utf-8"))
+            if isinstance(payload, dict):
+                return payload
+        except (OSError, ValueError, TypeError, RuntimeError):
+            self._logger.debug(
+                "[%s] Failed to load CommonsTragedyEnv state snapshot",
+                self.name,
+                exc_info=True,
+            )
+        return {}
+
+    def _extract_embedded_mapping(self, payload: Any) -> dict[str, Any] | None:
+        """Extract a dict payload from a direct result or a response string."""
+        if isinstance(payload, dict):
+            return payload
+        if not isinstance(payload, str):
+            return None
+
+        text = payload.strip()
+        if not text:
+            return None
+
+        decoder = json.JSONDecoder()
+        for index, char in enumerate(text):
+            if char != "{":
+                continue
+            try:
+                parsed, _end = decoder.raw_decode(text[index:])
+            except json.JSONDecodeError:
+                continue
+            if isinstance(parsed, dict):
+                return parsed
+        return None
 
     def _sync_history(self, round_history: list):
         """Sync local history with environment history"""
