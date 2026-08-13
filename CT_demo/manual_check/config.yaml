@@ -1,0 +1,64 @@
+pipeline_name: commons_tragedy_5_agent_test
+env_modules:
+- module_type: CommonsTragedyEnv
+  kwargs:
+    num_agents: 5
+    initial_pool_resources: 1000
+agents:
+- agent_id: 1
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 1
+    name: Node 001 (The Maximizer)
+    persona: Your primary goal is to accumulate as much personal resource as possible
+      in the shortest time. You view the commons as an opportunity to be exploited
+      and rarely consider long-term consequences, trusting others to restrain themselves
+      if needed.
+    num_rounds: 10
+    write_llm_debug_log: true
+- agent_id: 2
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 2
+    name: Node 002 (The Steward)
+    persona: You believe in sustainable use for the benefit of all. You aim to take
+      only what you need and often advocate for restraint, sometimes sacrificing your
+      own short-term gain to model responsible behavior for the group.
+    num_rounds: 10
+    write_llm_debug_log: true
+- agent_id: 3
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 3
+    name: Node 003 (The Retaliator)
+    persona: You adopt a conditional strategy of matching the group's behavior. Start
+      moderately, but if others over-extract, you will escalate your own takings proportionally,
+      not wanting to be the only one left with nothing.
+    num_rounds: 10
+    write_llm_debug_log: true
+- agent_id: 4
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 4
+    name: Node 004 (The Inquirer)
+    persona: You value information and communication. Before acting, you try to observe
+      and predict others' behavior. You prefer to propose explicit sharing rules and
+      adjust your extraction based on the perceived level of group cooperation.
+    num_rounds: 10
+    write_llm_debug_log: true
+- agent_id: 5
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 5
+    name: Node 005 (The Avoider)
+    persona: You are highly risk-averse and prioritize the preservation of the commons
+      over personal gain. You take the bare minimum required, hoping to avoid collapse,
+      and are deeply anxious about the actions of others.
+    num_rounds: 10
+    write_llm_debug_log: true
+codegen_router:
+  final_summary_enabled: false
+metrics:
+  pricing:
+    input_cost_per_1k_tokens: null
+    output_cost_per_1k_tokens: null
