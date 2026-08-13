@@ -11,6 +11,14 @@ It covers:
 - Ray worker and batch-size tuning
 - Share-ready checklist
 
+## 0) Recent Code Changes
+
+- The CT workflow is now scripts-first.
+- Canonical generator: scripts/generate_ct_experiment.py
+- Canonical runner: scripts/run_ct_experiment.py
+- The old CT_demo compatibility scripts were removed.
+- openai is now a direct dependency in the Python manifest and lockfile.
+
 ## 1) What Is In This Folder
 
 Main files:
@@ -34,6 +42,10 @@ The generated run_experiment.sh script always writes outputs to:
 - Python virtual environment available at .venv
 - Dependencies installed for this repository
 - Valid LLM credentials in .env (or pass --env-file)
+
+Repository setup command:
+
+uv sync
 
 Required environment variables:
 - AGENTSOCIETY_LLM_API_KEY
@@ -72,6 +84,13 @@ Optional runtime override for initial pool:
 
 When the override is used, the runner writes a resolved config file under run-dir:
 - config.resolved.yaml
+
+Default env loading behavior in generated run_experiment.sh:
+1. <experiment-dir>/.env
+2. <experiment-dir-parent>/.env
+3. <repo-root>/.env
+
+If you pass --env-file to the generator, that explicit path is embedded in run_experiment.sh and used first.
 
 ## 5) Output Artifacts
 
@@ -171,7 +190,8 @@ Before sharing, rotate any key that was ever committed or exposed.
 ## 10) Troubleshooting
 
 Issue: Missing API key error
-- Check .env is present and loaded, or pass --env-file.
+- Check one of these files exists: <experiment-dir>/.env, <experiment-dir-parent>/.env, or <repo-root>/.env.
+- Or regenerate with --env-file /absolute/path/to/.env.
 - Ensure AGENTSOCIETY_LLM_API_KEY is non-empty.
 
 Issue: Cost is null in performance_metrics.json
