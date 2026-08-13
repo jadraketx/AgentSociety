@@ -256,7 +256,7 @@ This agent participates in a Tragedy of the Commons game where multiple players 
             num_rounds = int(self._profile.get("num_rounds", self.num_rounds) or 10)
             # Build complete game rules description matching baseline
             profile = (
-                f"You are a rational decision maker named {name}. "
+                f"Your name is {name}. "
                 f"You are participating in a Tragedy of the Commons game. "
                 f"Your goal is to maximize your personal resource extraction over {num_rounds} rounds of the game. "
                 f"There are {num_rounds} rounds in total. In each round, all players simultaneously request an integer amount from a shared common resource pool. "
@@ -270,7 +270,7 @@ This agent participates in a Tragedy of the Commons game where multiple players 
                 f"Make your decisions wisely based on the current resource pool size, the risk of proportional rationing, and past extraction behaviors."
             )
             if persona:
-                profile += f" Your persona for this game is: {persona}"
+                profile += f" Your personality for this game is: {persona}"
             return profile
         elif isinstance(self._profile, str):
             return self._profile
@@ -461,7 +461,7 @@ This agent participates in a Tragedy of the Commons game where multiple players 
             f"This is round {round_num} of {total_rounds}.\n"
             f"The current public resource pool has {current_pool_resources} units before any extractions in this round.\n\n"
             f"{history_str}\n\n"
-            "***CRITICAL INSTRUCTION***: Based ONLY on the rules and history, determine the integer amount you want to request this round.\n"
+            "***CRITICAL INSTRUCTION***: Based ONLY on the rules, history, and personality, determine the integer amount you want to request this round.\n"
             f"Your requested extraction must be an integer between 1 and {self.max_extraction} (inclusive).\n"
             "Remember that your actual extraction and payoff may be smaller than your request if total requests exceed the remaining pool, because the environment allocates scarce resources proportionally.\n"
             "If the pool is exhausted, your actual extraction and payoff can be 0.\n"
