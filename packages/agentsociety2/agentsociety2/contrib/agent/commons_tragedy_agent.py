@@ -30,7 +30,7 @@ class CommonsTragedyAgent(AgentBase):
 - name (str): The name of the agent.
 
 **Game Rules:**
-This agent participates in a 10-round Tragedy of the Commons game where multiple players extract resources from a shared pool. Each player chooses an extraction amount (1-10 units) per round. Each unit extracted gives 1 point, but the shared pool is depletable. If total extraction exceeds the remaining pool, extractions are limited to available resources.
+This agent participates in a Tragedy of the Commons game where multiple players request resources from a shared pool each round. Each player requests an integer extraction amount between 1 and 10 units. Payoff equals the agent's actual extraction, not necessarily the requested amount. If total requested extraction exceeds the remaining pool, the available resources are allocated proportionally across requesting agents, so the actual extraction can be smaller than requested. If the pool is exhausted, actual extraction and payoff can be 0.
 
 **Example initialization config:**
 ```json
@@ -256,13 +256,15 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
                 f"You are a rational decision maker named {name}. "
                 f"You are participating in a Tragedy of the Commons game. "
                 f"Your goal is to maximize your personal resource extraction over {num_rounds} rounds of the game. "
-                f"There are {num_rounds} rounds in total. In each round, all players simultaneously choose an integer amount to extract from a shared common resource pool. "
-                f"The extraction amount must be between 1 and {self.max_extraction} (inclusive). "
-                f"For each unit you extract, you gain 1 point. "
-                f"The resource pool is depletable. If the total extraction of all players in a round exceeds the remaining resource pool, players can only extract the remaining amount available in the pool. "
+                f"There are {num_rounds} rounds in total. In each round, all players simultaneously request an integer amount from a shared common resource pool. "
+                f"Your requested extraction amount must be between 1 and {self.max_extraction} (inclusive). "
+                f"Your payoff for a round equals your actual extraction in that round. "
+                f"The resource pool is depletable. If the total requested extraction of all players in a round is less than or equal to the remaining pool, each player receives exactly what they requested. "
+                f"If the total requested extraction exceeds the remaining pool, the available resources are allocated proportionally across players, so your actual extraction may be smaller than your request. "
+                f"If the pool is exhausted, your actual extraction and payoff can be 0 even though your request must still be between 1 and {self.max_extraction}. "
                 f"The remaining resources in the pool are reduced by the total actual extraction of all players at the end of each round. "
                 f"You can remember all past behaviors of other players and the state of the resource pool. Other players also know this information. "
-                f"Make your decisions wisely based on the current resource pool size and past extraction behaviors."
+                f"Make your decisions wisely based on the current resource pool size, the risk of proportional rationing, and past extraction behaviors."
             )
             if persona:
                 profile += f" Your persona for this game is: {persona}"
@@ -276,13 +278,15 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
                 f"You are a rational decision maker named {self._name}. "
                 f"You are participating in a Tragedy of the Commons game. "
                 f"Your goal is to maximize your personal resource extraction over {num_rounds} rounds of the game. "
-                f"There are {num_rounds} rounds in total. In each round, all players simultaneously choose an integer amount to extract from a shared common resource pool. "
-                f"The extraction amount must be between 1 and {self.max_extraction} (inclusive). "
-                f"For each unit you extract, you gain 1 point. "
-                f"The resource pool is depletable. If the total extraction of all players in a round exceeds the remaining resource pool, players can only extract the remaining amount available in the pool. "
+                f"There are {num_rounds} rounds in total. In each round, all players simultaneously request an integer amount from a shared common resource pool. "
+                f"Your requested extraction amount must be between 1 and {self.max_extraction} (inclusive). "
+                f"Your payoff for a round equals your actual extraction in that round. "
+                f"The resource pool is depletable. If the total requested extraction of all players in a round is less than or equal to the remaining pool, each player receives exactly what they requested. "
+                f"If the total requested extraction exceeds the remaining pool, the available resources are allocated proportionally across players, so your actual extraction may be smaller than your request. "
+                f"If the pool is exhausted, your actual extraction and payoff can be 0 even though your request must still be between 1 and {self.max_extraction}. "
                 f"The remaining resources in the pool are reduced by the total actual extraction of all players at the end of each round. "
                 f"You can remember all past behaviors of other players and the state of the resource pool. Other players also know this information. "
-                f"Make your decisions wisely based on the current resource pool size and past extraction behaviors."
+                f"Make your decisions wisely based on the current resource pool size, the risk of proportional rationing, and past extraction behaviors."
             )
             persona = str(self.get_profile().get("persona") or "").strip()
             if persona:
@@ -417,8 +421,10 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
             f"This is round {round_num} of {total_rounds}.\n"
             f"The current public resource pool has {current_pool_resources} units before any extractions in this round.\n\n"
             f"{history_str}\n\n"
-            "***CRITICAL INSTRUCTION***: Based ONLY on the rules and history, determine your extraction amount.\n"
-            f"Your decision must be an integer between 1 and {self.max_extraction} (inclusive).\n"
+            "***CRITICAL INSTRUCTION***: Based ONLY on the rules and history, determine the integer amount you want to request this round.\n"
+            f"Your requested extraction must be an integer between 1 and {self.max_extraction} (inclusive).\n"
+            "Remember that your actual extraction and payoff may be smaller than your request if total requests exceed the remaining pool, because the environment allocates scarce resources proportionally.\n"
+            "If the pool is exhausted, your actual extraction and payoff can be 0.\n"
             "YOU MUST FOLLOW THIS OUTPUT FORMAT EXACTLY:\n"
             "\n"
             "<output>\n"
