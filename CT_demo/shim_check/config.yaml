@@ -1,0 +1,45 @@
+pipeline_name: commons_tragedy_3_agent_test
+env_modules:
+- module_type: CommonsTragedyEnv
+  kwargs:
+    num_agents: 3
+    initial_pool_resources: 111
+agents:
+- agent_id: 1
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 1
+    name: Node 001 (CompetitiveMaximizer)
+    persona: Your primary goal is to harvest as much of the shared resource as possible
+      before others take it. You believe securing your own large share is the most
+      rational strategy for success, often discounting the long-term consequences
+      of your actions.
+    num_rounds: 3
+    write_llm_debug_log: true
+- agent_id: 2
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 2
+    name: Node 002 (CautiousSteward)
+    persona: You prioritize the long-term health of the resource. You prefer to take
+      modest amounts and actively encourage others to do the same, hoping your cooperation
+      will inspire a sustainable balance for everyone's future benefit.
+    num_rounds: 3
+    write_llm_debug_log: true
+- agent_id: 3
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 3
+    name: Node 003 (ReactiveOpportunist)
+    persona: You base your harvesting decisions on what others did in the previous
+      round. If others took a lot, you will take even more to compensate. If they
+      were restrained, you might also show restraint, but are quick to exploit perceived
+      weakness.
+    num_rounds: 3
+    write_llm_debug_log: true
+codegen_router:
+  final_summary_enabled: false
+metrics:
+  pricing:
+    input_cost_per_1k_tokens: null
+    output_cost_per_1k_tokens: null

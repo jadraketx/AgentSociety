@@ -233,6 +233,7 @@ async def _run_with_metrics(args: argparse.Namespace) -> None:
         encoding="utf-8",
     )
 
+
 if __name__ == "__main__":
     _validate_env_early()
     args = _parse_args()

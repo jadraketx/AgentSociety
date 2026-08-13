@@ -164,7 +164,7 @@ asyncio.run(main())
 Use the workspace-level wrapper to generate a self-contained experiment directory:
 
 ```bash
-set -a && source CT_demo/.env && set +a
+set -a && source .env && set +a
 .venv/bin/python scripts/generate_ct_experiment.py \
   --num-agents 10 \
   --num-steps 8 \
@@ -172,13 +172,13 @@ set -a && source CT_demo/.env && set +a
   --experiment-dir ct_demo_shared
 ```
 
-This creates `CT_demo/ct_demo_shared/` with `config.yaml`, `steps.yaml`, and `run_experiment.sh`.
-The generated `run_experiment.sh` uses a fixed run directory at `CT_demo/ct_demo_shared/results`.
+This creates `./ct_demo_shared/` with `config.yaml`, `steps.yaml`, and `run_experiment.sh`.
+The generated `run_experiment.sh` uses a fixed run directory at `./ct_demo_shared/results`.
 
 Run the experiment:
 
 ```bash
-CT_demo/ct_demo_shared/run_experiment.sh
+./ct_demo_shared/run_experiment.sh
 ```
 
 ### AgentSociety 1.x

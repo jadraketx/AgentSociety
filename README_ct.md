@@ -14,9 +14,8 @@ It covers:
 ## 1) What Is In This Folder
 
 Main files:
-- Generator (canonical): generate_ct_experiment.py
-- Workspace-level wrapper: ../scripts/generate_ct_experiment.py
-- Runner: run_ct_demo.py
+- Generator: scripts/generate_ct_experiment.py
+- Runner: scripts/run_ct_experiment.py
 - Baseline config example: config.yaml
 - Baseline steps example: steps.yaml
 - Environment variables (local only, do not commit): .env
@@ -34,7 +33,7 @@ The generated run_experiment.sh script always writes outputs to:
 
 - Python virtual environment available at .venv
 - Dependencies installed for this repository
-- Valid LLM credentials in CT_demo/.env
+- Valid LLM credentials in .env (or pass --env-file)
 
 Required environment variables:
 - AGENTSOCIETY_LLM_API_KEY
@@ -52,24 +51,24 @@ From repository root, run:
 .venv/bin/python scripts/generate_ct_experiment.py --num-agents 20 --num-steps 10 --initial-pool-resources 250 --experiment-dir ct_demo_run_01
 
 What this does:
-- Creates CT_demo/ct_demo_run_01
+- Creates ./ct_demo_run_01 (or an absolute path if provided)
 - Writes config.yaml and steps.yaml
 - Writes run_experiment.sh with pre-populated arguments
-- Fixes run-dir to CT_demo/ct_demo_run_01/results
+- Fixes run-dir to <experiment-dir>/results
 
 ## 4) Run The Generated Experiment
 
 From repository root, run:
 
-CT_demo/ct_demo_run_01/run_experiment.sh
+./ct_demo_run_01/run_experiment.sh
 
 Alternative direct run:
 
-.venv/bin/python CT_demo/run_ct_demo.py --config CT_demo/ct_demo_run_01/config.yaml --steps CT_demo/ct_demo_run_01/steps.yaml --run-dir CT_demo/ct_demo_run_01/results --log-level INFO
+.venv/bin/python scripts/run_ct_experiment.py --config ./ct_demo_run_01/config.yaml --steps ./ct_demo_run_01/steps.yaml --run-dir ./ct_demo_run_01/results --log-level INFO
 
 Optional runtime override for initial pool:
 
-.venv/bin/python CT_demo/run_ct_demo.py --config CT_demo/ct_demo_run_01/config.yaml --steps CT_demo/ct_demo_run_01/steps.yaml --run-dir CT_demo/ct_demo_run_01/results --initial-pool-resources 400 --log-level INFO
+.venv/bin/python scripts/run_ct_experiment.py --config ./ct_demo_run_01/config.yaml --steps ./ct_demo_run_01/steps.yaml --run-dir ./ct_demo_run_01/results --initial-pool-resources 400 --log-level INFO
 
 When the override is used, the runner writes a resolved config file under run-dir:
 - config.resolved.yaml
@@ -172,7 +171,7 @@ Before sharing, rotate any key that was ever committed or exposed.
 ## 10) Troubleshooting
 
 Issue: Missing API key error
-- Check CT_demo/.env is present and loaded.
+- Check .env is present and loaded, or pass --env-file.
 - Ensure AGENTSOCIETY_LLM_API_KEY is non-empty.
 
 Issue: Cost is null in performance_metrics.json
