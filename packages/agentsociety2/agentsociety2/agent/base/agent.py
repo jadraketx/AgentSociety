@@ -505,6 +505,77 @@ class AgentBase(ABC):
         )
         return ctx, answer
 
+    def _extract_env_list_result(
+        self,
+        env_result: Any,
+        response: Any,
+        field_name: str,
+    ) -> list[Any]:
+        """Extract a list payload from an environment result or response text.
+
+        Some env routers return the tool result directly in ``answer`` while
+        others surface structured payloads on the returned context. Game agents
+        use this helper to normalize both shapes before parsing round history.
+
+        Args:
+            env_result: The first item returned by :meth:`ask_env`.
+            response: The second item returned by :meth:`ask_env`.
+            field_name: Expected list field name when the payload is wrapped in
+                a mapping.
+
+        Returns:
+            A list payload, or ``[]`` when no list can be recovered.
+        """
+
+        def _coerce(obj: Any) -> list[Any] | None:
+            if isinstance(obj, list):
+                return obj
+            if isinstance(obj, Mapping):
+                if isinstance(obj.get(field_name), list):
+                    return obj[field_name]
+                variables = obj.get("variables")
+                if isinstance(variables, Mapping) and isinstance(
+                    variables.get(field_name), list
+                ):
+                    return variables[field_name]
+                result = obj.get("result")
+                if isinstance(result, list):
+                    return result
+                if isinstance(result, Mapping) and isinstance(result.get(field_name), list):
+                    return result[field_name]
+                answer = obj.get("answer")
+                if isinstance(answer, list):
+                    return answer
+                if isinstance(answer, Mapping) and isinstance(answer.get(field_name), list):
+                    return answer[field_name]
+            if isinstance(obj, str):
+                text = obj.strip()
+                if not text:
+                    return None
+
+                def _decode_embedded_text(value: str) -> Any:
+                    decoder = json.JSONDecoder()
+                    for index, char in enumerate(value):
+                        if char not in "[{":
+                            continue
+                        try:
+                            parsed, _end = decoder.raw_decode(value[index:])
+                            return parsed
+                        except json.JSONDecodeError:
+                            continue
+                    return None
+
+                try:
+                    parsed = json.loads(text)
+                except json.JSONDecodeError:
+                    parsed = _decode_embedded_text(text)
+                    if parsed is None:
+                        return None
+                return _coerce(parsed)
+            return None
+
+        return _coerce(response) or _coerce(env_result) or []
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
