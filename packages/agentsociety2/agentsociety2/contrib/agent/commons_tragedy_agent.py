@@ -296,20 +296,33 @@ This agent participates in a Tragedy of the Commons game where multiple players 
     def _parse_pool_resources(self, env_result: Any, response: str) -> int:
         """Parse current pool resources from environment response"""
         for payload in (response, env_result):
-            data = self._extract_embedded_mapping(payload)
-            if isinstance(data, dict) and isinstance(
-                data.get("current_pool_resources"), int
-            ):
-                return data["current_pool_resources"]
+            current_pool = self._extract_pool_resource_value(
+                payload, "current_pool_resources"
+            )
+            if current_pool is not None:
+                return current_pool
+
+            initial_pool = self._extract_pool_resource_value(
+                payload, "initial_pool_resources"
+            )
+            if initial_pool is not None:
+                return initial_pool
 
         snapshot = self._load_env_state_snapshot()
         if isinstance(snapshot.get("current_pool_resources"), int):
             return int(snapshot["current_pool_resources"])
 
-        # Fallback: try to extract number from text
-        numbers = re.findall(r"\d+", response)
-        if numbers:
-            return int(numbers[0])
+        if isinstance(snapshot.get("initial_pool_resources"), int):
+            return int(snapshot["initial_pool_resources"])
+
+        # Final fallback: only accept numbers explicitly attached to pool text.
+        pool_match = re.search(
+            r"(?:current\s+public\s+resource\s+pool\s+has|current\s+pool\s+resources?\s*(?:is|are|:)?)\s*(\d+)",
+            response,
+            re.IGNORECASE,
+        )
+        if pool_match:
+            return int(pool_match.group(1))
 
         # Default fallback
         return 100
@@ -373,6 +386,30 @@ This agent participates in a Tragedy of the Commons game where multiple players 
                 continue
             if isinstance(parsed, dict):
                 return parsed
+        return None
+
+    def _extract_pool_resource_value(self, payload: Any, key: str) -> int | None:
+        """Recursively extract an integer pool-resource field from payloads."""
+        if isinstance(payload, dict):
+            value = payload.get(key)
+            if isinstance(value, int):
+                return value
+            for nested_key in ("result", "results", "answer", "variables", "data"):
+                nested = payload.get(nested_key)
+                extracted = self._extract_pool_resource_value(nested, key)
+                if extracted is not None:
+                    return extracted
+            return None
+        if isinstance(payload, list):
+            for item in payload:
+                extracted = self._extract_pool_resource_value(item, key)
+                if extracted is not None:
+                    return extracted
+            return None
+        if isinstance(payload, str):
+            embedded = self._extract_embedded_mapping(payload)
+            if embedded is not None:
+                return self._extract_pool_resource_value(embedded, key)
         return None
 
     def _sync_history(self, round_history: list):
