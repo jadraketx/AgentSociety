@@ -772,7 +772,7 @@
     "@deck.gl/layers": "^9.3.6",
     "@deck.gl/react": "^9.3.5",
     "@deck.gl/widgets": "^9.3.5",
-    "antd": "^6.5.0",
+    "antd": "^6.6.0",
     "dayjs": "^1.11.19",
     "https-proxy-agent": "^7.0.6",
     "i18next": "^26.3.4",
