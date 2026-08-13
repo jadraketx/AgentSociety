@@ -5,6 +5,7 @@ Agent for Tragedy of the Commons game based on AgentSociety2
 
 import json
 import re
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -449,6 +450,7 @@ This agent participates in a Tragedy of the Commons game where multiple players 
         self, round_num: int, current_pool_resources: int, all_agent_names: list
     ) -> tuple[int, str]:
         """Decide extraction amount - extracted from act method logic"""
+        decision_started = time.perf_counter()
         # Build history string
         history_str = self._build_history_string(all_agent_names)
         total_rounds = int(self.get_profile().get("num_rounds", self.num_rounds) or 10)
@@ -483,10 +485,23 @@ This agent participates in a Tragedy of the Commons game where multiple players 
 
         extraction = 1  # Default extraction (conservative strategy)
         explanation = "LLM call or parsing failed"
+        llm_latency_ms = 0.0
+        prompt_tokens = 0
+        completion_tokens = 0
+        total_tokens = 0
 
         try:
+            llm_started = time.perf_counter()
             response = await self.acompletion(
                 [{"role": "user", "content": prompt}], stream=False
+            )
+            llm_latency_ms = (time.perf_counter() - llm_started) * 1000.0
+
+            usage = getattr(response, "usage", None)
+            prompt_tokens = int(getattr(usage, "prompt_tokens", 0) or 0)
+            completion_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+            total_tokens = int(
+                getattr(usage, "total_tokens", prompt_tokens + completion_tokens) or 0
             )
 
             if not response or not response.choices or len(response.choices) == 0:
@@ -585,6 +600,20 @@ This agent participates in a Tragedy of the Commons game where multiple players 
                 f"[CRITICAL FAILURE] {error_message}, using default selection: 1"
             )
 
+        decision_latency_ms = (time.perf_counter() - decision_started) * 1000.0
+        self._write_metrics_event(
+            {
+                "timestamp": datetime.now().isoformat(),
+                "round": round_num,
+                "decision_latency_ms": decision_latency_ms,
+                "llm_call_latency_ms": llm_latency_ms,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens,
+                "requested_extraction": extraction,
+            }
+        )
+
         self._logger.debug(f"[{self.name}] [DEBUG] Final selection: {extraction}")
         return extraction, explanation
 
@@ -606,6 +635,21 @@ This agent participates in a Tragedy of the Commons game where multiple players 
         except OSError:
             self._logger.debug(
                 "[%s] Failed to write LLM debug log",
+                self.name,
+                exc_info=True,
+            )
+
+    def _write_metrics_event(self, payload: dict[str, Any]) -> None:
+        """Append one decision metrics event to the agent workspace."""
+        try:
+            metrics_path = self.workspace_root_path() / "state" / "performance_metrics.jsonl"
+            metrics_path.parent.mkdir(parents=True, exist_ok=True)
+            with metrics_path.open("a", encoding="utf-8") as handle:
+                handle.write(json.dumps(payload, ensure_ascii=False))
+                handle.write("\n")
+        except OSError:
+            self._logger.debug(
+                "[%s] Failed to write performance metrics",
                 self.name,
                 exc_info=True,
             )
