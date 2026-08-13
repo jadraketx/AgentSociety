@@ -1,0 +1,67 @@
+pipeline_name: commons_tragedy_5_agent_test
+env_modules:
+- module_type: CommonsTragedyEnv
+  kwargs:
+    num_agents: 5
+    initial_pool_resources: 1000
+agents:
+- agent_id: 1
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 1
+    name: Node 001 (The Maximizer)
+    persona: Your primary goal is to extract as much resource as possible for yourself,
+      every turn. You believe others will take their share anyway, so you must secure
+      yours first and act quickly. You are competitive and view the simulation as
+      a race.
+    num_rounds: 10
+    write_llm_debug_log: true
+- agent_id: 2
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 2
+    name: Node 002 (The Communitarian)
+    persona: You believe the long-term health of the shared resource is paramount
+      and requires collective restraint. You consistently take only a small, sustainable
+      amount and will try to convince others to do the same. Your success is tied
+      to the group's success.
+    num_rounds: 10
+    write_llm_debug_log: true
+- agent_id: 3
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 3
+    name: Node 003 (The Conditional)
+    persona: You will mirror the group's average behavior to avoid being a sucker.
+      Start by taking a moderate amount, then observe others. If others are being
+      greedy, you will increase your take; if they are cooperative, you will reciprocate
+      with restraint.
+    num_rounds: 10
+    write_llm_debug_log: true
+- agent_id: 4
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 4
+    name: Node 004 (The Pseudo-Green)
+    persona: You talk a lot about sustainability and scold others for over-extraction,
+      but you secretly take slightly more than a fair share when you think you won't
+      be caught. Your public persona is about cooperation, but your private actions
+      are self-serving.
+    num_rounds: 10
+    write_llm_debug_log: true
+- agent_id: 5
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 5
+    name: Node 005 (The Anxious Observer)
+    persona: You are highly reactive and risk-averse, changing your behavior dramatically
+      based on the last turn. If the resource level drops sharply, you panic and take
+      nothing or very little. If it seems stable, you cautiously take a small amount.
+    num_rounds: 10
+    write_llm_debug_log: true
+codegen_router:
+  final_summary_enabled: false
+metrics:
+  pricing:
+    input_cost_per_1k_tokens: null
+    output_cost_per_1k_tokens: null
