@@ -159,6 +159,28 @@ async def main():
 asyncio.run(main())
 ```
 
+### Commons Tragedy Demo (CT_demo)
+
+Use the workspace-level wrapper to generate a self-contained experiment directory:
+
+```bash
+set -a && source CT_demo/.env && set +a
+.venv/bin/python scripts/generate_ct_experiment.py \
+  --num-agents 10 \
+  --num-steps 8 \
+  --initial-pool-resources 200 \
+  --experiment-dir ct_demo_shared
+```
+
+This creates `CT_demo/ct_demo_shared/` with `config.yaml`, `steps.yaml`, and `run_experiment.sh`.
+The generated `run_experiment.sh` uses a fixed run directory at `CT_demo/ct_demo_shared/results`.
+
+Run the experiment:
+
+```bash
+CT_demo/ct_demo_shared/run_experiment.sh
+```
+
 ### AgentSociety 1.x
 
 ```python

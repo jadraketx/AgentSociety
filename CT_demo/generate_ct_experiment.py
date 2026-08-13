@@ -180,7 +180,7 @@ def parse_args() -> argparse.Namespace:
         "--experiment-dir",
         type=str,
         required=True,
-        help="Name of the experiment directory to create under CT_demo",
+        help="Experiment output directory path (absolute or relative to current working directory).",
     )
     parser.add_argument(
         "--write-llm-debug-log",
@@ -213,7 +213,10 @@ def main() -> None:
         raise SystemExit("--initial-pool-resources must be greater than 0")
 
     base_dir = Path(__file__).resolve().parent
-    output_dir = base_dir / args.experiment_dir
+    output_dir = Path(args.experiment_dir).expanduser()
+    if not output_dir.is_absolute():
+        output_dir = Path.cwd() / output_dir
+    output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     personas = generate_personas(args.num_agents)
