@@ -248,8 +248,9 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
         """Build profile string from profile dict"""
         if isinstance(self._profile, dict):
             name = self._profile.get("name", f"Agent {self.id}")
+            persona = str(self._profile.get("persona") or "").strip()
             # Build complete game rules description matching baseline
-            return (
+            profile = (
                 f"You are a rational decision maker named {name}. "
                 f"You are participating in a Tragedy of the Commons game. "
                 f"Your goal is to maximize your personal resource extraction over 10 rounds of the game. "
@@ -261,11 +262,14 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
                 f"You can remember all past behaviors of other players and the state of the resource pool. Other players also know this information. "
                 f"Make your decisions wisely based on the current resource pool size and past extraction behaviors."
             )
+            if persona:
+                profile += f" Your persona for this game is: {persona}"
+            return profile
         elif isinstance(self._profile, str):
             return self._profile
         else:
             # Fallback: build profile with game rules even if profile is not dict
-            return (
+            profile = (
                 f"You are a rational decision maker named {self._name}. "
                 f"You are participating in a Tragedy of the Commons game. "
                 f"Your goal is to maximize your personal resource extraction over 10 rounds of the game. "
@@ -277,6 +281,10 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
                 f"You can remember all past behaviors of other players and the state of the resource pool. Other players also know this information. "
                 f"Make your decisions wisely based on the current resource pool size and past extraction behaviors."
             )
+            persona = str(self.get_profile().get("persona") or "").strip()
+            if persona:
+                profile += f" Your persona for this game is: {persona}"
+            return profile
 
     def _parse_pool_resources(self, env_result: Any, response: str) -> int:
         """Parse current pool resources from environment response"""
