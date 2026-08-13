@@ -136,6 +136,7 @@ benchmark_results/
 scientist_demo/
 groundtruth/
 workspace/
+CT_demo/
 packages/agentsociety2/.chainlit/
 paper/
 packages/agentsociety2/agentsociety2/skills/paper/**/__pycache__/
