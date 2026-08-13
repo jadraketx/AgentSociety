@@ -37,7 +37,52 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument("--replay-disable", action="store_true")
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument("--resume", action="store_true")
+    parser.add_argument(
+        "--initial-pool-resources",
+        type=int,
+        default=None,
+        help="Override CommonsTragedyEnv initial_pool_resources from config.",
+    )
     return parser.parse_args()
+
+
+def _resolve_config_path(config_path: Path, run_dir: Path, initial_pool_resources: int | None) -> Path:
+    if initial_pool_resources is None:
+        return config_path
+    if initial_pool_resources <= 0:
+        raise ValueError("--initial-pool-resources must be greater than 0")
+
+    payload = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+    if not isinstance(payload, dict):
+        raise ValueError("Config YAML must be a mapping")
+
+    env_modules = payload.get("env_modules")
+    if not isinstance(env_modules, list):
+        raise ValueError("Config YAML missing env_modules list")
+
+    updated = False
+    for module in env_modules:
+        if not isinstance(module, dict):
+            continue
+        if module.get("module_type") != "CommonsTragedyEnv":
+            continue
+        kwargs = module.get("kwargs")
+        if not isinstance(kwargs, dict):
+            kwargs = {}
+            module["kwargs"] = kwargs
+        kwargs["initial_pool_resources"] = int(initial_pool_resources)
+        updated = True
+
+    if not updated:
+        raise ValueError("Config YAML does not contain a CommonsTragedyEnv entry")
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    resolved_path = run_dir / "config.resolved.yaml"
+    resolved_path.write_text(
+        yaml.safe_dump(payload, sort_keys=False, allow_unicode=True),
+        encoding="utf-8",
+    )
+    return resolved_path
 
 
 def _percentile(values: list[float], percentile: float) -> float:
@@ -143,9 +188,12 @@ def _build_run_metrics(
 
 
 async def _run_with_metrics(args: argparse.Namespace) -> None:
-    config_path = Path(args.config).resolve()
+    source_config_path = Path(args.config).resolve()
     steps_path = Path(args.steps).resolve()
     run_dir = Path(args.run_dir).resolve()
+    config_path = _resolve_config_path(
+        source_config_path, run_dir, args.initial_pool_resources
+    )
     metrics_config = _load_metrics_config(config_path)
     runner = ExperimentRunner(run_dir=run_dir)
     step_timings_ms: list[float] = []

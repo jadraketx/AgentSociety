@@ -12,7 +12,26 @@ from dotenv import load_dotenv
 from openai import OpenAI
 
 
-LOCAL_GITIGNORE = "benchmark_*/\n"
+LOCAL_GITIGNORE = "benchmark_*/\nresults/\n"
+
+
+def build_run_script(base_dir: Path, output_dir: Path) -> str:
+        return f"""#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR=\"{base_dir.parent}\"
+cd \"$ROOT_DIR\"
+
+set -a
+source \"CT_demo/.env\"
+set +a
+
+.venv/bin/python CT_demo/run_ct_demo.py \\
+    --config \"{output_dir / 'config.yaml'}\" \\
+    --steps \"{output_dir / 'steps.yaml'}\" \\
+    --run-dir \"{output_dir / 'results'}\" \\
+    --log-level INFO
+"""
 
 
 def _extract_json_object(text: str) -> dict:
@@ -100,6 +119,7 @@ def build_agent(
 def build_config(
     num_agents: int,
     num_steps: int,
+    initial_pool_resources: int,
     pipeline_name: str,
     *,
     personas: list[dict[str, str]],
@@ -112,7 +132,10 @@ def build_config(
         "env_modules": [
             {
                 "module_type": "CommonsTragedyEnv",
-                "kwargs": {"num_agents": num_agents},
+                "kwargs": {
+                    "num_agents": num_agents,
+                    "initial_pool_resources": initial_pool_resources,
+                },
             }
         ],
         "agents": [
@@ -148,10 +171,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num-agents", type=int, required=True)
     parser.add_argument("--num-steps", type=int, required=True)
     parser.add_argument(
-        "--run-dir-name",
+        "--initial-pool-resources",
+        type=int,
+        default=100,
+        help="Initial shared pool resources for CommonsTragedyEnv.",
+    )
+    parser.add_argument(
+        "--experiment-dir",
         type=str,
         required=True,
-        help="Name of the directory to create under CT_demo",
+        help="Name of the experiment directory to create under CT_demo",
     )
     parser.add_argument(
         "--write-llm-debug-log",
@@ -180,9 +209,11 @@ def main() -> None:
         raise SystemExit("--num-agents must be greater than 0")
     if args.num_steps <= 0:
         raise SystemExit("--num-steps must be greater than 0")
+    if args.initial_pool_resources <= 0:
+        raise SystemExit("--initial-pool-resources must be greater than 0")
 
     base_dir = Path(__file__).resolve().parent
-    output_dir = base_dir / args.run_dir_name
+    output_dir = base_dir / args.experiment_dir
     output_dir.mkdir(parents=True, exist_ok=True)
 
     personas = generate_personas(args.num_agents)
@@ -190,6 +221,7 @@ def main() -> None:
     config = build_config(
         num_agents=args.num_agents,
         num_steps=args.num_steps,
+        initial_pool_resources=args.initial_pool_resources,
         pipeline_name=f"commons_tragedy_{args.num_agents}_agent_test",
         personas=personas,
         write_llm_debug_log=args.write_llm_debug_log,
@@ -206,9 +238,16 @@ def main() -> None:
         yaml.safe_dump(steps, sort_keys=False, allow_unicode=True),
         encoding="utf-8",
     )
+    run_script_path = output_dir / "run_experiment.sh"
+    run_script_path.write_text(
+        build_run_script(base_dir=base_dir, output_dir=output_dir),
+        encoding="utf-8",
+    )
+    run_script_path.chmod(0o755)
     (output_dir / ".gitignore").write_text(LOCAL_GITIGNORE, encoding="utf-8")
 
     print(f"Created demo config in {output_dir}")
+    print(f"Run with: {run_script_path}")
 
 
 if __name__ == "__main__":

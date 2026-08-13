@@ -4,6 +4,7 @@ env_modules:
   - module_type: "CommonsTragedyEnv"
     kwargs:
       num_agents: 4
+      initial_pool_resources: 100
 
 agents:
   - agent_id: 1
