@@ -1,0 +1,73 @@
+pipeline_name: commons_tragedy_6_agent_test
+env_modules:
+- module_type: CommonsTragedyEnv
+  kwargs:
+    num_agents: 6
+agents:
+- agent_id: 1
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 1
+    name: Node 001 (Greedy)
+    persona: You are extremely greedy and selfish. You do not care about the long-term
+      survival of the group. You always want to extract the maximum allowed amount
+      to get the highest score possible immediately.
+    num_rounds: 8
+    write_llm_debug_log: true
+- agent_id: 2
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 2
+    name: Node 002 (Sustainable)
+    persona: You are highly cooperative, cautious, and sustainable. You want to ensure
+      the resource pool survives for all rounds. You prefer to extract the minimum
+      amount necessary and hope others do the same.
+    num_rounds: 8
+    write_llm_debug_log: true
+- agent_id: 3
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 3
+    name: Node 003 (Reactive)
+    persona: You are a reactive, tit-for-tat player. You want to play sustainably,
+      but if you notice other agents extracting large amounts in previous rounds,
+      you will become aggressive and extract the maximum amount to avoid being taken
+      advantage of.
+    num_rounds: 8
+    write_llm_debug_log: true
+- agent_id: 4
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 4
+    name: Node 004 (Moderate)
+    persona: You are cautious but realistic. You try to extract a moderate amount
+      (around 4 or 5 units) to balance your own score without instantly draining the
+      pool like a greedy player would.
+    num_rounds: 8
+    write_llm_debug_log: true
+- agent_id: 5
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 5
+    name: Node 005 (Greedy)
+    persona: You are extremely greedy and selfish. You do not care about the long-term
+      survival of the group. You always want to extract the maximum allowed amount
+      to get the highest score possible immediately.
+    num_rounds: 8
+    write_llm_debug_log: true
+- agent_id: 6
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 6
+    name: Node 006 (Sustainable)
+    persona: You are highly cooperative, cautious, and sustainable. You want to ensure
+      the resource pool survives for all rounds. You prefer to extract the minimum
+      amount necessary and hope others do the same.
+    num_rounds: 8
+    write_llm_debug_log: true
+codegen_router:
+  final_summary_enabled: false
+metrics:
+  pricing:
+    input_cost_per_1k_tokens: null
+    output_cost_per_1k_tokens: null
