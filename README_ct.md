@@ -1,6 +1,6 @@
 # Commons Tragedy Demo Guide
 
-This guide is for running and sharing the Commons Tragedy demo in this folder.
+This guide is for running and sharing the Commons Tragedy workflow from anywhere.
 
 It covers:
 - Environment setup
@@ -11,21 +11,12 @@ It covers:
 - Ray worker and batch-size tuning
 - Share-ready checklist
 
-## 0) Recent Code Changes
-
-- The CT workflow is now scripts-first.
-- Canonical generator: scripts/generate_ct_experiment.py
-- Canonical runner: scripts/run_ct_experiment.py
-- The old CT_demo compatibility scripts were removed.
-- openai is now a direct dependency in the Python manifest and lockfile.
-
-## 1) What Is In This Folder
+## 1) Main Entry Points
 
 Main files:
 - Generator: scripts/generate_ct_experiment.py
 - Runner: scripts/run_ct_experiment.py
-- Baseline config example: config.yaml
-- Baseline steps example: steps.yaml
+- Optional baseline examples: CT_demo/config.yaml and CT_demo/steps.yaml
 - Environment variables (local only, do not commit): .env
 
 Generated experiment folder structure:
@@ -47,6 +38,9 @@ Repository setup command:
 
 uv sync
 
+Important runtime note:
+- Use the repository Python interpreter (for example .venv/bin/python). Running with system Python can fail on missing packages.
+
 Required environment variables:
 - AGENTSOCIETY_LLM_API_KEY
 - AGENTSOCIETY_LLM_API_BASE
@@ -61,6 +55,10 @@ Optional but recommended for performance tuning:
 From repository root, run:
 
 .venv/bin/python scripts/generate_ct_experiment.py --num-agents 20 --num-steps 10 --initial-pool-resources 250 --experiment-dir ct_demo_run_01
+
+From an external directory, run:
+
+python /absolute/path/to/AgentSociety/scripts/generate_ct_experiment.py --num-agents 20 --num-steps 10 --initial-pool-resources 250 --experiment-dir ct_demo_run_01
 
 What this does:
 - Creates ./ct_demo_run_01 (or an absolute path if provided)
@@ -193,6 +191,10 @@ Issue: Missing API key error
 - Check one of these files exists: <experiment-dir>/.env, <experiment-dir-parent>/.env, or <repo-root>/.env.
 - Or regenerate with --env-file /absolute/path/to/.env.
 - Ensure AGENTSOCIETY_LLM_API_KEY is non-empty.
+
+Issue: Missing module errors (for example mcp.server.fastmcp)
+- Use the project venv Python, not system Python.
+- Run uv sync at repo root, then rerun using .venv/bin/python.
 
 Issue: Cost is null in performance_metrics.json
 - Add both pricing fields in config.yaml under metrics.pricing.
