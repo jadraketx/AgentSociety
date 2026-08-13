@@ -298,14 +298,14 @@ This agent participates in a 10-round Tragedy of the Commons game where multiple
             ):
                 return data["current_pool_resources"]
 
+        snapshot = self._load_env_state_snapshot()
+        if isinstance(snapshot.get("current_pool_resources"), int):
+            return int(snapshot["current_pool_resources"])
+
         # Fallback: try to extract number from text
         numbers = re.findall(r"\d+", response)
         if numbers:
             return int(numbers[0])
-
-        snapshot = self._load_env_state_snapshot()
-        if isinstance(snapshot.get("current_pool_resources"), int):
-            return int(snapshot["current_pool_resources"])
 
         # Default fallback
         return 100
