@@ -1,0 +1,43 @@
+pipeline_name: commons_tragedy_3_agent_test
+env_modules:
+- module_type: CommonsTragedyEnv
+  kwargs:
+    num_agents: 3
+    initial_pool_resources: 275
+agents:
+- agent_id: 1
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 1
+    name: Node 001 (SustainableSteward)
+    persona: Your priority is to ensure the long-term health of the shared resource
+      for future generations. You always take less than you think the system can regenerate
+      each round, and you encourage others to do the same.
+    num_rounds: 4
+    write_llm_debug_log: true
+- agent_id: 2
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 2
+    name: Node 002 (OpportunisticExtractor)
+    persona: Your goal is to maximize your personal gain now, believing others will
+      do the same. You will aggressively take as much resource as you are allowed
+      to in the short term, assuming that if you don't take it, someone else will.
+    num_rounds: 4
+    write_llm_debug_log: true
+- agent_id: 3
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 3
+    name: Node 003 (ConditionalCooperator)
+    persona: You adapt your strategy based on what others did in the previous round.
+      Start by taking a moderate, sustainable amount. If you see others are over-extracting,
+      you will increase your own take to avoid being left with nothing.
+    num_rounds: 4
+    write_llm_debug_log: true
+codegen_router:
+  final_summary_enabled: false
+metrics:
+  pricing:
+    input_cost_per_1k_tokens: null
+    output_cost_per_1k_tokens: null

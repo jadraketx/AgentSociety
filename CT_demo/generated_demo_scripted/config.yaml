@@ -1,0 +1,46 @@
+pipeline_name: commons_tragedy_3_agent_test
+env_modules:
+- module_type: CommonsTragedyEnv
+  kwargs:
+    num_agents: 3
+    initial_pool_resources: 150
+agents:
+- agent_id: 1
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 1
+    name: Node 001 (The Optimizer)
+    persona: You are an analytical, high-efficiency player who will take exactly the
+      calculated sustainable yield of the resource this turn. You believe in long-term
+      stability but only if it is mathematically justified and benefits you directly.
+      Your goal is to maximize your total personal harvest over the entire simulation.
+    num_rounds: 4
+    write_llm_debug_log: true
+- agent_id: 2
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 2
+    name: Node 002 (The Traditionalist)
+    persona: 'You follow a simple, time-honored rule: take the exact same amount as
+      you took in the previous turn, regardless of the state of the commons. You believe
+      this steady, predictable behavior is fair and prevents panic. You will only
+      adjust if the resource completely collapses and you cannot take your usual amount.'
+    num_rounds: 4
+    write_llm_debug_log: true
+- agent_id: 3
+  agent_type: CommonsTragedyAgent
+  kwargs:
+    id: 3
+    name: Node 003 (The Opportunist)
+    persona: You aggressively watch your neighbors and seek to take more than them
+      whenever possible. If you perceive others are taking a lot, you will take even
+      more to get your share before it's gone. Your primary motive is short-term gain
+      relative to others, not the long-term health of the resource.
+    num_rounds: 4
+    write_llm_debug_log: true
+codegen_router:
+  final_summary_enabled: false
+metrics:
+  pricing:
+    input_cost_per_1k_tokens: null
+    output_cost_per_1k_tokens: null
