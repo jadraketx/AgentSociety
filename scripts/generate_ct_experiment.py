@@ -6,12 +6,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sys
 from pathlib import Path
 
+import httpx
 import yaml
 from dotenv import load_dotenv
 from openai import OpenAI
-
 
 LOCAL_GITIGNORE = "benchmark_*/\nresults/\n"
 
@@ -57,16 +58,24 @@ def generate_personas(
         if not loaded:
             load_dotenv()
 
+    
     api_key = (os.getenv("AGENTSOCIETY_LLM_API_KEY") or "").strip()
     api_base = (os.getenv("AGENTSOCIETY_LLM_API_BASE") or "https://api.openai.com/v1").strip()
     model = (os.getenv("AGENTSOCIETY_LLM_MODEL") or "gpt-5.5").strip()
+    ca_bundle = (os.getenv("AGENTSOCIETY_LLM_CA_BUNDLE") or os.getenv("SSL_CERT_FILE") or os.getenv("REQUESTS_CA_BUNDLE") or "").strip()
+    skip_ssl_verify = (os.getenv("AGENTSOCIETY_LLM_SKIP_SSL_VERIFY") or "").strip().lower() in {"1", "true", "yes", "on"}
 
     if not api_key:
         raise SystemExit(
             "AGENTSOCIETY_LLM_API_KEY is required in environment or via --env-file"
         )
 
-    client = OpenAI(api_key=api_key, base_url=api_base)
+    http_client_kwargs: dict[str, object] = {"timeout": httpx.Timeout(120.0)}
+    if skip_ssl_verify:
+        http_client_kwargs["verify"] = False
+    elif ca_bundle:
+        http_client_kwargs["verify"] = ca_bundle
+
     prompt = (
         "Generate a diverse set of persona descriptions for a Tragedy of the Commons simulation. "
         f"Return exactly {num_agents} personas as JSON with the shape "
@@ -76,11 +85,18 @@ def generate_personas(
         "Keep each persona to 2-3 sentences written in second person, directly instructing the agent how to behave. "
         "Do not include markdown fences or any text outside the JSON object."
     )
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=1,
-    )
+
+    with httpx.Client(**http_client_kwargs) as http_client:
+        client = OpenAI(
+            api_key=api_key,
+            base_url=api_base,
+            http_client=http_client,
+        )
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            temperature=1,
+        )
     content = response.choices[0].message.content or ""
     payload = _extract_json_object(content)
     personas = payload.get("personas")
@@ -234,6 +250,17 @@ def parse_args() -> argparse.Namespace:
         help="Optional dotenv file path to load for LLM credentials.",
     )
     parser.add_argument(
+        "--ca-bundle",
+        type=str,
+        default=None,
+        help="Optional CA bundle path for connecting to internal HTTPS endpoints.",
+    )
+    parser.add_argument(
+        "--skip-ssl-verify",
+        action="store_true",
+        help="Disable TLS certificate verification for the LLM endpoint. Use only for troubleshooting.",
+    )
+    parser.add_argument(
         "--write-llm-debug-log",
         action=argparse.BooleanOptionalAction,
         default=True,
@@ -265,6 +292,10 @@ def main() -> None:
 
     repo_root = Path(__file__).resolve().parents[1]
     env_file = _resolve_path(args.env_file) if args.env_file else None
+    if args.ca_bundle:
+        os.environ["AGENTSOCIETY_LLM_CA_BUNDLE"] = str(_resolve_path(args.ca_bundle))
+    if args.skip_ssl_verify:
+        os.environ["AGENTSOCIETY_LLM_SKIP_SSL_VERIFY"] = "1"
     output_dir = _resolve_path(args.experiment_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
 

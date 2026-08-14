@@ -50,6 +50,14 @@ Optional but recommended for performance tuning:
 - AGENTSOCIETY_LLM_RAY_MAX_WORKERS
 - AGENTSOCIETY_BATCH_SIZE
 
+If your model server uses an internal certificate chain, also set one of:
+- AGENTSOCIETY_LLM_CA_BUNDLE=/path/to/ca.pem
+- SSL_CERT_FILE=/path/to/ca.pem
+- REQUESTS_CA_BUNDLE=/path/to/ca.pem
+
+For troubleshooting only, you can temporarily set:
+- AGENTSOCIETY_LLM_SKIP_SSL_VERIFY=1
+
 ## 3) Generate A New Experiment
 
 From repository root, run:
@@ -59,6 +67,10 @@ From repository root, run:
 From an external directory, run:
 
 python /absolute/path/to/AgentSociety/scripts/generate_ct_experiment.py --num-agents 20 --num-steps 10 --initial-pool-resources 250 --experiment-dir ct_demo_run_01
+
+If the server certificate is not trusted by your system, add a CA bundle:
+
+python /absolute/path/to/AgentSociety/scripts/generate_ct_experiment.py --num-agents 20 --num-steps 10 --initial-pool-resources 250 --experiment-dir ct_demo_run_01 --ca-bundle /path/to/ca.pem
 
 What this does:
 - Creates ./ct_demo_run_01 (or an absolute path if provided)
@@ -191,6 +203,10 @@ Issue: Missing API key error
 - Check one of these files exists: <experiment-dir>/.env, <experiment-dir-parent>/.env, or <repo-root>/.env.
 - Or regenerate with --env-file /absolute/path/to/.env.
 - Ensure AGENTSOCIETY_LLM_API_KEY is non-empty.
+
+Issue: SSL certificate verify failed
+- Set AGENTSOCIETY_LLM_CA_BUNDLE or pass --ca-bundle /path/to/ca.pem.
+- As a last resort, use AGENTSOCIETY_LLM_SKIP_SSL_VERIFY=1 or --skip-ssl-verify only to confirm the issue is certificate validation.
 
 Issue: Missing module errors (for example mcp.server.fastmcp)
 - Use the project venv Python, not system Python.
