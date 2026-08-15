@@ -47,6 +47,10 @@ class CodeGenRouterConfig(BaseModel):
     """CodeGenRouter 配置模型"""
 
     final_summary_enabled: bool = Field(True, description="是否启用 ask 最终 summary")
+    template_cache_enabled: bool = Field(
+        True,
+        description="是否启用基于 embedding 的 CodeGen 模板缓存",
+    )
 
 
 class InitConfig(BaseModel):

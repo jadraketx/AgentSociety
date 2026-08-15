@@ -179,7 +179,10 @@ def build_config(
             )
             for agent_id in range(1, num_agents + 1)
         ],
-        "codegen_router": {"final_summary_enabled": False},
+        "codegen_router": {
+            "final_summary_enabled": False,
+            "template_cache_enabled": False,
+        },
         "metrics": {
             "pricing": {
                 "input_cost_per_1k_tokens": input_cost_per_1k_tokens,

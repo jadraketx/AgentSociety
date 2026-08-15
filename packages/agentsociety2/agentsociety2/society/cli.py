@@ -14,6 +14,7 @@ import yaml
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, List, Optional
+from urllib.parse import urlparse
 
 from agentsociety2.config import Config
 from agentsociety2.env import EnvBase
@@ -56,17 +57,37 @@ AGENT_CONFIG_KEYS: frozenset[str] = frozenset(
 )
 
 
+def _normalize_local_api_key(api_key: str, api_base: str) -> str:
+    """Allow empty API keys for local OpenAI-compatible endpoints."""
+    if api_key and api_key.strip():
+        return api_key.strip()
+    hostname = (urlparse(api_base).hostname or "").strip().lower()
+    if hostname in {"localhost", "127.0.0.1", "::1"}:
+        return "EMPTY"
+    return ""
+
+
 def _validate_env_early() -> None:
     """早期环境变量验证（在 main 入口处调用）"""
     errors = []
 
     # 检查主要 LLM API key
-    llm_api_key = os.getenv("AGENTSOCIETY_LLM_API_KEY", "")
+    llm_api_base = os.getenv("AGENTSOCIETY_LLM_API_BASE", Config.LLM_API_BASE)
+    llm_api_key = _normalize_local_api_key(
+        os.getenv("AGENTSOCIETY_LLM_API_KEY", ""),
+        llm_api_base,
+    )
     if not llm_api_key or not llm_api_key.strip():
         errors.append("AGENTSOCIETY_LLM_API_KEY")
 
     # 检查 coder LLM（必须有，因为 CodeGenRouter 需要）
-    coder_api_key = os.getenv("AGENTSOCIETY_CODER_LLM_API_KEY") or llm_api_key
+    coder_api_base = os.getenv(
+        "AGENTSOCIETY_CODER_LLM_API_BASE", Config.CODER_LLM_API_BASE
+    )
+    coder_api_key = _normalize_local_api_key(
+        os.getenv("AGENTSOCIETY_CODER_LLM_API_KEY", ""),
+        coder_api_base,
+    ) or llm_api_key
     if not coder_api_key or not coder_api_key.strip():
         errors.append("AGENTSOCIETY_CODER_LLM_API_KEY (or AGENTSOCIETY_LLM_API_KEY)")
 
@@ -109,14 +130,24 @@ class ExperimentRunner:
         errors = []
 
         # 检查主要 LLM 配置
-        llm_api_key = os.getenv("AGENTSOCIETY_LLM_API_KEY", "")
+        llm_api_base = os.getenv("AGENTSOCIETY_LLM_API_BASE", Config.LLM_API_BASE)
+        llm_api_key = _normalize_local_api_key(
+            os.getenv("AGENTSOCIETY_LLM_API_KEY", ""),
+            llm_api_base,
+        )
         if not llm_api_key or not llm_api_key.strip():
             errors.append(
                 "Missing required environment variable: AGENTSOCIETY_LLM_API_KEY"
             )
 
         # 检查 coder LLM 配置（CodeGenRouter 需要）
-        coder_api_key = os.getenv("AGENTSOCIETY_CODER_LLM_API_KEY") or llm_api_key
+        coder_api_base = os.getenv(
+            "AGENTSOCIETY_CODER_LLM_API_BASE", Config.CODER_LLM_API_BASE
+        )
+        coder_api_key = _normalize_local_api_key(
+            os.getenv("AGENTSOCIETY_CODER_LLM_API_KEY", ""),
+            coder_api_base,
+        ) or llm_api_key
         if not coder_api_key or not coder_api_key.strip():
             errors.append(
                 "Missing required environment variable: AGENTSOCIETY_CODER_LLM_API_KEY or AGENTSOCIETY_LLM_API_KEY"
@@ -516,6 +547,7 @@ class ExperimentRunner:
                 str(self.run_dir.resolve()) if self.run_dir is not None else None,
                 {
                     "final_summary_enabled": config.codegen_router.final_summary_enabled,
+                    "template_cache_enabled": config.codegen_router.template_cache_enabled,
                 },
                 llm_clients_spec,
                 replay_proxy,
