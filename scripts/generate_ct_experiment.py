@@ -8,6 +8,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from urllib.parse import urlparse
 
 import httpx
 import yaml
@@ -38,6 +39,15 @@ def _resolve_path(path_text: str) -> Path:
     return path.resolve()
 
 
+def _normalize_local_api_key(api_key: str, api_base: str) -> str:
+    hostname = (urlparse(api_base).hostname or "").strip().lower()
+    if api_key:
+        return api_key
+    if hostname in {"localhost", "127.0.0.1", "::1"}:
+        return "EMPTY"
+    return api_key
+
+
 def generate_personas(
     num_agents: int,
     env_file: Path | None,
@@ -62,12 +72,13 @@ def generate_personas(
     api_key = (os.getenv("AGENTSOCIETY_LLM_API_KEY") or "").strip()
     api_base = (os.getenv("AGENTSOCIETY_LLM_API_BASE") or "https://api.openai.com/v1").strip()
     model = (os.getenv("AGENTSOCIETY_LLM_MODEL") or "gpt-5.5").strip()
+    api_key = _normalize_local_api_key(api_key, api_base)
     ca_bundle = (os.getenv("AGENTSOCIETY_LLM_CA_BUNDLE") or os.getenv("SSL_CERT_FILE") or os.getenv("REQUESTS_CA_BUNDLE") or "").strip()
     skip_ssl_verify = (os.getenv("AGENTSOCIETY_LLM_SKIP_SSL_VERIFY") or "").strip().lower() in {"1", "true", "yes", "on"}
 
     if not api_key:
         raise SystemExit(
-            "AGENTSOCIETY_LLM_API_KEY is required in environment or via --env-file"
+            "AGENTSOCIETY_LLM_API_KEY is required in environment or via --env-file unless AGENTSOCIETY_LLM_API_BASE points to localhost"
         )
 
     http_client_kwargs: dict[str, object] = {"timeout": httpx.Timeout(120.0)}

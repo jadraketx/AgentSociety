@@ -312,6 +312,7 @@ def _build_router(base_url: str, api_key: str, model: str) -> Any:
                 "model": f"openai/{model}",
                 "api_key": api_key,
                 "api_base": base_url,
+                    "ssl_verify": Config.LLM_SSL_VERIFY,
             },
         }
     ]

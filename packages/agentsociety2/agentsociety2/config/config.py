@@ -16,7 +16,8 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Any, Literal, Optional
+from urllib.parse import urlparse
+from typing import Any, Literal, Optional, Union
 from litellm.router import Router
 
 from agentsociety2.logger import get_logger, setup_litellm_logging
@@ -42,6 +43,56 @@ def _env_int_or_cpu(name: str) -> int:
     """Read an int env var, falling back to the machine logical CPU count."""
     raw = os.getenv(name)
     return int(raw) if raw and raw.strip() else (os.cpu_count() or 1)
+
+
+def _env_bool(name: str) -> Optional[bool]:
+    """Read a boolean env var, returning ``None`` when unset or unparseable."""
+    raw = os.getenv(name)
+    if raw is None or not raw.strip():
+        return None
+    normalized = raw.strip().lower()
+    if normalized in {"1", "true", "yes", "on"}:
+        return True
+    if normalized in {"0", "false", "no", "off"}:
+        return False
+    return None
+
+
+def _resolve_ssl_verify() -> Optional[Union[bool, str]]:
+    """Resolve SSL verification settings for LiteLLM/OpenAI-compatible clients."""
+    skip_ssl_verify = _env_bool("AGENTSOCIETY_LLM_SKIP_SSL_VERIFY")
+    if skip_ssl_verify is True:
+        return False
+
+    ssl_verify = os.getenv("AGENTSOCIETY_LLM_SSL_VERIFY")
+    if ssl_verify is not None and ssl_verify.strip():
+        normalized = ssl_verify.strip()
+        parsed = _env_bool("AGENTSOCIETY_LLM_SSL_VERIFY")
+        if parsed is not None:
+            return parsed
+        return normalized
+
+    ca_bundle = os.getenv("AGENTSOCIETY_LLM_CA_BUNDLE")
+    if ca_bundle is not None and ca_bundle.strip():
+        return ca_bundle.strip()
+
+    return None
+
+
+def _is_local_openai_base(base_url: str) -> bool:
+    """Whether the configured API base points to a local OpenAI-compatible server."""
+    parsed = urlparse(base_url)
+    hostname = (parsed.hostname or "").strip().lower()
+    return hostname in {"localhost", "127.0.0.1", "::1"}
+
+
+def _normalize_api_key(api_key: Optional[str], base_url: str) -> Optional[str]:
+    """Allow empty API keys for local OpenAI-compatible endpoints by using a placeholder."""
+    if api_key is not None and api_key.strip():
+        return api_key.strip()
+    if _is_local_openai_base(base_url):
+        return "EMPTY"
+    return None
 
 
 def _router_model_names(model_list: list[dict[str, Any]]) -> list[str]:
@@ -130,6 +181,18 @@ class Config:
     This model is used for most language understanding and generation tasks that don't
     require specialized models. The model name should match the LiteLLM provider/model id
     used by your API provider; "gpt-5.5" is only the default OpenAI example.
+    """
+
+    LLM_SSL_VERIFY: Optional[Union[bool, str]] = _resolve_ssl_verify()
+    """
+    SSL verification setting for LiteLLM/OpenAI-compatible requests.
+
+    Environment variables:
+    - AGENTSOCIETY_LLM_SKIP_SSL_VERIFY: when truthy, disables TLS verification.
+    - AGENTSOCIETY_LLM_SSL_VERIFY: boolean string or CA bundle path.
+    - AGENTSOCIETY_LLM_CA_BUNDLE: CA bundle path used when provided.
+
+    Default: None (use LiteLLM/httpx defaults).
     """
 
     # Coder LLM settings
@@ -379,14 +442,17 @@ class Config:
             _litellm_logging_initialized = True
 
         # Shared default-model definition (used as a fallback target below).
-        default_api_key = cls.LLM_API_KEY
+        default_api_key = _normalize_api_key(cls.LLM_API_KEY, cls.LLM_API_BASE)
         default_api_base = cls.LLM_API_BASE
         default_model = cls.LLM_MODEL
 
         if model_type == "coder":
             # Coder model with fallback to default.
-            coder_api_key = cls.CODER_LLM_API_KEY
             coder_api_base = cls.CODER_LLM_API_BASE
+            coder_api_key = _normalize_api_key(
+                cls.CODER_LLM_API_KEY,
+                coder_api_base,
+            )
             coder_model = cls.CODER_LLM_MODEL
 
             if not coder_api_key:
@@ -407,6 +473,7 @@ class Config:
                         "model": f"openai/{coder_model}",
                         "api_key": coder_api_key,
                         "api_base": coder_api_base,
+                        "ssl_verify": cls.LLM_SSL_VERIFY,
                     },
                 },
                 {
@@ -415,6 +482,7 @@ class Config:
                         "model": f"openai/{default_model}",
                         "api_key": default_api_key,
                         "api_base": default_api_base,
+                        "ssl_verify": cls.LLM_SSL_VERIFY,
                     },
                 },
             ]
@@ -443,6 +511,7 @@ class Config:
                         "model": f"openai/{default_model}",
                         "api_key": default_api_key,
                         "api_base": default_api_base,
+                        "ssl_verify": cls.LLM_SSL_VERIFY,
                     },
                 },
             ]
@@ -489,10 +558,11 @@ class Config:
 
 # Validate required configuration at module load time
 if not Config.LLM_API_KEY:
-    raise ValueError(
-        "AGENTSOCIETY_LLM_API_KEY is required. "
-        "Please set this environment variable before running AgentSociety2."
-    )
+    if _normalize_api_key(Config.LLM_API_KEY, Config.LLM_API_BASE) is None:
+        raise ValueError(
+            "AGENTSOCIETY_LLM_API_KEY is required unless AGENTSOCIETY_LLM_API_BASE points to localhost. "
+            "Please set this environment variable before running AgentSociety2."
+        )
 if not Config.LLM_API_BASE:
     raise ValueError(
         "AGENTSOCIETY_LLM_API_BASE is required. "
@@ -549,14 +619,22 @@ def get_llm_connection(
     :returns: ``(base_url, api_key, model_name)``；未配置的用途 ``api_key`` 可能为 ``None``。
     """
     if model_type == "coder":
-        return Config.CODER_LLM_API_BASE, Config.CODER_LLM_API_KEY, Config.CODER_LLM_MODEL
+        return (
+            Config.CODER_LLM_API_BASE,
+            _normalize_api_key(Config.CODER_LLM_API_KEY, Config.CODER_LLM_API_BASE),
+            Config.CODER_LLM_MODEL,
+        )
     if model_type == "embedding":
         return (
             Config.EMBEDDING_API_BASE,
-            Config.EMBEDDING_API_KEY,
+            _normalize_api_key(Config.EMBEDDING_API_KEY, Config.EMBEDDING_API_BASE),
             Config.EMBEDDING_MODEL,
         )
-    return Config.LLM_API_BASE, Config.LLM_API_KEY, Config.LLM_MODEL
+    return (
+        Config.LLM_API_BASE,
+        _normalize_api_key(Config.LLM_API_KEY, Config.LLM_API_BASE),
+        Config.LLM_MODEL,
+    )
 
 
 def get_llm_router_and_model(model_type: str = "default") -> tuple[Router, str]:
